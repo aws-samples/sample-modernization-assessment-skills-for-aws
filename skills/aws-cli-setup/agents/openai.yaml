@@ -1,0 +1,4 @@
+interface:
+  display_name: "01 - AWS CLI setup"
+  short_description: "Set up AWS CLI v2 and verify scoped account access"
+  default_prompt: "Use $aws-cli-setup to prepare AWS CLI v2 and verify my AWS profile for an architecture assessment."

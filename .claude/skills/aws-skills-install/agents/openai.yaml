@@ -1,0 +1,4 @@
+interface:
+  display_name: "00 - Install AWS assessment skills"
+  short_description: "Install and verify the assessment skills in this client"
+  default_prompt: "Use $aws-skills-install to install the AWS assessment skills into this client and verify the result."

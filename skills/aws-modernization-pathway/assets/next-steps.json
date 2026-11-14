@@ -1,0 +1,1015 @@
+{
+ "schema_version": "1.0",
+ "verified_on": "2026-11-09",
+ "note": "Next-step services and assets shown under a pathway only when the pathway is candidate/conditional AND one `when` clause matches: rules (a FAIL/WARN/UNKNOWN finding with that rule_id), resource_types (in scope), engines (rds Engine prefix), platforms (ec2 PlatformDetails contains), keywords (in the candidate's own text and the findings it cites, never in inventory names), always_for_pathway. Each URL was opened on verified_on. Re-verify when editing; never add an item without a condition. Service entries: official_description paraphrases the cited AWS documentation or What's New page (source) as of source_checked_at; the agent must re-check the source through AWS Knowledge MCP before quoting a service in a report and update the date, never describe a service from memory. `all_of` lists clause kinds (resources, assessment, findings, engine, platform) that must all match. Keyword clauses are supporting evidence only: an item is selected on keywords alone only when it declares keywords_alone=true (terms that name a technology the inventory cannot see, such as mainframe or multi-agent frameworks); otherwise a rule, resource, engine, platform or always_for_pathway clause must also match. `skip_when_pass` lists rules whose PASS means the service is already on in the account; the item is then left out.",
+ "services": [
+  {
+   "id": "aws-transform",
+   "name": "AWS Transform",
+   "kind": "service",
+   "url": "https://aws.amazon.com/transform/",
+   "pathways": [
+    "container",
+    "cloud-native"
+   ],
+   "when": {
+    "platforms": [
+     "windows"
+    ],
+    "keywords": [
+     "dotnet",
+     ".net framework",
+     "mainframe",
+     "cobol",
+     "vmware"
+    ],
+    "rules": [
+     "COMMERCIAL_LICENSE_DEPENDENCY",
+     "EC2_OS_END_OF_LIFE"
+    ],
+    "keywords_alone": true
+   },
+   "why": "Agentic modernization of .NET Framework, mainframe and VMware estates; the first stop when the workload runs Windows/.NET or legacy platforms.",
+   "official_description": "AWS Transform is an agentic AI service for modernizing Windows/.NET, mainframe and VMware workloads; AWS Transform custom runs AWS-managed and user-defined code transformations (Java SDK, .NET, Node.js and Python upgrades, framework and API migrations).",
+   "source": "https://aws.amazon.com/documentation-overview/transform/",
+   "source_checked_at": "2026-11-09",
+   "ko": {
+    "why": "Windows/.NET이나 레거시 플랫폼에서 돌아가는 워크로드라면 가장 먼저 검토할 서비스입니다.",
+    "official_description": "AWS Transform은 Windows/.NET, 메인프레임, VMware 워크로드를 현대화하는 에이전트형 AI 서비스입니다. AWS Transform custom은 AWS 관리형 변환과 사용자 정의 코드 변환(Java SDK·.NET·Node.js·Python 업그레이드, 프레임워크·API 이전)을 실행합니다."
+   }
+  },
+  {
+   "id": "eks-auto-mode",
+   "name": "Amazon EKS Auto Mode",
+   "kind": "service",
+   "url": "https://aws.amazon.com/eks/auto-mode/",
+   "pathways": [
+    "container"
+   ],
+   "when": {
+    "rules": [
+     "EKS_NODE_SCALING",
+     "COST_EKS_NODE_SIZING",
+     "EKS_VERSION_SUPPORT"
+    ],
+    "resource_types": [
+     "eks.cluster"
+    ]
+   },
+   "why": "Managed node provisioning and scaling for an existing EKS cluster; removes fixed node groups and right-sizing work.",
+   "official_description": "EKS Auto Mode automates compute autoscaling (creates nodes when pods do not fit, removes low-utilization nodes), networking (load balancers for Service and Ingress) and block storage for an EKS cluster; Karpenter, VPC CNI, CoreDNS and the AWS Load Balancer Controller are installed and updated by AWS.",
+   "source": "https://docs.aws.amazon.com/eks/latest/userguide/automode.html",
+   "source_checked_at": "2026-11-09",
+   "ko": {
+    "why": "기존 EKS 클러스터의 노드 프로비저닝과 스케일링을 맡겨 고정 노드 그룹과 크기 조정 작업을 없앱니다.",
+    "official_description": "EKS Auto Mode는 EKS 클러스터의 컴퓨팅 오토스케일링(파드가 들어갈 자리가 없으면 노드 생성, 사용률 낮은 노드 제거), 네트워킹(Service·Ingress용 로드 밸런서), 블록 스토리지를 자동화합니다. Karpenter, VPC CNI, CoreDNS, AWS Load Balancer Controller를 AWS가 설치·갱신합니다."
+   }
+  },
+  {
+   "id": "fargate",
+   "name": "AWS Fargate (ECS)",
+   "kind": "service",
+   "url": "https://aws.amazon.com/fargate/",
+   "pathways": [
+    "container"
+   ],
+   "when": {
+    "rules": [
+     "REL_CHATBOT_SINGLE_INSTANCE",
+     "EC2_CLOUDWATCH_AGENT",
+     "EC2_OS_END_OF_LIFE",
+     "ASG_LAUNCH_CONFIGURATION",
+     "ELB_CLASSIC"
+    ],
+    "keywords": [
+     "container",
+     "fargate",
+     "single ec2",
+     "single instance"
+    ]
+   },
+   "why": "Run single-instance services as tasks across two AZs without managing hosts or agents.",
+   "official_description": "AWS Fargate is a serverless compute engine for containers that works with Amazon ECS and Amazon EKS; you specify CPU and memory per task and do not provision or manage servers.",
+   "source": "https://docs.aws.amazon.com/AmazonECS/latest/developerguide/AWS_Fargate.html",
+   "source_checked_at": "2026-11-09",
+   "ko": {
+    "why": "호스트나 에이전트를 관리하지 않고 단일 인스턴스 서비스를 두 AZ의 태스크로 실행합니다.",
+    "official_description": "AWS Fargate는 Amazon ECS·EKS에서 쓰는 컨테이너용 서버리스 컴퓨팅 엔진입니다. 태스크별 CPU와 메모리만 지정하고 서버는 프로비저닝하거나 관리하지 않습니다."
+   }
+  },
+  {
+   "id": "lambda",
+   "name": "AWS Lambda",
+   "kind": "service",
+   "url": "https://aws.amazon.com/lambda/",
+   "pathways": [
+    "serverless"
+   ],
+   "when": {
+    "always_for_pathway": true
+   },
+   "why": "Event-driven compute for the asynchronous steps the pathway names.",
+   "official_description": "AWS Lambda runs code in response to events without provisioning or managing servers, scaling automatically from a few requests per day to thousands per second.",
+   "source": "https://docs.aws.amazon.com/lambda/latest/dg/welcome.html",
+   "source_checked_at": "2026-11-09",
+   "ko": {
+    "why": "경로에서 지목한 비동기 단계를 위한 이벤트 기반 컴퓨팅입니다.",
+    "official_description": "AWS Lambda는 서버를 프로비저닝하거나 관리하지 않고 이벤트에 응답해 코드를 실행하며, 하루 몇 건에서 초당 수천 건까지 자동으로 확장됩니다."
+   }
+  },
+  {
+   "id": "eventbridge",
+   "name": "Amazon EventBridge",
+   "kind": "service",
+   "url": "https://aws.amazon.com/eventbridge/",
+   "pathways": [
+    "serverless",
+    "cloud-native"
+   ],
+   "when": {
+    "keywords": [
+     "event-driven",
+     "asynchronous",
+     "decoupl",
+     "fan-out",
+     "publish/subscribe",
+     "pub/sub"
+    ],
+    "keywords_alone": true
+   },
+   "why": "Decouple producers and consumers when the assessment found synchronous chains or order follow-up work.",
+   "official_description": "Amazon EventBridge is a serverless event bus that routes events from AWS services, your applications and SaaS partners to targets, with rules, schemas and archive/replay.",
+   "source": "https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-what-is.html",
+   "source_checked_at": "2026-11-09",
+   "ko": {
+    "why": "평가에서 동기 호출 연쇄나 주문 후속 처리가 확인된 곳에서 생산자와 소비자를 분리합니다.",
+    "official_description": "Amazon EventBridge는 AWS 서비스·자체 애플리케이션·SaaS 파트너의 이벤트를 규칙에 따라 대상으로 전달하는 서버리스 이벤트 버스로, 스키마와 보관·재생을 지원합니다."
+   }
+  },
+  {
+   "id": "dms",
+   "name": "AWS Database Migration Service (DMS)",
+   "kind": "service",
+   "url": "https://aws.amazon.com/dms/",
+   "pathways": [
+    "managed-database"
+   ],
+   "when": {
+    "keywords": [
+     "database on ec2",
+     "self-managed database",
+     "on-premises database",
+     "migrate the database",
+     "database migration"
+    ],
+    "rules": [
+     "COMMERCIAL_LICENSE_DEPENDENCY"
+    ],
+    "engines": [
+     "mariadb",
+     "mysql",
+     "oracle",
+     "sqlserver"
+    ],
+    "all_of": [
+     "assessment"
+    ]
+   },
+   "why": "Continuous replication from a self-managed database to Aurora/RDS with minimal cutover downtime; schema conversion for heterogeneous moves.",
+   "official_description": "AWS DMS migrates relational databases, data warehouses and NoSQL stores, supporting homogeneous (same engine) and heterogeneous migrations with continuous replication; DMS Schema Conversion converts the source schema and most code objects for heterogeneous moves.",
+   "source": "https://docs.aws.amazon.com/dms/latest/userguide/Welcome.html",
+   "source_checked_at": "2026-11-09",
+   "ko": {
+    "why": "자체 관리 데이터베이스에서 Aurora/RDS로 최소 중단 전환을 위한 지속 복제이며, 이종 이전에는 스키마 변환까지 제공합니다.",
+    "official_description": "AWS DMS는 관계형 데이터베이스, 데이터 웨어하우스, NoSQL 저장소를 이전하며 동종(같은 엔진)과 이종 이전을 지속 복제로 지원합니다. DMS Schema Conversion은 이종 이전에서 원본 스키마와 대부분의 코드 객체를 변환합니다."
+   }
+  },
+  {
+   "id": "aurora",
+   "name": "Amazon Aurora",
+   "kind": "service",
+   "url": "https://aws.amazon.com/rds/aurora/",
+   "pathways": [
+    "managed-database"
+   ],
+   "when": {
+    "rules": [
+     "AURORA_SINGLE_INSTANCE",
+     "RDS_RESILIENCE",
+     "RDS_BACKUPS",
+     "RDS_DELETION_PROTECTION",
+     "BACKUP_PLAN",
+     "RDS_ENGINE_VERSION_SUPPORT",
+     "COMMERCIAL_LICENSE_DEPENDENCY"
+    ]
+   },
+   "why": "Replicas, failover tiers, 35-day PITR and deletion protection are configuration, not migration, when the database is already Aurora.",
+   "official_description": "Amazon Aurora is a MySQL- and PostgreSQL-compatible relational database with storage replicated across three Availability Zones, up to 15 read replicas with failover tiers, continuous backup to S3 and point-in-time recovery of up to 35 days.",
+   "source": "https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/CHAP_AuroraOverview.html",
+   "source_checked_at": "2026-11-09",
+   "ko": {
+    "why": "이미 Aurora라면 복제본, failover 우선순위, 35일 PITR, 삭제 보호는 이전이 아니라 설정 변경입니다.",
+    "official_description": "Amazon Aurora는 MySQL·PostgreSQL 호환 관계형 데이터베이스로, 스토리지가 세 가용 영역에 복제되고 failover 우선순위를 둔 읽기 복제본을 최대 15개까지 두며, S3로 지속 백업하고 최대 35일의 특정 시점 복구를 지원합니다."
+   }
+  },
+  {
+   "id": "aws-backup",
+   "name": "AWS Backup",
+   "kind": "service",
+   "url": "https://aws.amazon.com/backup/",
+   "pathways": [
+    "managed-database"
+   ],
+   "when": {
+    "rules": [
+     "BACKUP_PLAN",
+     "RDS_BACKUPS",
+     "S3_VERSIONING"
+    ]
+   },
+   "why": "One backup plan with its own retention and cross-account/region copies for the databases and buckets the review found unprotected.",
+   "official_description": "AWS Backup centralizes and automates backup across AWS services with backup plans, retention rules, cross-account and cross-Region copies and backup vaults.",
+   "source": "https://docs.aws.amazon.com/aws-backup/latest/devguide/whatisbackup.html",
+   "source_checked_at": "2026-11-09",
+   "ko": {
+    "why": "보호되지 않은 것으로 확인된 데이터베이스와 버킷을 자체 보존 기간과 복사본을 둔 하나의 백업 계획으로 보호합니다.",
+    "official_description": "AWS Backup은 백업 계획, 보존 규칙, 교차 계정·교차 리전 복사, 백업 볼트로 여러 AWS 서비스의 백업을 중앙에서 자동화합니다."
+   }
+  },
+  {
+   "id": "elasticache",
+   "name": "Amazon ElastiCache (Multi-AZ, TLS, RBAC)",
+   "kind": "service",
+   "url": "https://aws.amazon.com/elasticache/",
+   "pathways": [
+    "managed-database"
+   ],
+   "when": {
+    "rules": [
+     "ELASTICACHE_MULTI_AZ",
+     "ELASTICACHE_TRANSIT_ENCRYPTION",
+     "REL_REDIS_MULTI_AZ",
+     "SEC_REDIS_TRANSIT_AUTH"
+    ]
+   },
+   "why": "Replica with automatic failover, in-transit encryption and RBAC users on the existing cache.",
+   "official_description": "Amazon ElastiCache is a managed in-memory cache for Valkey, Redis OSS and Memcached with Multi-AZ automatic failover, in-transit and at-rest encryption and RBAC user groups.",
+   "source": "https://docs.aws.amazon.com/AmazonElastiCache/latest/dg/WhatIs.html",
+   "source_checked_at": "2026-11-09",
+   "ko": {
+    "why": "기존 캐시에 자동 failover가 있는 복제본, 전송 중 암호화, RBAC 사용자를 적용합니다.",
+    "official_description": "Amazon ElastiCache는 Valkey, Redis OSS, Memcached용 관리형 인메모리 캐시로, Multi-AZ 자동 failover, 전송·저장 암호화, RBAC 사용자 그룹을 지원합니다."
+   }
+  },
+  {
+   "id": "glue-athena",
+   "name": "AWS Glue + Amazon Athena",
+   "kind": "service",
+   "url": "https://aws.amazon.com/athena/",
+   "pathways": [
+    "managed-analytics"
+   ],
+   "when": {
+    "always_for_pathway": true
+   },
+   "why": "Serverless catalog, ETL and SQL over S3 for reporting that should not run against the transactional database.",
+   "official_description": "AWS Glue is a serverless data integration service (catalog, ETL, crawlers); Amazon Athena runs SQL queries directly on data in S3 without servers to manage.",
+   "source": "https://docs.aws.amazon.com/athena/latest/ug/what-is.html",
+   "source_checked_at": "2026-11-09",
+   "ko": {
+    "why": "운영 데이터베이스에서 돌리지 말아야 할 보고용 조회를 위한 서버리스 카탈로그·ETL·SQL입니다.",
+    "official_description": "AWS Glue는 서버리스 데이터 통합 서비스(카탈로그, ETL, 크롤러)이고 Amazon Athena는 관리할 서버 없이 S3의 데이터에 SQL을 직접 실행합니다."
+   }
+  },
+  {
+   "id": "quicksight",
+   "name": "Amazon Quick (Quick Sight)",
+   "kind": "service",
+   "url": "https://aws.amazon.com/quicksight/",
+   "pathways": [
+    "managed-analytics"
+   ],
+   "when": {
+    "always_for_pathway": true
+   },
+   "why": "Dashboards and natural-language analysis on the curated data, in place of reports run against the transactional database.",
+   "official_description": "Amazon Quick is an AI-powered service for analyzing data, automating tasks, building web applications and conducting research through natural-language chat; Amazon Quick Sight is its interactive data visualization and business intelligence component.",
+   "source": "https://docs.aws.amazon.com/quicksight/latest/user/welcome.html",
+   "source_checked_at": "2026-11-09",
+   "ko": {
+    "why": "운영 데이터베이스에 직접 보고서를 돌리는 대신 정제된 데이터 위에서 대시보드와 자연어 분석을 제공합니다.",
+    "official_description": "Amazon Quick은 자연어 대화로 데이터 분석, 작업 자동화, 웹 애플리케이션 작성, 조사를 수행하는 AI 기반 서비스입니다. Amazon Quick Sight는 그중 대화형 데이터 시각화와 BI 구성 요소입니다."
+   }
+  },
+  {
+   "id": "bedrock",
+   "name": "Amazon Bedrock (Guardrails, Knowledge Bases)",
+   "kind": "service",
+   "url": "https://aws.amazon.com/bedrock/",
+   "pathways": [
+    "genai"
+   ],
+   "when": {
+    "rules": [
+     "GENAI_GUARDRAILS",
+     "GENAI_INVOCATION_LOGGING",
+     "SEC_CHATBOT_BEDROCK_WILDCARD",
+     "IAM_WILDCARD_PERMISSION"
+    ],
+    "keywords": [
+     "bedrock"
+    ]
+   },
+   "why": "Guardrails enforced by an IAM condition and invocation logging first; if the chatbot keeps its own retrieval store, Knowledge Bases is worth comparing once the current RAG setup is known.",
+   "official_description": "Amazon Bedrock offers foundation models through one API with Guardrails (content filters, denied topics, PII, enforced per call via IAM condition keys), Knowledge Bases for managed RAG and model invocation logging.",
+   "source": "https://docs.aws.amazon.com/bedrock/latest/userguide/what-is-bedrock.html",
+   "source_checked_at": "2026-11-09",
+   "ko": {
+    "why": "먼저 IAM 조건으로 가드레일을 강제하고 호출 로깅을 켭니다. 챗봇이 자체 검색 저장소를 쓰고 있다면, 현재 RAG 구성을 확인한 뒤 Knowledge Bases와 비교해 볼 수 있습니다.",
+    "official_description": "Amazon Bedrock은 하나의 API로 파운데이션 모델을 제공하며 Guardrails(콘텐츠 필터, 금지 주제, PII, IAM 조건 키로 호출마다 강제), 관리형 RAG인 Knowledge Bases, 모델 호출 로깅을 갖추고 있습니다."
+   }
+  },
+  {
+   "id": "agentcore",
+   "name": "Amazon Bedrock AgentCore",
+   "kind": "service",
+   "url": "https://aws.amazon.com/bedrock/agentcore/",
+   "pathways": [
+    "genai"
+   ],
+   "when": {
+    "keywords": [
+     "agentic",
+     "tool call",
+     "tool-call",
+     "multi-agent",
+     "multi agent",
+     "mcp server",
+     "strands",
+     "langgraph",
+     "function calling"
+    ],
+    "keywords_alone": true
+   },
+   "why": "Runtime, Gateway, Memory and Identity for agents that call tools; only when the workload has agentic behaviour, not for a single Q&A chatbot.",
+   "official_description": "Amazon Bedrock AgentCore provides services for deploying and operating agents: Runtime, Gateway (turns Lambda functions, OpenAPI/Smithy APIs and MCP servers into tools behind one endpoint), Memory, Identity (workload identities and credential providers) and Observability.",
+   "source": "https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/what-is-bedrock-agentcore.html",
+   "source_checked_at": "2026-11-09",
+   "ko": {
+    "why": "도구를 호출하는 에이전트를 위한 Runtime·Gateway·Memory·Identity입니다. 워크로드에 에이전트 동작이 있을 때만 해당하며, 단일 Q&A 챗봇에는 해당하지 않습니다.",
+    "official_description": "Amazon Bedrock AgentCore는 에이전트를 배포·운영하는 서비스 묶음입니다: Runtime, Gateway(Lambda 함수·OpenAPI/Smithy API·MCP 서버를 하나의 엔드포인트 뒤 도구로 변환), Memory, Identity(워크로드 자격 증명과 자격 증명 공급자), Observability."
+   }
+  },
+  {
+   "id": "security-hub",
+   "name": "AWS Security Hub",
+   "kind": "service",
+   "url": "https://aws.amazon.com/security-hub/",
+   "pathways": [
+    "modern-devops"
+   ],
+   "when": {
+    "rules": [
+     "ELB_TLS_LISTENER",
+     "ELB_DROP_INVALID_HEADERS",
+     "ECR_TAG_IMMUTABILITY",
+     "EKS_CONTROL_PLANE_LOGGING",
+     "SECRET_ROTATION",
+     "S3_PUBLIC_ACCESS_BLOCK",
+     "RDS_PUBLIC_CONFIG",
+     "SECURITYHUB_ENABLED",
+     "CONFIG_RECORDER_ENABLED",
+     "VPC_FLOW_LOGS",
+     "CLOUDFRONT_WAF"
+    ]
+   },
+   "why": "Continuous controls for the Security Hub checks this report evaluated once (ELB.1/4/5, ECR.2, EKS.8, SecretsManager.1), with findings aggregated across accounts.",
+   "official_description": "AWS Security Hub aggregates security findings and runs continuous controls against standards such as AWS Foundational Security Best Practices, with automation rules and cross-account aggregation.",
+   "source": "https://docs.aws.amazon.com/securityhub/latest/userguide/what-is-securityhub.html",
+   "source_checked_at": "2026-11-09",
+   "ko": {
+    "why": "이 보고서가 한 번 평가한 Security Hub 점검(ELB.1/4/5, ECR.2, EKS.8, SecretsManager.1)을 지속적으로 실행하고 여러 계정의 결과를 모아 봅니다.",
+    "official_description": "AWS Security Hub는 보안 발견 사항을 모으고 AWS Foundational Security Best Practices 같은 표준에 대해 지속 점검을 실행하며, 자동화 규칙과 교차 계정 집계를 제공합니다."
+   }
+  },
+  {
+   "id": "guardduty",
+   "name": "Amazon GuardDuty",
+   "kind": "service",
+   "url": "https://aws.amazon.com/guardduty/",
+   "pathways": [
+    "modern-devops"
+   ],
+   "when": {
+    "resource_types": [
+     "eks.cluster",
+     "ecs.cluster",
+     "rds.cluster",
+     "ec2.instance"
+    ],
+    "rules": [
+     "GUARDDUTY_ENABLED"
+    ],
+    "skip_when_pass": [
+     "GUARDDUTY_ENABLED"
+    ]
+   },
+   "why": "Threat detection on the runtime (EKS audit logs, ECS/EC2 runtime, RDS login activity) that configuration review cannot see.",
+   "official_description": "Amazon GuardDuty is a threat detection service that continuously monitors accounts, workloads and data (including EKS audit logs, runtime monitoring for EKS/ECS/EC2, RDS login activity and S3) for malicious activity.",
+   "source": "https://docs.aws.amazon.com/guardduty/latest/ug/what-is-guardduty.html",
+   "source_checked_at": "2026-11-09",
+   "ko": {
+    "why": "설정 점검으로는 볼 수 없는 런타임(EKS 감사 로그, ECS/EC2 런타임, RDS 로그인 활동)의 위협 탐지입니다.",
+    "official_description": "Amazon GuardDuty는 계정, 워크로드, 데이터(EKS 감사 로그, EKS/ECS/EC2 런타임 모니터링, RDS 로그인 활동, S3 포함)를 지속 감시해 악의적 활동을 탐지하는 위협 탐지 서비스입니다."
+   }
+  },
+  {
+   "id": "inspector",
+   "name": "Amazon Inspector",
+   "kind": "service",
+   "url": "https://aws.amazon.com/inspector/",
+   "pathways": [
+    "modern-devops"
+   ],
+   "when": {
+    "rules": [
+     "ECR_SCAN_ON_PUSH",
+     "SEC_ECR_SCAN",
+     "SEC_CONTAINER_ROOT",
+     "INSPECTOR_ENABLED",
+     "EC2_OS_END_OF_LIFE",
+     "LAMBDA_RUNTIME_DEPRECATED"
+    ]
+   },
+   "why": "Continuous image and instance vulnerability scanning in place of scan-on-push.",
+   "official_description": "Amazon Inspector continuously scans EC2 instances, container images in ECR and Lambda functions for software vulnerabilities and unintended network exposure.",
+   "source": "https://docs.aws.amazon.com/inspector/latest/user/what-is-inspector.html",
+   "source_checked_at": "2026-11-09",
+   "ko": {
+    "why": "푸시 시 스캔 대신 이미지와 인스턴스의 지속 취약점 스캔입니다.",
+    "official_description": "Amazon Inspector는 EC2 인스턴스, ECR 컨테이너 이미지, Lambda 함수의 소프트웨어 취약점과 의도치 않은 네트워크 노출을 지속 스캔합니다."
+   }
+  },
+  {
+   "id": "devops-agent",
+   "name": "AWS DevOps Agent",
+   "kind": "service",
+   "url": "https://aws.amazon.com/devops-agent/",
+   "pathways": [
+    "modern-devops"
+   ],
+   "when": {
+    "rules": [
+     "ALARM_NOTIFICATION_TARGET",
+     "ALARM_COVERAGE",
+     "OPS_ALARM_COVERAGE",
+     "LOG_DELIVERY",
+     "TRACING",
+     "OPS_TRACING"
+    ]
+   },
+   "why": "Incident investigation across CloudWatch, deployments and code once alarms, logs and traces exist; the alerting gaps in this report come first.",
+   "official_description": "AWS DevOps Agent (generally available Mar 2026) investigates incidents by correlating telemetry, code and deployment data across observability tools, repositories and CI/CD pipelines, triages autonomously to reduce MTTR, analyzes past incidents for preventive recommendations, and supports custom agent skills.",
+   "source": "https://aws.amazon.com/about-aws/whats-new/2026/03/aws-devops-agent-generally-available/",
+   "source_checked_at": "2026-11-09",
+   "ko": {
+    "why": "알람·로그·트레이스가 갖춰진 뒤 CloudWatch·배포·코드를 가로지르는 인시던트 조사입니다. 이 보고서의 경보 공백을 먼저 메워야 합니다.",
+    "official_description": "AWS DevOps Agent(2026년 3월 GA)는 관측성 도구, 코드 저장소, CI/CD 파이프라인에 걸쳐 텔레메트리·코드·배포 데이터를 연관 분석해 인시던트를 조사하고, 자율 분류로 MTTR을 줄이며, 과거 인시던트를 분석해 예방 권고를 내고, 커스텀 에이전트 스킬을 지원합니다."
+   }
+  },
+  {
+   "id": "codepipeline",
+   "name": "AWS CodePipeline + CodeBuild",
+   "kind": "service",
+   "url": "https://aws.amazon.com/codepipeline/",
+   "pathways": [
+    "modern-devops"
+   ],
+   "when": {
+    "rules": [
+     "CI_TEST_GATE",
+     "CI_COVERAGE",
+     "OPS_CI_TEST_GATE",
+     "OPS_CI_COVERAGE",
+     "ECS_DEPLOYMENT_CIRCUIT_BREAKER",
+     "OPS_IMAGE_TRACEABILITY",
+     "IAC_COVERAGE",
+     "STACK_DRIFT"
+    ]
+   },
+   "why": "Test and approval stages, image-scan gates and ECS blue/green with automatic rollback for the services deployed by hand today.",
+   "official_description": "AWS CodePipeline automates release pipelines with source, build, test, approval and deploy stages; AWS CodeBuild compiles, tests and produces artifacts; ECS deployments support blue/green and deployment circuit breaker rollback.",
+   "source": "https://docs.aws.amazon.com/codepipeline/latest/userguide/welcome.html",
+   "source_checked_at": "2026-11-09",
+   "ko": {
+    "why": "지금 손으로 배포하는 서비스에 테스트·승인 단계, 이미지 스캔 게이트, 자동 롤백이 있는 ECS 블루/그린을 적용합니다.",
+    "official_description": "AWS CodePipeline은 소스·빌드·테스트·승인·배포 단계로 릴리스 파이프라인을 자동화하고, AWS CodeBuild는 컴파일·테스트·아티팩트 생성을 담당합니다. ECS 배포는 블루/그린과 배포 서킷 브레이커 롤백을 지원합니다."
+   }
+  },
+  {
+   "id": "cloudwatch",
+   "name": "Amazon CloudWatch (Container Insights, Application Signals)",
+   "kind": "service",
+   "url": "https://aws.amazon.com/cloudwatch/",
+   "pathways": [
+    "modern-devops"
+   ],
+   "when": {
+    "rules": [
+     "ALARM_COVERAGE",
+     "ECS_CONTAINER_INSIGHTS",
+     "EKS_OBSERVABILITY_ADDON",
+     "EC2_CLOUDWATCH_AGENT",
+     "LOG_DELIVERY",
+     "LOG_RETENTION"
+    ]
+   },
+   "why": "The alarms, container metrics, agent metrics and log retention the review found missing, all in the service the workload already uses.",
+   "official_description": "Amazon CloudWatch collects metrics, logs and traces; Container Insights adds cluster/task/pod metrics for ECS and EKS, the CloudWatch agent adds host memory/disk metrics, and Application Signals provides service-level objectives and traces.",
+   "source": "https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/WhatIsCloudWatch.html",
+   "source_checked_at": "2026-11-09",
+   "ko": {
+    "why": "검토에서 빠진 것으로 확인된 알람, 컨테이너 지표, 에이전트 지표, 로그 보존을 워크로드가 이미 쓰는 서비스 안에서 채웁니다.",
+    "official_description": "Amazon CloudWatch는 지표·로그·트레이스를 수집합니다. Container Insights는 ECS·EKS의 클러스터/태스크/파드 지표를, CloudWatch 에이전트는 호스트 메모리·디스크 지표를, Application Signals는 서비스 수준 목표와 트레이스를 더합니다."
+   }
+  },
+  {
+   "id": "compute-optimizer",
+   "name": "AWS Compute Optimizer",
+   "kind": "service",
+   "url": "https://aws.amazon.com/compute-optimizer/",
+   "pathways": [
+    "container",
+    "cloud-native",
+    "modern-devops"
+   ],
+   "when": {
+    "rules": [
+     "COMPUTE_OPTIMIZER_ENROLLMENT",
+     "COMPUTE_OPTIMIZER_FINDING",
+     "EC2_PREVIOUS_GENERATION",
+     "GRAVITON"
+    ],
+    "skip_when_pass": [
+     "COMPUTE_OPTIMIZER_ENROLLMENT"
+    ]
+   },
+   "why": "Right-sizing and Graviton recommendations computed from two weeks of utilization; free, and the first input to any cost wave.",
+   "official_description": "AWS Compute Optimizer recommends optimal AWS resources for your workloads (EC2 instances, Auto Scaling groups, EBS volumes, Lambda functions, ECS on Fargate, RDS) to reduce costs and improve performance by analyzing utilization metrics.",
+   "source": "https://docs.aws.amazon.com/compute-optimizer/latest/ug/what-is-compute-optimizer.html",
+   "source_checked_at": "2026-11-10",
+   "ko": {
+    "why": "2주 사용량으로 계산한 적정 크기·Graviton 권고입니다. 무료이고, 비용 개선 첫 단계의 입력값입니다.",
+    "official_description": "AWS Compute Optimizer는 사용량 지표를 분석해 EC2 인스턴스, Auto Scaling 그룹, EBS 볼륨, Lambda 함수, Fargate의 ECS, RDS에 맞는 리소스를 권고하여 비용을 줄이고 성능을 높입니다."
+   }
+  },
+  {
+   "id": "wa-tool",
+   "name": "AWS Well-Architected Tool",
+   "kind": "service",
+   "url": "https://aws.amazon.com/well-architected-tool/",
+   "pathways": [
+    "modern-devops"
+   ],
+   "when": {
+    "always_for_pathway": true,
+    "rules": [
+     "TRUSTED_ADVISOR_ACCESS"
+    ]
+   },
+   "why": "Record this assessment's findings as a Well-Architected review and track remediation over time with the account team.",
+   "official_description": "The AWS Well-Architected Tool reviews workloads against the Well-Architected Framework and lenses, records high- and medium-risk issues, and tracks improvement plans and milestones.",
+   "source": "https://docs.aws.amazon.com/wellarchitected/latest/userguide/intro.html",
+   "source_checked_at": "2026-11-09",
+   "ko": {
+    "why": "이 평가의 발견 사항을 Well-Architected 리뷰로 기록하고 어카운트 팀과 함께 개선 진행을 추적합니다.",
+    "official_description": "AWS Well-Architected Tool은 Well-Architected 프레임워크와 렌즈에 따라 워크로드를 검토하고, 높은·중간 위험 항목을 기록하며, 개선 계획과 마일스톤을 추적합니다."
+   }
+  }
+ ],
+ "assets": [
+  {
+   "id": "container-prompts",
+   "name": "AI-Driven Modernization Prompt Sets (Kiro)",
+   "kind": "prompt set",
+   "url": "https://github.com/aws-samples/sample-ai-driven-modernization-with-kiro",
+   "pathways": [
+    "container",
+    "modern-devops"
+   ],
+   "when": {
+    "resource_types": [
+     "ec2.instance"
+    ],
+    "keywords": [
+     "container",
+     "ecs",
+     "eks",
+     "fargate"
+    ],
+    "all_of": [
+     "resources",
+     "assessment"
+    ]
+   },
+   "why": "Step-by-step prompts that take a legacy app on EC2 to ECS or EKS with an AI agent: analysis, to-be design, plan, execution.",
+   "ko": {
+    "why": "EC2의 레거시 앱을 AI 에이전트와 함께 ECS 또는 EKS로 옮기는 단계별 프롬프트: 분석, 목표 설계, 계획, 실행."
+   }
+  },
+  {
+   "id": "container-workshop",
+   "name": "Workshop: Accelerating AWS Container Modernization with AI",
+   "kind": "workshop",
+   "url": "https://catalog.us-east-1.prod.workshops.aws/workshops/45e0f6e0-6627-48a4-8c15-f46d9b430e5e/en-US",
+   "pathways": [
+    "container"
+   ],
+   "when": {
+    "resource_types": [
+     "ec2.instance"
+    ],
+    "keywords": [
+     "container",
+     "ecs",
+     "eks",
+     "fargate"
+    ],
+    "all_of": [
+     "resources",
+     "assessment"
+    ]
+   },
+   "why": "Hands-on version of the prompt set with separate ECS and EKS paths; a half-day for the team that will do the move.",
+   "ko": {
+    "why": "프롬프트 세트의 실습 버전으로 ECS 경로와 EKS 경로가 따로 있습니다. 실제 이전을 맡을 팀이 반나절에 해 볼 수 있습니다."
+   }
+  },
+  {
+   "id": "ramp-packs",
+   "name": "AI-DLC for Modernization Starter Packs (RAMP)",
+   "kind": "starter pack",
+   "url": "https://github.com/aws-samples/sample-ramp-aidlc-mod-starter-packs",
+   "pathways": [
+    "container",
+    "serverless",
+    "cloud-native",
+    "modern-devops",
+    "genai"
+   ],
+   "when": {
+    "always_for_pathway": true
+   },
+   "why": "Ready-made AI-DLC packs for the pathways above (cloud-native web apps, serverless event-driven, framework upgrade and containerisation, GenAI on serverless, vulnerability remediation, incident response); pick the pack that matches the chosen direction.",
+   "ko": {
+    "why": "위 방향에 맞는 AI-DLC 팩 모음(클라우드 네이티브 웹 앱, 서버리스 이벤트 기반, 프레임워크 업그레이드와 컨테이너화, 서버리스 GenAI, 취약점 조치, 장애 대응)입니다. 선택한 방향에 맞는 팩만 고르면 됩니다."
+   }
+  },
+  {
+   "id": "aidlcops",
+   "name": "sample-oh-my-aidlcops (AIDLC × AgenticOps)",
+   "kind": "plugin marketplace",
+   "url": "https://github.com/aws-samples/sample-oh-my-aidlcops",
+   "pathways": [
+    "modern-devops"
+   ],
+   "when": {
+    "rules": [
+     "CI_TEST_GATE",
+     "OPS_DEPLOYMENT_PIPELINE",
+     "ECR_TAG_IMMUTABILITY"
+    ]
+   },
+   "why": "Only when the pipeline gaps above are being closed: a reference for an AI-assisted delivery workflow with operations hooks, not a first step.",
+   "ko": {
+    "why": "위의 파이프라인 공백을 메우는 작업과 함께 볼 때만 의미가 있습니다. 운영 연계가 있는 AI 보조 개발 워크플로의 참고 자료이며 첫 단계는 아닙니다."
+   }
+  },
+  {
+   "id": "dbmig-aidlc",
+   "name": "dbmig-aidlc (heterogeneous DB migration, AI-DLC)",
+   "kind": "skill",
+   "url": "https://github.com/aws-samples/sample-dbmig-aidlc",
+   "pathways": [
+    "managed-database"
+   ],
+   "when": {
+    "engines": [
+     "oracle",
+     "sqlserver"
+    ],
+    "keywords": [
+     "oracle",
+     "sql server",
+     "sqlserver"
+    ]
+   },
+   "why": "Oracle or SQL Server to Aurora PostgreSQL/MySQL as an agent-driven lifecycle: assessment, schema conversion, DMS, validation, cutover.",
+   "ko": {
+    "why": "Oracle 또는 SQL Server를 Aurora PostgreSQL/MySQL로 옮기는 에이전트 주도 생애주기: 평가, 스키마 변환, DMS, 검증, 컷오버."
+   }
+  },
+  {
+   "id": "mma-workshop",
+   "name": "Workshop: MMA (with GenAI) - Oracle+Java to PostgreSQL",
+   "kind": "workshop",
+   "url": "https://catalog.workshops.aws/mma-oracle-pg/en-US",
+   "pathways": [
+    "managed-database"
+   ],
+   "when": {
+    "engines": [
+     "oracle"
+    ],
+    "keywords": [
+     "oracle"
+    ]
+   },
+   "why": "Oracle to PostgreSQL with GenAI schema and embedded-SQL conversion, DMS data migration, test manager and the dbmig-aidlc lifecycle.",
+   "ko": {
+    "why": "GenAI 스키마·내장 SQL 변환, DMS 데이터 이전, 테스트 매니저, dbmig-aidlc 생애주기로 Oracle을 PostgreSQL로 옮기는 워크샵입니다."
+   }
+  },
+  {
+   "id": "db-migration-skill",
+   "name": "db-migration-agent-skill",
+   "kind": "skill",
+   "url": "https://github.com/aws-samples/sample-aws-solutions-skills/tree/main/db-migration-agent-skill",
+   "pathways": [
+    "managed-database"
+   ],
+   "when": {
+    "keywords": [
+     "database on ec2",
+     "self-managed database",
+     "on-premises database",
+     "migrate the database",
+     "database migration"
+    ],
+    "engines": [
+     "mariadb",
+     "mysql",
+     "oracle",
+     "sqlserver"
+    ],
+    "all_of": [
+     "assessment"
+    ]
+   },
+   "why": "Self-managed MySQL/MariaDB/PostgreSQL/Oracle/SQL Server/Db2 on EC2 or on-premises to Aurora/RDS: assessment, method selection, CDK, rehearsal, cutover; the agent works, the person approves.",
+   "ko": {
+    "why": "EC2나 온프레미스의 자체 관리 MySQL/MariaDB/PostgreSQL/Oracle/SQL Server/Db2를 Aurora/RDS로: 평가, 방법 선택, CDK, 리허설, 컷오버. 에이전트가 작업하고 사람이 승인합니다."
+   }
+  },
+  {
+   "id": "db-migration-workshop",
+   "name": "Workshop: Database Migration with Coding Agents",
+   "kind": "workshop",
+   "url": "https://catalog.workshops.aws/db-migration-skill/en-US",
+   "pathways": [
+    "managed-database"
+   ],
+   "when": {
+    "keywords": [
+     "mysql",
+     "mariadb",
+     "database on ec2",
+     "self-managed database",
+     "on-premises database",
+     "migrate the database",
+     "database migration"
+    ],
+    "all_of": [
+     "assessment"
+    ],
+    "engines": [
+     "mariadb",
+     "mysql",
+     "oracle",
+     "sqlserver"
+    ]
+   },
+   "why": "MySQL on EC2 to Aurora MySQL with Kiro CLI and the db-migration skill, reviewing evidence at each stage.",
+   "ko": {
+    "why": "Kiro CLI와 db-migration 스킬로 EC2의 MySQL을 Aurora MySQL로 옮기며 단계마다 근거를 검토하는 워크샵입니다."
+   }
+  },
+  {
+   "id": "data-pipeline-skill",
+   "name": "data-platform-pipeline-skill",
+   "kind": "skill",
+   "url": "https://github.com/aws-samples/sample-aws-solutions-skills/tree/main/data-platform-pipeline-skill",
+   "pathways": [
+    "managed-analytics"
+   ],
+   "when": {
+    "always_for_pathway": true
+   },
+   "why": "Source to queryable data: S3 Tables/S3 + Glue + Athena, optional SageMaker Unified Studio.",
+   "ko": {
+    "why": "소스에서 쿼리 가능한 데이터까지: S3 Tables/S3 + Glue + Athena, 선택적으로 SageMaker Unified Studio."
+   }
+  },
+  {
+   "id": "data-consumption-skill",
+   "name": "data-platform-consumption-skill",
+   "kind": "skill",
+   "url": "https://github.com/aws-samples/sample-aws-solutions-skills/tree/main/data-platform-consumption-skill",
+   "pathways": [
+    "managed-analytics"
+   ],
+   "when": {
+    "always_for_pathway": true
+   },
+   "why": "Queryable data to BI: QuickSight dashboards and Amazon Quick chat agents.",
+   "ko": {
+    "why": "쿼리 가능한 데이터에서 BI까지: QuickSight 대시보드와 Amazon Quick 챗 에이전트."
+   }
+  },
+  {
+   "id": "llm-gateway-skill",
+   "name": "llm-gateway-governance-skill",
+   "kind": "skill",
+   "url": "https://github.com/aws-samples/sample-aws-solutions-skills/tree/main/llm-gateway-governance-skill",
+   "pathways": [
+    "genai"
+   ],
+   "when": {
+    "keywords": [
+     "llm gateway",
+     "model gateway",
+     "multiple teams",
+     "several teams",
+     "shared model access",
+     "litellm",
+     "token budget",
+     "per-team"
+    ],
+    "keywords_alone": true
+   },
+   "why": "LiteLLM gateway with Bedrock Guardrails, SSO/Cognito virtual keys and per-team cost control when several applications or teams share model access.",
+   "ko": {
+    "why": "여러 애플리케이션이나 팀이 모델 접근을 공유할 때 Bedrock Guardrails, SSO/Cognito 가상 키, 팀별 비용 통제를 갖춘 LiteLLM 게이트웨이."
+   }
+  },
+  {
+   "id": "strands-agentcore-skill",
+   "name": "strands-agentcore-multi-agent-skill",
+   "kind": "skill",
+   "url": "https://github.com/aws-samples/sample-aws-solutions-skills/tree/main/strands-agentcore-multi-agent-skill",
+   "pathways": [
+    "genai"
+   ],
+   "when": {
+    "keywords": [
+     "agentic",
+     "tool call",
+     "tool-call",
+     "multi-agent",
+     "multi agent",
+     "mcp server",
+     "strands",
+     "langgraph",
+     "function calling"
+    ],
+    "keywords_alone": true
+   },
+   "why": "Strands Agents on Bedrock AgentCore (Runtime, Gateway, Memory) with MCP servers and Knowledge Bases for agentic, tool-calling workloads.",
+   "ko": {
+    "why": "도구를 호출하는 에이전트형 워크로드를 위한 Bedrock AgentCore(Runtime, Gateway, Memory) 위의 Strands Agents와 MCP 서버, Knowledge Bases."
+   }
+  },
+  {
+   "id": "transform-custom-samples",
+   "name": "AWS Transform custom samples",
+   "kind": "samples",
+   "url": "https://github.com/aws-samples/aws-transform-custom-samples",
+   "pathways": [
+    "container",
+    "cloud-native"
+   ],
+   "when": {
+    "platforms": [
+     "windows"
+    ],
+    "keywords": [
+     "dotnet",
+     ".net",
+     "perl",
+     "cobol",
+     "wcf",
+     "web forms"
+    ],
+    "keywords_alone": true
+   },
+   "why": "Client-side skills and scaled execution for custom code transformations with AWS Transform.",
+   "ko": {
+    "why": "AWS Transform으로 사용자 정의 코드 변환을 수행하는 클라이언트 측 스킬과 대규모 실행 예제."
+   }
+  },
+  {
+   "id": "mainframe-skills",
+   "name": "Mainframe Modernization AI Agent Toolkits",
+   "kind": "skill",
+   "url": "https://github.com/aws-samples/sample-mainframe-modernization-agent-skills",
+   "pathways": [
+    "cloud-native"
+   ],
+   "when": {
+    "keywords": [
+     "mainframe",
+     "cobol",
+     "cics",
+     "db2 z"
+    ],
+    "keywords_alone": true
+   },
+   "why": "Agent skills for planning and executing mainframe modernization alongside AWS Transform.",
+   "ko": {
+    "why": "AWS Transform과 함께 메인프레임 현대화를 계획·실행하는 에이전트 스킬."
+   }
+  }
+ ],
+ "labels": {
+  "en": {
+   "title": "Reference material",
+   "lead": "Only items whose conditions match this workload's findings and resources are listed. Service descriptions paraphrase the cited AWS page as of the date shown; check the page for current regional availability and pricing before committing.",
+   "services": "AWS services",
+   "assets": "Assets to start with",
+   "service": "Service",
+   "what": "What it is (official)",
+   "why": "Why for this workload",
+   "source": "Source",
+   "checked": "checked",
+   "asset": "Asset",
+   "kind": "Kind",
+   "none": "No recommended pathway has matching services or assets in the catalog.",
+   "because": {
+    "pathway recommended": "pathway recommended",
+    "findings": "findings",
+    "resources": "resources",
+    "engine": "engine",
+    "platform": "platform",
+    "assessment mentions": "the assessment text mentions"
+   },
+   "kinds": {
+    "service": "AWS service",
+    "skill": "agent skill (install into Kiro, Claude Code or Codex)",
+    "prompt set": "prompt set",
+    "workshop": "hands-on workshop",
+    "starter pack": "AI-DLC starter pack",
+    "plugin marketplace": "plugin marketplace",
+    "samples": "code samples"
+   },
+   "pathways": {
+    "container": "Containers",
+    "serverless": "Serverless",
+    "managed-database": "Managed database",
+    "managed-analytics": "Managed analytics",
+    "genai": "Generative AI",
+    "cloud-native": "Cloud-native structure",
+    "modern-devops": "Modern DevOps"
+   }
+  },
+  "ko": {
+   "title": "참고 자료",
+   "lead": "이 워크로드의 발견 사항과 리소스에 조건이 맞는 항목만 표시합니다. 서비스 설명은 표시된 날짜 기준으로 인용한 AWS 페이지를 바꿔 쓴 것이며, 리전별 제공 여부와 요금은 결정 전에 해당 페이지에서 확인하는 것이 좋습니다.",
+   "services": "AWS 서비스",
+   "assets": "시작할 때 쓸 에셋",
+   "service": "서비스",
+   "what": "무엇인가(공식 설명)",
+   "why": "이 워크로드에 해당하는 이유",
+   "source": "출처",
+   "checked": "확인일",
+   "asset": "에셋",
+   "kind": "종류",
+   "none": "권고된 경로 중 카탈로그 조건에 맞는 서비스나 에셋이 없습니다.",
+   "because": {
+    "pathway recommended": "경로 권고",
+    "findings": "발견 사항",
+    "resources": "리소스",
+    "engine": "엔진",
+    "platform": "플랫폼",
+    "assessment mentions": "평가 문장에서 다음을 다룸:"
+   },
+   "kinds": {
+    "service": "AWS 서비스",
+    "skill": "에이전트 스킬(Kiro, Claude Code, Codex에 설치)",
+    "prompt set": "프롬프트 세트",
+    "workshop": "실습 워크샵",
+    "starter pack": "AI-DLC 스타터 팩",
+    "plugin marketplace": "플러그인 마켓플레이스",
+    "samples": "코드 샘플"
+   },
+   "pathways": {
+    "container": "컨테이너",
+    "serverless": "서버리스",
+    "managed-database": "관리형 데이터베이스",
+    "managed-analytics": "관리형 분석",
+    "genai": "생성형 AI",
+    "cloud-native": "클라우드 네이티브 구조",
+    "modern-devops": "현대적 DevOps"
+   }
+  }
+ }
+}

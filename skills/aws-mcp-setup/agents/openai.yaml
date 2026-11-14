@@ -1,0 +1,4 @@
+interface:
+  display_name: "02 - Assessment toolkit"
+  short_description: "Prepare MCP, companion skills and local rendering tools"
+  default_prompt: "Use $aws-mcp-setup to install and verify the MCP and diagram toolkit for Claude Code, Codex, and Kiro."

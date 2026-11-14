@@ -1,0 +1,4 @@
+interface:
+  display_name: "03 - AWS current-state analysis"
+  short_description: "Connect AWS inventory with deployment and source evidence"
+  default_prompt: "Use $aws-as-is-analysis to assess my AWS workload, trace its deployment and source evidence, and inspect named hosts when authorized."

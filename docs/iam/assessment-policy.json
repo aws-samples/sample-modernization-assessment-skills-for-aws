@@ -1,0 +1,57 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "HostInspectionReadSsmState",
+      "Effect": "Allow",
+      "Action": [
+        "ssm:GetCommandInvocation",
+        "ssm:ListCommandInvocations",
+        "ssm:DescribeInstanceInformation"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "HostInspectionRunShellScriptOnNamedInstances",
+      "Effect": "Allow",
+      "Action": [
+        "ssm:SendCommand"
+      ],
+      "Resource": [
+        "arn:aws:ssm:*:*:document/AWS-RunShellScript",
+        "arn:aws:ec2:REGION:ACCOUNT_ID:instance/INSTANCE_ID"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceAccount": "ACCOUNT_ID"
+        }
+      }
+    },
+    {
+      "Sid": "DenyDataContentReads",
+      "Effect": "Deny",
+      "Action": [
+        "s3:GetObject",
+        "s3:GetObjectVersion",
+        "secretsmanager:GetSecretValue",
+        "ssm:GetParameter",
+        "ssm:GetParameters",
+        "ssm:GetParametersByPath",
+        "dynamodb:GetItem",
+        "dynamodb:BatchGetItem",
+        "dynamodb:Query",
+        "dynamodb:Scan",
+        "kinesis:GetRecords",
+        "sqs:ReceiveMessage",
+        "logs:GetLogEvents",
+        "logs:FilterLogEvents",
+        "logs:StartQuery",
+        "logs:GetQueryResults",
+        "rds:DownloadDBLogFilePortion",
+        "lambda:GetFunction",
+        "lambda:GetLayerVersion"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

@@ -1,0 +1,90 @@
+{
+  "version": "1.0",
+  "verified_on": "2026-10-20",
+  "options": [
+    {
+      "id": "security-agent",
+      "name": "AWS Security Agent",
+      "category": "managed-agent",
+      "question": "Verify application security review, threat-model and authorized testing bottlenecks, evidence and access scope",
+      "source": "https://docs.aws.amazon.com/securityagent/latest/userguide/what-is.html"
+    },
+    {
+      "id": "devops-agent",
+      "name": "AWS DevOps Agent",
+      "category": "managed-agent",
+      "question": "Verify release-risk/testing and incident-investigation needs, deployment/observability data, integrations and ownership",
+      "source": "https://aws.amazon.com/devops-agent/"
+    },
+    {
+      "id": "bedrock",
+      "name": "Amazon Bedrock",
+      "category": "foundation-model-platform",
+      "question": "Verify generation, summarization or RAG use cases, model quality, data rights, retrieval authorization, latency and cost",
+      "source": "https://docs.aws.amazon.com/bedrock/latest/userguide/what-is-bedrock.html"
+    },
+    {
+      "id": "bedrock-agentcore",
+      "name": "Amazon Bedrock AgentCore",
+      "category": "agent-platform",
+      "question": "Verify agent runtime, tool, identity, memory and observability needs against operating gaps",
+      "source": "https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/what-is-bedrock-agentcore.html"
+    },
+    {
+      "id": "textract",
+      "name": "Amazon Textract",
+      "category": "task-ai-service",
+      "question": "Verify document OCR/form/table extraction needs, language, format and field accuracy",
+      "source": "https://docs.aws.amazon.com/textract/latest/dg/what-is.html"
+    },
+    {
+      "id": "rekognition",
+      "name": "Amazon Rekognition",
+      "category": "task-ai-service",
+      "question": "Verify image/video analysis tasks, data rights, false positives/misses and human review",
+      "source": "https://docs.aws.amazon.com/rekognition/latest/dg/what-is.html"
+    },
+    {
+      "id": "polly",
+      "name": "Amazon Polly",
+      "category": "task-ai-service",
+      "question": "Verify text-to-speech needs, language, voice/engine, pronunciation, accessibility and latency",
+      "source": "https://docs.aws.amazon.com/polly/latest/dg/what-is.html"
+    },
+    {
+      "id": "transcribe",
+      "name": "Amazon Transcribe",
+      "category": "task-ai-service",
+      "question": "Verify speech-to-text needs, recording rights, language, batch/streaming and noise-specific quality",
+      "source": "https://docs.aws.amazon.com/transcribe/latest/dg/what-is.html"
+    },
+    {
+      "id": "comprehend",
+      "name": "Amazon Comprehend",
+      "category": "task-ai-service",
+      "question": "Verify text classification, entity, sentiment or PII tasks and feature-specific language/domain quality",
+      "source": "https://docs.aws.amazon.com/comprehend/latest/dg/what-is.html"
+    },
+    {
+      "id": "sagemaker-ai",
+      "name": "Amazon SageMaker AI",
+      "category": "ml-platform",
+      "question": "Verify custom model training/hosting and MLOps requirements, data, experiments and operating capability",
+      "source": "https://docs.aws.amazon.com/sagemaker/latest/dg/whatis.html"
+    },
+    {
+      "id": "trainium",
+      "name": "AWS Trainium",
+      "category": "ai-accelerator",
+      "question": "Verify training/inference load, Neuron/model compatibility, measured performance, total cost and capacity availability",
+      "source": "https://aws.amazon.com/ai/machine-learning/trainium/"
+    },
+    {
+      "id": "inferentia",
+      "name": "AWS Inferentia",
+      "category": "ai-accelerator",
+      "question": "Verify inference load, Neuron/model compatibility, quality, throughput, latency and total cost",
+      "source": "https://aws.amazon.com/ai/machine-learning/inferentia/"
+    }
+  ]
+}

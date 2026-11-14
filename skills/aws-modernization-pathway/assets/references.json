@@ -1,0 +1,491 @@
+{
+ "schema_version": "1.0",
+ "verified_on": "2026-11-09",
+ "note": "Every URL was fetched on verified_on and its page title checked to be the named best practice or topic (docs.aws.amazon.com answers HTTP 200 for missing pages, so a status code alone does not prove a page exists). Titles here are short forms of the page titles. Re-verify when editing.",
+ "references": {
+  "wa_rel10_bp01": {
+   "title": "REL10-BP01 Deploy the workload to multiple locations",
+   "url": "https://docs.aws.amazon.com/wellarchitected/latest/reliability-pillar/rel_fault_isolation_multiaz_region_system.html"
+  },
+  "wa_rel09_bp03": {
+   "title": "REL09-BP03 Perform data backup automatically",
+   "url": "https://docs.aws.amazon.com/wellarchitected/latest/reliability-pillar/rel_backing_up_data_automated_backups_data.html"
+  },
+  "wa_rel09_bp04": {
+   "title": "REL09-BP04 Perform periodic recovery of the data to verify backup integrity and processes",
+   "url": "https://docs.aws.amazon.com/wellarchitected/latest/reliability-pillar/rel_backing_up_data_periodic_recovery_testing_data.html"
+  },
+  "wa_rel11_bp01": {
+   "title": "REL11-BP01 Monitor all components of the workload to detect failures",
+   "url": "https://docs.aws.amazon.com/wellarchitected/latest/reliability-pillar/rel_withstand_component_failures_monitoring_health.html"
+  },
+  "wa_rel11_bp06": {
+   "title": "REL11-BP06 Send notifications when events impact availability",
+   "url": "https://docs.aws.amazon.com/wellarchitected/latest/reliability-pillar/rel_withstand_component_failures_notifications_sent_system.html"
+  },
+  "wa_rel07_bp01": {
+   "title": "REL07-BP01 Use automation when obtaining or scaling resources",
+   "url": "https://docs.aws.amazon.com/wellarchitected/latest/reliability-pillar/rel_adapt_to_changes_autoscale_adapt.html"
+  },
+  "wa_rel08_bp05": {
+   "title": "REL08-BP05 Deploy changes with automation",
+   "url": "https://docs.aws.amazon.com/wellarchitected/latest/reliability-pillar/rel_tracking_change_management_automated_changemgmt.html"
+  },
+  "wa_sec03_bp02": {
+   "title": "SEC03-BP02 Grant least privilege access",
+   "url": "https://docs.aws.amazon.com/wellarchitected/latest/security-pillar/sec_permissions_least_privileges.html"
+  },
+  "wa_sec09_bp02": {
+   "title": "SEC09-BP02 Enforce encryption in transit",
+   "url": "https://docs.aws.amazon.com/wellarchitected/latest/security-pillar/sec_protect_data_transit_encrypt.html"
+  },
+  "wa_sec02_bp05": {
+   "title": "SEC02-BP05 Audit and rotate credentials periodically",
+   "url": "https://docs.aws.amazon.com/wellarchitected/latest/security-pillar/sec_identities_audit.html"
+  },
+  "wa_sec02_bp03": {
+   "title": "SEC02-BP03 Store and use secrets securely",
+   "url": "https://docs.aws.amazon.com/wellarchitected/latest/security-pillar/sec_identities_secrets.html"
+  },
+  "wa_sec04_bp01": {
+   "title": "SEC04-BP01 Configure service and application logging",
+   "url": "https://docs.aws.amazon.com/wellarchitected/latest/security-pillar/sec_detect_investigate_events_app_service_logging.html"
+  },
+  "wa_sec05_bp03": {
+   "title": "SEC05-BP03 Implement inspection-based protection",
+   "url": "https://docs.aws.amazon.com/wellarchitected/latest/security-pillar/sec_network_protection_inspection.html"
+  },
+  "wa_sec06_bp01": {
+   "title": "SEC06-BP01 Perform vulnerability management",
+   "url": "https://docs.aws.amazon.com/wellarchitected/latest/security-pillar/sec_protect_compute_vulnerability_management.html"
+  },
+  "wa_ops08_bp04": {
+   "title": "OPS08-BP04 Create actionable alerts",
+   "url": "https://docs.aws.amazon.com/wellarchitected/latest/operational-excellence-pillar/ops_workload_observability_create_alerts.html"
+  },
+  "wa_ops06_bp02": {
+   "title": "OPS06-BP02 Test deployments",
+   "url": "https://docs.aws.amazon.com/wellarchitected/latest/operational-excellence-pillar/ops_mit_deploy_risks_test_val_chg.html"
+  },
+  "wa_ops06_bp04": {
+   "title": "OPS06-BP04 Automate testing and rollback",
+   "url": "https://docs.aws.amazon.com/wellarchitected/latest/operational-excellence-pillar/ops_mit_deploy_risks_auto_testing_and_rollback.html"
+  },
+  "wa_ops05_bp04": {
+   "title": "OPS05-BP04 Use build and deployment management systems",
+   "url": "https://docs.aws.amazon.com/wellarchitected/latest/operational-excellence-pillar/ops_dev_integ_build_mgmt_sys.html"
+  },
+  "wa_ops05_bp10": {
+   "title": "OPS05-BP10 Fully automate integration and deployment",
+   "url": "https://docs.aws.amazon.com/wellarchitected/latest/operational-excellence-pillar/ops_dev_integ_auto_integ_deploy.html"
+  },
+  "wa_ops04_bp02": {
+   "title": "OPS04-BP02 Implement application telemetry",
+   "url": "https://docs.aws.amazon.com/wellarchitected/latest/operational-excellence-pillar/ops_observability_application_telemetry.html"
+  },
+  "wa_cost06_bp03": {
+   "title": "COST06-BP03 Select resource type, size, and number automatically based on metrics",
+   "url": "https://docs.aws.amazon.com/wellarchitected/latest/cost-optimization-pillar/cost_type_size_number_resources_metrics.html"
+  },
+  "wa_cost03_bp03": {
+   "title": "COST03-BP03 Identify cost attribution categories",
+   "url": "https://docs.aws.amazon.com/wellarchitected/latest/cost-optimization-pillar/cost_monitor_usage_define_attribution.html"
+  },
+  "wa_cost04_bp05": {
+   "title": "COST04-BP05 Enforce data retention policies",
+   "url": "https://docs.aws.amazon.com/wellarchitected/latest/cost-optimization-pillar/cost_decomissioning_resources_data_retention.html"
+  },
+  "wa_sus05_bp02": {
+   "title": "SUS05-BP02 Use instance types with the least impact",
+   "url": "https://docs.aws.amazon.com/wellarchitected/latest/sustainability-pillar/sus_sus_hardware_a3.html"
+  },
+  "wa_perf02_bp05": {
+   "title": "PERF02-BP05 Scale your compute resources dynamically",
+   "url": "https://docs.aws.amazon.com/wellarchitected/latest/performance-efficiency-pillar/perf_compute_hardware_scale_compute_resources_dynamically.html"
+  },
+  "wa_gensec02_bp01": {
+   "title": "GENSEC02-BP01 Implement guardrails to mitigate harmful or incorrect model responses",
+   "url": "https://docs.aws.amazon.com/wellarchitected/latest/generative-ai-lens/gensec02-bp01.html"
+  },
+  "wa_genops02_bp01": {
+   "title": "GENOPS02-BP01 Monitor all application layers",
+   "url": "https://docs.aws.amazon.com/wellarchitected/latest/generative-ai-lens/genops02-bp01.html"
+  },
+  "sh_elb": {
+   "title": "Security Hub controls for Elastic Load Balancing",
+   "url": "https://docs.aws.amazon.com/securityhub/latest/userguide/elb-controls.html"
+  },
+  "sh_ecr": {
+   "title": "Security Hub controls for Amazon ECR",
+   "url": "https://docs.aws.amazon.com/securityhub/latest/userguide/ecr-controls.html"
+  },
+  "sh_eks": {
+   "title": "Security Hub controls for Amazon EKS",
+   "url": "https://docs.aws.amazon.com/securityhub/latest/userguide/eks-controls.html"
+  },
+  "sh_elasticache": {
+   "title": "Security Hub controls for ElastiCache",
+   "url": "https://docs.aws.amazon.com/securityhub/latest/userguide/elasticache-controls.html"
+  },
+  "sh_rds": {
+   "title": "Security Hub controls for Amazon RDS",
+   "url": "https://docs.aws.amazon.com/securityhub/latest/userguide/rds-controls.html"
+  },
+  "sh_secrets": {
+   "title": "Security Hub controls for Secrets Manager",
+   "url": "https://docs.aws.amazon.com/securityhub/latest/userguide/secretsmanager-controls.html"
+  },
+  "sh_ecs": {
+   "title": "Security Hub controls for Amazon ECS",
+   "url": "https://docs.aws.amazon.com/securityhub/latest/userguide/ecs-controls.html"
+  },
+  "sh_iam": {
+   "title": "Security Hub controls for IAM",
+   "url": "https://docs.aws.amazon.com/securityhub/latest/userguide/iam-controls.html"
+  },
+  "sh_s3": {
+   "title": "Security Hub controls for Amazon S3",
+   "url": "https://docs.aws.amazon.com/securityhub/latest/userguide/s3-controls.html"
+  },
+  "alb_https": {
+   "title": "Create an HTTPS listener for your Application Load Balancer",
+   "url": "https://docs.aws.amazon.com/elasticloadbalancing/latest/application/create-https-listener.html"
+  },
+  "alb_logs": {
+   "title": "Enable access logs for your Application Load Balancer",
+   "url": "https://docs.aws.amazon.com/elasticloadbalancing/latest/application/enable-access-logging.html"
+  },
+  "waf_assoc": {
+   "title": "Associating protection with an AWS resource (AWS WAF)",
+   "url": "https://docs.aws.amazon.com/waf/latest/developerguide/web-acl-associating-aws-resource.html"
+  },
+  "redis_tls": {
+   "title": "ElastiCache in-transit encryption (TLS)",
+   "url": "https://docs.aws.amazon.com/AmazonElastiCache/latest/dg/in-transit-encryption.html"
+  },
+  "redis_maz": {
+   "title": "Minimizing downtime in ElastiCache by using Multi-AZ",
+   "url": "https://docs.aws.amazon.com/AmazonElastiCache/latest/dg/AutoFailover.html"
+  },
+  "redis_auth": {
+   "title": "Authenticating with the AUTH command (ElastiCache)",
+   "url": "https://docs.aws.amazon.com/AmazonElastiCache/latest/dg/auth.html"
+  },
+  "aurora_ha": {
+   "title": "High availability for Amazon Aurora",
+   "url": "https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/Concepts.AuroraHighAvailability.html"
+  },
+  "aurora_backup": {
+   "title": "Overview of backing up and restoring an Aurora DB cluster",
+   "url": "https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/Aurora.Managing.Backups.html"
+  },
+  "aurora_delete": {
+   "title": "Deleting Aurora DB clusters and DB instances (deletion protection)",
+   "url": "https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/USER_DeleteCluster.html"
+  },
+  "aurora_secrets": {
+   "title": "Password management with Amazon Aurora and AWS Secrets Manager",
+   "url": "https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/rds-secrets-manager.html"
+  },
+  "aurora_insights": {
+   "title": "Monitoring DB load with CloudWatch Database Insights on Aurora",
+   "url": "https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/USER_PerfInsights.html"
+  },
+  "rds_proxy": {
+   "title": "Amazon RDS Proxy for Aurora",
+   "url": "https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/rds-proxy.html"
+  },
+  "ecr_scan": {
+   "title": "Scan images for software vulnerabilities in Amazon ECR",
+   "url": "https://docs.aws.amazon.com/AmazonECR/latest/userguide/image-scanning.html"
+  },
+  "ecr_immutable": {
+   "title": "Preventing image tags from being overwritten in Amazon ECR",
+   "url": "https://docs.aws.amazon.com/AmazonECR/latest/userguide/image-tag-mutability.html"
+  },
+  "ecs_cb": {
+   "title": "Amazon ECS deployment circuit breaker",
+   "url": "https://docs.aws.amazon.com/AmazonECS/latest/developerguide/deployment-circuit-breaker.html"
+  },
+  "ecs_scaling": {
+   "title": "Automatically scale your Amazon ECS service",
+   "url": "https://docs.aws.amazon.com/AmazonECS/latest/developerguide/service-auto-scaling.html"
+  },
+  "container_insights": {
+   "title": "Container Insights",
+   "url": "https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/ContainerInsights.html"
+  },
+  "eks_logs": {
+   "title": "Send control plane logs to CloudWatch Logs (Amazon EKS)",
+   "url": "https://docs.aws.amazon.com/eks/latest/userguide/control-plane-logs.html"
+  },
+  "eks_endpoint": {
+   "title": "Cluster API server endpoint (Amazon EKS)",
+   "url": "https://docs.aws.amazon.com/eks/latest/userguide/cluster-endpoint.html"
+  },
+  "eks_autoscaling": {
+   "title": "Scale cluster compute with Karpenter and Cluster Autoscaler",
+   "url": "https://docs.aws.amazon.com/eks/latest/userguide/autoscaling.html"
+  },
+  "secret_rotation": {
+   "title": "Rotate AWS Secrets Manager secrets",
+   "url": "https://docs.aws.amazon.com/secretsmanager/latest/userguide/rotating-secrets.html"
+  },
+  "iam_bp": {
+   "title": "Security best practices in IAM",
+   "url": "https://docs.aws.amazon.com/IAM/latest/UserGuide/best-practices.html"
+  },
+  "iam_policy_gen": {
+   "title": "IAM Access Analyzer policy generation",
+   "url": "https://docs.aws.amazon.com/IAM/latest/UserGuide/access-analyzer-policy-generation.html"
+  },
+  "bedrock_logging": {
+   "title": "Monitor model invocation using CloudWatch Logs and Amazon S3",
+   "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-invocation-logging.html"
+  },
+  "bedrock_guardrails": {
+   "title": "Amazon Bedrock Guardrails",
+   "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/guardrails.html"
+  },
+  "bedrock_guardrail_iam": {
+   "title": "Enforce the use of specific guardrails in model inference requests",
+   "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/guardrails-permissions-id.html"
+  },
+  "alarm_notify": {
+   "title": "Notifying users on alarm changes",
+   "url": "https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/Notify_Users_Alarm_Changes.html"
+  },
+  "sns_subscribe": {
+   "title": "Creating a subscription to an Amazon SNS topic",
+   "url": "https://docs.aws.amazon.com/sns/latest/dg/sns-create-subscribe-endpoint-to-topic.html"
+  },
+  "log_retention": {
+   "title": "Working with log groups and log streams",
+   "url": "https://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/Working-with-log-groups-and-streams.html"
+  },
+  "s3_versioning": {
+   "title": "Retaining multiple versions of objects with S3 Versioning",
+   "url": "https://docs.aws.amazon.com/AmazonS3/latest/userguide/Versioning.html"
+  },
+  "backup_plan": {
+   "title": "Create a backup plan (AWS Backup)",
+   "url": "https://docs.aws.amazon.com/aws-backup/latest/devguide/creating-a-backup-plan.html"
+  },
+  "pipeline_approval": {
+   "title": "Add a manual approval action to a stage (CodePipeline)",
+   "url": "https://docs.aws.amazon.com/codepipeline/latest/userguide/approvals.html"
+  },
+  "cost_tags": {
+   "title": "Organizing and tracking costs using AWS cost allocation tags",
+   "url": "https://docs.aws.amazon.com/awsaccountbilling/latest/aboutv2/cost-alloc-tags.html"
+  },
+  "adot": {
+   "title": "AWS Distro for OpenTelemetry and AWS X-Ray",
+   "url": "https://docs.aws.amazon.com/xray/latest/devguide/xray-services-adot.html"
+  },
+  "graviton": {
+   "title": "AWS Graviton processors",
+   "url": "https://aws.amazon.com/ec2/graviton/"
+  },
+  "cw_agent_install": {
+   "title": "Collect metrics, logs, and traces using the CloudWatch agent",
+   "url": "https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/Install-CloudWatch-Agent.html"
+  },
+  "eks_ci_addon": {
+   "title": "Install the CloudWatch agent with the Amazon CloudWatch Observability EKS add-on or the Helm chart",
+   "url": "https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/install-CloudWatch-Observability-EKS-addon.html"
+  },
+  "cw_logs_what_is": {
+   "title": "What is Amazon CloudWatch Logs?",
+   "url": "https://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/WhatIsCloudWatchLogs.html"
+  }
+ },
+ "rules": {
+  "RDS_RESILIENCE": [
+   "wa_rel10_bp01",
+   "aurora_ha"
+  ],
+  "AURORA_SINGLE_INSTANCE": [
+   "wa_rel10_bp01",
+   "aurora_ha"
+  ],
+  "RDS_BACKUPS": [
+   "wa_rel09_bp03",
+   "aurora_backup"
+  ],
+  "RDS_DELETION_PROTECTION": [
+   "aurora_delete",
+   "sh_rds"
+  ],
+  "RDS_ENCRYPTION": [
+   "sh_rds"
+  ],
+  "RDS_PUBLIC_CONFIG": [
+   "sh_rds"
+  ],
+  "RDS_MONITORING": [
+   "aurora_insights"
+  ],
+  "REL_RESTORE_TEST": [
+   "wa_rel09_bp04"
+  ],
+  "DYNAMODB_PITR": [
+   "wa_rel09_bp03"
+  ],
+  "ELASTICACHE_TRANSIT_ENCRYPTION": [
+   "wa_sec09_bp02",
+   "redis_tls",
+   "redis_auth"
+  ],
+  "ELASTICACHE_MULTI_AZ": [
+   "wa_rel10_bp01",
+   "redis_maz"
+  ],
+  "ELASTICACHE_BACKUP": [
+   "wa_rel09_bp03",
+   "sh_elasticache"
+  ],
+  "ELB_TLS_LISTENER": [
+   "wa_sec09_bp02",
+   "alb_https",
+   "sh_elb"
+  ],
+  "ELB_DROP_INVALID_HEADERS": [
+   "sh_elb"
+  ],
+  "ELB_ACCESS_LOGS": [
+   "wa_sec04_bp01",
+   "alb_logs"
+  ],
+  "SEC_WAF": [
+   "wa_sec05_bp03",
+   "waf_assoc"
+  ],
+  "IAM_WILDCARD_PERMISSION": [
+   "wa_sec03_bp02",
+   "iam_bp",
+   "iam_policy_gen"
+  ],
+  "SECRET_ROTATION": [
+   "wa_sec02_bp05",
+   "secret_rotation",
+   "aurora_secrets"
+  ],
+  "ECR_SCAN_ON_PUSH": [
+   "wa_sec06_bp01",
+   "ecr_scan",
+   "sh_ecr"
+  ],
+  "ECR_TAG_IMMUTABILITY": [
+   "ecr_immutable",
+   "sh_ecr"
+  ],
+  "ECS_DEPLOYMENT_CIRCUIT_BREAKER": [
+   "wa_ops06_bp04",
+   "ecs_cb"
+  ],
+  "ECS_CONTAINER_INSIGHTS": [
+   "wa_rel11_bp01",
+   "container_insights",
+   "sh_ecs"
+  ],
+  "ECS_AUTOSCALING": [
+   "wa_perf02_bp05",
+   "ecs_scaling"
+  ],
+  "EKS_CONTROL_PLANE_LOGGING": [
+   "wa_sec04_bp01",
+   "eks_logs",
+   "sh_eks"
+  ],
+  "EKS_PUBLIC_ENDPOINT": [
+   "eks_endpoint",
+   "sh_eks"
+  ],
+  "EKS_NODE_SCALING": [
+   "wa_rel07_bp01",
+   "eks_autoscaling"
+  ],
+  "ALARM_NOTIFICATION_TARGET": [
+   "wa_rel11_bp06",
+   "alarm_notify",
+   "sns_subscribe"
+  ],
+  "ALARM_COVERAGE": [
+   "wa_ops08_bp04",
+   "wa_rel11_bp01"
+  ],
+  "LOG_RETENTION": [
+   "wa_cost04_bp05",
+   "log_retention"
+  ],
+  "CLOUDTRAIL_LOGGING": [
+   "wa_sec04_bp01"
+  ],
+  "S3_PUBLIC_ACCESS_BLOCK": [
+   "sh_s3"
+  ],
+  "S3_VERSIONING": [
+   "wa_rel09_bp03",
+   "s3_versioning"
+  ],
+  "BACKUP_PLAN": [
+   "wa_rel09_bp03",
+   "backup_plan"
+  ],
+  "EC2_IMDSV2": [
+   "iam_bp"
+  ],
+  "EBS_ENCRYPTION": [
+   "wa_sec09_bp02"
+  ],
+  "SG_PUBLIC_ADMIN": [
+   "wa_sec05_bp03"
+  ],
+  "GENAI_INVOCATION_LOGGING": [
+   "wa_genops02_bp01",
+   "bedrock_logging"
+  ],
+  "GENAI_GUARDRAILS": [
+   "wa_gensec02_bp01",
+   "bedrock_guardrails",
+   "bedrock_guardrail_iam"
+  ],
+  "CI_TEST_GATE": [
+   "wa_ops06_bp02",
+   "pipeline_approval"
+  ],
+  "CI_COVERAGE": [
+   "wa_ops05_bp04",
+   "wa_ops05_bp10"
+  ],
+  "TRACING": [
+   "wa_ops04_bp02",
+   "adot"
+  ],
+  "COST_ALLOCATION_TAGS": [
+   "wa_cost03_bp03",
+   "cost_tags"
+  ],
+  "RIGHT_SIZING": [
+   "wa_cost06_bp03"
+  ],
+  "GRAVITON": [
+   "wa_sus05_bp02",
+   "graviton"
+  ],
+  "LOG_DELIVERY": [
+   "wa_ops04_bp02",
+   "cw_logs_what_is"
+  ],
+  "EC2_CLOUDWATCH_AGENT": [
+   "wa_rel11_bp01",
+   "cw_agent_install"
+  ],
+  "EKS_OBSERVABILITY_ADDON": [
+   "wa_rel11_bp01",
+   "eks_ci_addon",
+   "container_insights"
+  ]
+ }
+}

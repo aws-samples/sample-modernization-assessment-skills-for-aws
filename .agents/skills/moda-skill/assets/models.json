@@ -1,0 +1,37 @@
+{
+ "schema_version": "1.0",
+ "updated": "2026-11-09",
+ "note": "Model guidance for the assessment. Tiers are matched on the model id (case-insensitive substring), so new versions of a family are classified without editing this file. Update `recommended` when a newer frontier model is available in the client.",
+ "recommended": [
+  "claude-opus-5.5"
+ ],
+ "tiers": {
+  "frontier": {
+   "match": [
+    "opus"
+   ],
+   "effect": "full quality: interpretation of findings, diagram redraw, recommendations and localization behave as designed"
+  },
+  "reduced": {
+   "match": [
+    "sonnet",
+    "fable"
+   ],
+   "effect": "noticeably weaker on the analysis stages: shallower key issues, more generic recommendations, more diagram audit retries, skipped verification steps"
+  },
+  "unsuitable": {
+   "match": [
+    "haiku",
+    "nova-lite",
+    "nova-micro",
+    "mini",
+    "flash"
+   ],
+   "effect": "small models skip stage steps and misread the skill contract; use them only for smoke tests of the tooling"
+  }
+ },
+ "effort": {
+  "recommended": "high",
+  "note": "On Kiro CLI the per-model effort setting (`chat.modelDefaults.<model>.output_config.effort`) matters almost as much as the model; keep it at high or xhigh for the analysis stages."
+ }
+}

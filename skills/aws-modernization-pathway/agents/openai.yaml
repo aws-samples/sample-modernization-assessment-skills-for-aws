@@ -1,0 +1,4 @@
+interface:
+  display_name: "05 - AWS modernization pathways"
+  short_description: "Assess seven modernization paths and service suitability"
+  default_prompt: "Use $aws-modernization-pathway to compare seven modernization paths, including AI, OpenTelemetry, managed observability, MSK, SQS, EventBridge and SNS, using my workload evidence."

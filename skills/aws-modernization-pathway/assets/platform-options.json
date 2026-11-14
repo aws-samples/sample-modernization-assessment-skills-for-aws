@@ -1,0 +1,103 @@
+{
+  "version": "1.0",
+  "verified_on": "2026-10-20",
+  "groups": [
+    {
+      "pathway": "modern-devops",
+      "field": "observability_options",
+      "title": "Observability suitability",
+      "options": [
+        {
+          "id": "opentelemetry",
+          "name": "OpenTelemetry / ADOT",
+          "category": "telemetry",
+          "question": "Verify distributed tracing and instrumentation needs, SDK/Collector/propagation compatibility, failure handling, privacy and cost",
+          "additional_readiness": [
+            "telemetry_compatibility",
+            "pipeline_resilience"
+          ],
+          "source": "https://opentelemetry.io/docs/what-is-opentelemetry/"
+        },
+        {
+          "id": "managed-grafana",
+          "name": "Amazon Managed Grafana",
+          "category": "visualization",
+          "question": "Verify multi-source visualization needs, SSO/data source permissions, dashboard/alarm ownership and cost",
+          "additional_readiness": [
+            "data_source_access",
+            "alert_ownership"
+          ],
+          "source": "https://docs.aws.amazon.com/grafana/latest/userguide/what-is-Amazon-Managed-Service-Grafana.html"
+        },
+        {
+          "id": "managed-prometheus",
+          "name": "Amazon Managed Service for Prometheus",
+          "category": "metrics",
+          "question": "Verify Prometheus/PromQL needs, scrape/remote-write, HA deduplication, cardinality, queries, retention and cost",
+          "additional_readiness": [
+            "telemetry_compatibility",
+            "cardinality_capacity"
+          ],
+          "source": "https://docs.aws.amazon.com/prometheus/latest/userguide/what-is-Amazon-Managed-Service-Prometheus.html"
+        }
+      ]
+    },
+    {
+      "pathway": "cloud-native",
+      "field": "messaging_options",
+      "title": "Message/Event Driven suitability",
+      "options": [
+        {
+          "id": "msk",
+          "name": "Amazon MSK (Managed Kafka)",
+          "category": "streaming",
+          "question": "Verify Kafka ecosystem, replay and independent consumer needs, client/connector compatibility, partitions, lag, retention and operations",
+          "additional_readiness": [
+            "delivery_semantics",
+            "consumer_safety",
+            "replay_recovery",
+            "kafka_compatibility",
+            "partition_capacity"
+          ],
+          "source": "https://docs.aws.amazon.com/msk/latest/developerguide/what-is-msk.html"
+        },
+        {
+          "id": "sqs",
+          "name": "Amazon SQS",
+          "category": "queue",
+          "question": "Verify async work and buffering needs, Standard/FIFO selection, idempotency, visibility, DLQ and recovery",
+          "additional_readiness": [
+            "delivery_semantics",
+            "consumer_safety",
+            "replay_recovery"
+          ],
+          "source": "https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/welcome.html"
+        },
+        {
+          "id": "eventbridge",
+          "name": "Amazon EventBridge",
+          "category": "event-routing",
+          "question": "Verify domain/AWS/SaaS event routing, contracts, permissions, target failures and replay needs",
+          "additional_readiness": [
+            "delivery_semantics",
+            "consumer_safety",
+            "replay_recovery"
+          ],
+          "source": "https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-what-is.html"
+        },
+        {
+          "id": "sns",
+          "name": "Amazon SNS",
+          "category": "pubsub",
+          "question": "Verify fan-out needs, filters, subscriber failure isolation and recovery",
+          "additional_readiness": [
+            "delivery_semantics",
+            "consumer_safety",
+            "replay_recovery"
+          ],
+          "source": "https://docs.aws.amazon.com/sns/latest/dg/welcome.html"
+        }
+      ]
+    }
+  ]
+}

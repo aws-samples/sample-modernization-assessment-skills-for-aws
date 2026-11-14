@@ -1,0 +1,37 @@
+{
+ "schema_version": "1.0",
+ "verified_on": "2026-10-16",
+ "companions": [
+  {
+   "name": "aws-diagram-design",
+   "repository": "https://github.com/masangbeom/aws-diagram-design.git",
+   "commit": "9e71e40ed1480dd0086a937ceebb32e9723ea58d",
+   "path": "skills/aws-diagram-design",
+   "license_files": [
+    "LICENSE",
+    "THIRD_PARTY_LICENSES.md"
+   ]
+  },
+  {
+   "name": "aws-bento-deck",
+   "repository": "https://github.com/aws-samples/sample-apj-sup-sa.git",
+   "commit": "53c3791967bb1f6da222a0e1652e14b1e3f4f0c7",
+   "path": "ai-coding-assistants/skills/aws-bento-deck",
+   "license_files": [
+    "LICENSE"
+   ]
+  }
+ ],
+ "mcp": {
+  "name": "aws-knowledge",
+  "url": "https://knowledge-mcp.global.api.aws",
+  "transport": "streamable-http",
+  "aws_credentials_required": false
+ },
+ "renderer": {
+  "package": "playwright",
+  "version": "1.64.1",
+  "browser": "chromium",
+  "note": "Version render_artifact.mjs was tested with; install with `npm install playwright@1.64.1` and `npx playwright@1.64.1 install chromium` so the package and its browser build match."
+ }
+}

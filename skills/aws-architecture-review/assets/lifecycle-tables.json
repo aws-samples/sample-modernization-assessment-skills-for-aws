@@ -1,0 +1,58 @@
+{
+  "schema_version": "1.0",
+  "verified_on": "2026-11-10",
+  "note": "Dates come from the AWS Lambda runtime deprecation schedule, vendor end-of-life pages and the AWS previous-generation instance list. Re-verify on every release; the rules quote this date so a reader can judge staleness. Engine (RDS) and Kubernetes (EKS) lifecycles are not listed here because the collector reads them from the API (describe-db-major-engine-versions, describe-cluster-versions).",
+  "sources": {
+    "lambda": "https://docs.aws.amazon.com/lambda/latest/dg/lambda-runtimes.html",
+    "previous_generation": "https://aws.amazon.com/ec2/previous-generation/",
+    "amazon_linux": "https://aws.amazon.com/amazon-linux-2/faqs/",
+    "windows": "https://learn.microsoft.com/lifecycle/products/",
+    "ubuntu": "https://ubuntu.com/about/release-cycle",
+    "rhel": "https://access.redhat.com/support/policy/updates/errata"
+  },
+  "lambda_runtime_deprecation": {
+    "python3.6": "2022-07-18", "python3.7": "2023-12-04", "python3.8": "2024-10-14", "python3.9": "2025-12-15", "python3.10": "2026-06-30",
+    "nodejs12.x": "2023-03-31", "nodejs14.x": "2023-12-04", "nodejs16.x": "2024-06-12", "nodejs18.x": "2025-09-01", "nodejs20.x": "2026-04-30",
+    "dotnetcore3.1": "2023-04-03", "dotnet6": "2024-12-20", "dotnet7": "2024-05-14",
+    "go1.x": "2024-01-08", "java8": "2024-01-08", "ruby2.7": "2023-12-07", "ruby3.2": "2025-03-31", "provided": "2023-12-31"
+  },
+  "os_end_of_life": [
+    {"match": "Amazon Linux AMI", "eol": "2023-12-31", "label": "Amazon Linux (1)"},
+    {"match": "Amazon Linux", "version_prefix": "2018", "eol": "2023-12-31", "label": "Amazon Linux (1)"},
+    {"match": "Amazon Linux", "version_prefix": "2", "eol": "2026-06-30", "label": "Amazon Linux 2"},
+    {"match": "Amazon Linux", "version_prefix": "2023", "eol": "2028-03-15", "label": "Amazon Linux 2023"},
+    {"match": "CentOS", "version_prefix": "7", "eol": "2024-06-30", "label": "CentOS 7"},
+    {"match": "CentOS", "version_prefix": "8", "eol": "2021-12-31", "label": "CentOS 8"},
+    {"match": "Ubuntu", "version_prefix": "16.04", "eol": "2021-04-30", "label": "Ubuntu 16.04"},
+    {"match": "Ubuntu", "version_prefix": "18.04", "eol": "2023-05-31", "label": "Ubuntu 18.04"},
+    {"match": "Ubuntu", "version_prefix": "20.04", "eol": "2025-05-31", "label": "Ubuntu 20.04"},
+    {"match": "Ubuntu", "version_prefix": "22.04", "eol": "2027-06-01", "label": "Ubuntu 22.04"},
+    {"match": "Ubuntu", "version_prefix": "24.04", "eol": "2029-05-31", "label": "Ubuntu 24.04"},
+    {"match": "Microsoft Windows Server 2008", "eol": "2020-01-14", "label": "Windows Server 2008/2008 R2"},
+    {"match": "Microsoft Windows Server 2012", "eol": "2023-10-10", "label": "Windows Server 2012/2012 R2"},
+    {"match": "Microsoft Windows Server 2016", "eol": "2027-01-12", "label": "Windows Server 2016"},
+    {"match": "Microsoft Windows Server 2019", "eol": "2029-01-09", "label": "Windows Server 2019"},
+    {"match": "Microsoft Windows Server 2022", "eol": "2031-10-14", "label": "Windows Server 2022"},
+    {"match": "Red Hat Enterprise Linux", "version_prefix": "6", "eol": "2020-11-30", "label": "RHEL 6"},
+    {"match": "Red Hat Enterprise Linux", "version_prefix": "7", "eol": "2024-06-30", "label": "RHEL 7"},
+    {"match": "Red Hat Enterprise Linux", "version_prefix": "8", "eol": "2029-05-31", "label": "RHEL 8"},
+    {"match": "Red Hat Enterprise Linux", "version_prefix": "9", "eol": "2032-05-31", "label": "RHEL 9"},
+    {"match": "Debian", "version_prefix": "9", "eol": "2022-06-30", "label": "Debian 9"},
+    {"match": "Debian", "version_prefix": "10", "eol": "2024-06-30", "label": "Debian 10"},
+    {"match": "Debian", "version_prefix": "11", "eol": "2026-08-31", "label": "Debian 11"},
+    {"match": "Debian", "version_prefix": "12", "eol": "2028-06-30", "label": "Debian 12"},
+    {"match": "SLES", "version_prefix": "12", "eol": "2024-10-31", "label": "SUSE Linux Enterprise Server 12"}
+  ],
+  "previous_generation_families": {
+    "ec2": ["t1", "t2", "m1", "m2", "m3", "m4", "c1", "c3", "c4", "r3", "r4", "i2", "g2", "g3", "p2", "cc2", "cr1", "hs1", "a1"],
+    "rds": ["db.t1", "db.t2", "db.m1", "db.m2", "db.m3", "db.m4", "db.r3", "db.r4", "db.cr1"],
+    "elasticache": ["cache.t1", "cache.t2", "cache.m1", "cache.m2", "cache.m3", "cache.m4", "cache.r3", "cache.r4", "cache.c1"]
+  },
+  "commercial_license_usage_operations": {
+    "RunInstances:0002": "Windows Server",
+    "RunInstances:0006": "Windows Server with SQL Server Web",
+    "RunInstances:0102": "Windows Server with SQL Server Standard",
+    "RunInstances:0202": "Windows Server with SQL Server Enterprise",
+    "RunInstances:0800": "Red Hat Enterprise Linux"
+  }
+}

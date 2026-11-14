@@ -1,0 +1,4 @@
+interface:
+  display_name: "moda-skill - AWS modernization assessment"
+  short_description: "Prepare, start, resume or report an AWS assessment"
+  default_prompt: "Use $moda-skill start to assess an AWS workload read-only and produce the unified report."

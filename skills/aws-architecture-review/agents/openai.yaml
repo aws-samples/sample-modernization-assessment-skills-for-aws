@@ -1,0 +1,4 @@
+interface:
+  display_name: "04 - AWS architecture review"
+  short_description: "Review evidence across six AWS architecture pillars"
+  default_prompt: "Use $aws-architecture-review to assess my workload with evidence-qualified findings, transparent scoring and workload-specific AWS diagrams."
