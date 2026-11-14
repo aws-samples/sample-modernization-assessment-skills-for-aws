@@ -170,7 +170,9 @@ older unmodified copy.
 `.codex/hooks.json`): a **read-only guard** that blocks any `aws` command before it runs unless it is a
 describe/list/get metadata call (data reads such as `get-secret-value` or `s3api get-object` are blocked too),
 and a **stop gate** that asks the agent to keep going while a run has unfinished stages or a draft report. The
-guard turns the "read-only" promise from an instruction into a mechanism. In Kiro it also checks the built-in
+guard turns the "read-only" promise from an instruction into a mechanism. It also looks inside `bash -c`, `eval`,
+`xargs`, `sudo` and command substitutions, refuses inline Python, Node.js or PowerShell code that calls AWS, and
+allows `ssm send-command` only with the `AWS-RunShellScript` document of the host inspection. In Kiro it also checks the built-in
 `use_aws` tool. It does not see other AWS tools you add yourself (for example an AWS API MCP server), so the
 read-only role in [Permissions](#permissions) remains the boundary that holds in every case. Each client asks you to trust project
 hooks once (Kiro: trust the workspace; Claude Code: accept at session start; Codex: `/hooks`, `t`).

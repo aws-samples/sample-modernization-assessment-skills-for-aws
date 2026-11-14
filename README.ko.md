@@ -153,7 +153,9 @@ moda-skill doctor
 `.codex/hooks.json`). 하나는 **읽기 전용 가드**로, describe/list/get 메타데이터 호출이 아닌 `aws` 명령을 실행 전에
 막습니다(`get-secret-value`나 `s3api get-object` 같은 데이터 읽기도 막습니다). 다른 하나는 **중단 방지 장치**로, 단계가
 남았거나 보고서가 초안이면 에이전트에게 계속 진행하도록 요청합니다. 가드 덕분에 "읽기 전용"이 지시가 아니라 장치가
-됩니다. Kiro에서는 내장 `use_aws` 도구도 같은 기준으로 검사합니다. 직접 추가한 다른 AWS 도구(예: AWS API MCP 서버)는
+됩니다. 가드는 `bash -c`, `eval`, `xargs`, `sudo`, 명령 치환 안의 호출도 살피고, AWS를 부르는 Python·Node.js·PowerShell
+인라인 코드는 거부하며, `ssm send-command`는 호스트 점검이 쓰는 `AWS-RunShellScript` 문서일 때만 허용합니다.
+Kiro에서는 내장 `use_aws` 도구도 같은 기준으로 검사합니다. 직접 추가한 다른 AWS 도구(예: AWS API MCP 서버)는
 가드가 보지 못하므로, 어떤 경우에도 지켜지는 경계는 [권한](#권한)의 읽기 전용 역할입니다. 클라이언트마다 프로젝트 훅을 한 번 신뢰해 줘야 합니다(Kiro: 워크스페이스 신뢰, Claude Code: 세션 시작 시 승인,
 Codex: `/hooks`에서 `t`).
 

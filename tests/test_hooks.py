@@ -101,16 +101,76 @@ class ReadOnlyGuard(unittest.TestCase):
             self.assertIsNotNone(hook.judge(service, operation), (service, operation))
 
     def test_every_mutating_verb_is_blocked_on_every_service(self):
-        allowed_writes = {("ssm", "send-command")}  # the optional host inspection, scoped by the sample IAM policy
         for service in self.MUTATING_SERVICES:
             for verb in self.MUTATING_VERBS:
                 operation = f"{verb}-resource"
-                if (service, operation) in allowed_writes:
-                    continue
                 with self.subTest(service=service, operation=operation):
                     self.assertIsNotNone(hook.judge(service, operation))
                     self.assertTrue(self.decide(f"aws {service} {operation} --region us-east-1"))
-        self.assertIsNone(hook.judge("ssm", "send-command"))
+        # The one write the assessment performs, and only with the document the host inspection uses.
+        self.assertIsNone(hook.judge("ssm", "send-command", ["--instance-ids", "i-1", "--document-name", "AWS-RunShellScript"]))
+        self.assertIsNone(hook.judge("ssm", "send-command", ["--document-name=AWS-RunShellScript"]))
+        for arguments in ([], ["--document-name", "AWS-RunPowerShellScript"], ["--document-name", "Custom-Doc"]):
+            with self.subTest(arguments=arguments):
+                self.assertIn("AWS-RunShellScript document", hook.judge("ssm", "send-command", arguments))
+
+    def test_reads_that_return_secrets_or_credentials_are_blocked(self):
+        for service, operation in (("secretsmanager", "batch-get-secret-value"), ("ssm", "get-parameter-history"),
+                                   ("ec2", "get-password-data"), ("ec2", "get-console-output"),
+                                   ("codeartifact", "get-authorization-token"), ("ecr-public", "get-authorization-token"),
+                                   ("redshift", "get-cluster-credentials"), ("sts", "assume-role"),
+                                   ("sso", "get-role-credentials"), ("cognito-identity", "get-credentials-for-identity"),
+                                   ("kinesis", "get-records"), ("lambda", "get-layer-version"),
+                                   ("someservice", "get-api-token"), ("someservice", "describe-db-password")):
+            with self.subTest(service=service, operation=operation):
+                self.assertIsNotNone(hook.judge(service, operation))
+        for service, operation in (("iam", "get-account-password-policy"), ("iam", "get-credential-report"),
+                                   ("sts", "get-caller-identity"), ("ecr", "describe-repositories")):
+            with self.subTest(service=service, operation=operation):
+                self.assertIsNone(hook.judge(service, operation))
+
+    def test_configure_allows_profile_options_only(self):
+        for command in ("aws configure list-profiles", "aws configure list", "aws configure set region us-east-1 --profile a",
+                        "aws configure set role_arn arn:aws:iam::111111111111:role/R --profile a", "aws configure get region",
+                        "aws configure sso --profile a", "aws configure"):
+            with self.subTest(command=command):
+                self.assertEqual(self.decide(command), [])
+        for command in ("aws configure export-credentials --format env", "aws configure get aws_secret_access_key",
+                        "aws configure set aws_access_key_id AKIAEXAMPLE", "aws configure set profile.x.aws_session_token t",
+                        "aws configure import --csv file://k.csv"):
+            with self.subTest(command=command):
+                self.assertTrue(self.decide(command))
+
+    def test_wrapped_and_nested_aws_calls_are_found(self):
+        def blocked(command):
+            return run_hook("guard", {"tool_name": "shell", "tool_input": {"command": command}}, ROOT).returncode == 2
+        for command in ('bash -c "aws ec2 terminate-instances --instance-ids i-1"',
+                        "sh -lc 'aws iam create-user --user-name x'",
+                        'eval "aws s3api delete-bucket --bucket b"',
+                        "echo i-1 | xargs aws ec2 terminate-instances --instance-ids",
+                        "echo i-1 | xargs -I{} aws ec2 stop-instances --instance-ids {}",
+                        "find . -name x -exec aws s3 rm s3://b/{} \\;",
+                        "sudo -u root aws ec2 reboot-instances --instance-ids i-1",
+                        "nice -n 5 aws rds delete-db-instance --db-instance-identifier d",
+                        "X=$(echo $(aws ec2 delete-vpc --vpc-id v))",
+                        "echo `aws iam delete-role --role-name r`",
+                        "(aws ec2 delete-subnet --subnet-id s)",
+                        'python3 -c "import boto3; boto3.client(\'ec2\').terminate_instances(InstanceIds=[\'i-1\'])"',
+                        'python3 -c "import subprocess; subprocess.run([\'aws\', \'iam\', \'list-users\'])"',
+                        'node -e "require(\'@aws-sdk/client-ec2\')"',
+                        "pwsh -EncodedCommand ZQBjAGgAbwAgAGgAaQA=",
+                        "aws ec2 describe-vpcs & aws ec2 delete-vpc --vpc-id v"):
+            with self.subTest(command=command):
+                self.assertTrue(blocked(command), command)
+        codex = run_hook("guard", {"tool_name": "shell", "tool_input": {"command": ["bash", "-lc", "aws ec2 terminate-instances --instance-ids i-1"]}}, ROOT)
+        self.assertEqual(codex.returncode, 2, "list-form commands are checked as the script they run")
+        for command in ('bash -c "aws ec2 describe-instances --region us-east-1"',
+                        "aws ec2 describe-instances --query 'Reservations[].Instances[].InstanceId' --output text | xargs -n1 echo",
+                        'python3 -c "import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],\'rb\').read()).hexdigest())" ~/.kiro/skills/aws-cli-setup/SKILL.md',
+                        'python3 "$HOME/.kiro/skills/aws-as-is-analysis/scripts/collect.py" --profile assessment --regions us-east-1',
+                        "X=$(aws sts get-caller-identity --query Account --output text) && aws ec2 describe-vpcs"):
+            with self.subTest(command=command):
+                self.assertFalse(blocked(command), command)
 
     def test_use_aws_tool_calls_are_checked_like_the_cli(self):
         def call(tool_input):
