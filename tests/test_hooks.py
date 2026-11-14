@@ -55,7 +55,19 @@ class ReadOnlyGuard(unittest.TestCase):
         ("aws ec2 describe-instances; aws ec2 modify-instance-attribute --instance-id i --no-source-dest-check", "not a read-only"),
         ("timeout 60 aws rds delete-db-instance --db-instance-identifier d", "not a read-only"),
         ("cd /tmp && env AWS_REGION=us-east-1 aws dynamodb scan --table-name t", "data content or credentials"),
+        ("aws kms generate-data-key --key-id k --key-spec AES_256", "not a read-only"),
+        ("aws apigateway test-invoke-method --rest-api-id a --resource-id r --http-method GET", "not a read-only"),
+        ("aws ssm start-session --target i-1", "not a read-only"),
     ]
+    # Verb families that change something. The guard decides on the command alone, before any call is made, so the
+    # result is the same whatever the credentials allow (an administrator role included).
+    MUTATING_VERBS = ("create", "delete", "put", "update", "modify", "run", "start", "stop", "terminate", "reboot",
+                      "attach", "detach", "associate", "disassociate", "register", "deregister", "enable", "disable",
+                      "tag", "untag", "add", "remove", "set", "reset", "replace", "restore", "import", "copy", "upload",
+                      "publish", "send", "invoke", "execute", "rotate", "authorize", "revoke", "accept", "reject",
+                      "cancel", "apply", "generate", "test")
+    MUTATING_SERVICES = ("ec2", "iam", "s3api", "rds", "lambda", "ecs", "eks", "cloudformation", "dynamodb", "kms",
+                         "secretsmanager", "ssm", "sns", "sqs", "elbv2", "route53", "organizations", "sts")
 
     @staticmethod
     def decide(command):
@@ -87,6 +99,43 @@ class ReadOnlyGuard(unittest.TestCase):
     def test_judge_covers_every_denied_pair(self):
         for service, operation in hook.DENY:
             self.assertIsNotNone(hook.judge(service, operation), (service, operation))
+
+    def test_every_mutating_verb_is_blocked_on_every_service(self):
+        allowed_writes = {("ssm", "send-command")}  # the optional host inspection, scoped by the sample IAM policy
+        for service in self.MUTATING_SERVICES:
+            for verb in self.MUTATING_VERBS:
+                operation = f"{verb}-resource"
+                if (service, operation) in allowed_writes:
+                    continue
+                with self.subTest(service=service, operation=operation):
+                    self.assertIsNotNone(hook.judge(service, operation))
+                    self.assertTrue(self.decide(f"aws {service} {operation} --region us-east-1"))
+        self.assertIsNone(hook.judge("ssm", "send-command"))
+
+    def test_use_aws_tool_calls_are_checked_like_the_cli(self):
+        def call(tool_input):
+            return run_hook("guard", {"tool_name": "use_aws", "tool_input": tool_input}, ROOT)
+        read = call({"service_name": "ec2", "operation_name": "describe-instances", "region": "us-east-1", "label": "x"})
+        self.assertEqual(read.returncode, 0, read.stderr)
+        self.assertEqual(call({"service_name": "ec2", "operation_name": "DescribeInstances"}).returncode, 0)
+        for tool_input, reason in (
+                ({"service_name": "ec2", "operation_name": "terminate-instances", "parameters": {"instance-ids": "i-1"}}, "not a read-only"),
+                ({"service_name": "ec2", "operation_name": "TerminateInstances"}, "not a read-only"),
+                ({"service_name": "iam", "operation_name": "create-access-key"}, "not a read-only"),
+                ({"service_name": "secretsmanager", "operation_name": "get-secret-value"}, "data content or credentials"),
+                ({"service_name": "kms", "operation_name": "generate-data-key"}, "not a read-only"),
+                ({}, "names no service and operation"),
+                ({"service_name": "ec2"}, "names no service and operation")):
+            with self.subTest(tool_input=tool_input):
+                result = call(tool_input)
+                self.assertEqual(result.returncode, 2, tool_input)
+                self.assertIn(reason, result.stderr)
+        for service in self.MUTATING_SERVICES:
+            with self.subTest(service=service):
+                self.assertEqual(call({"service_name": service, "operation_name": "delete-resource"}).returncode, 2)
+        other_tool = run_hook("guard", {"tool_name": "mcp_aws-knowledge_aws___search_documentation",
+                                        "tool_input": {"search_phrase": "aws ec2 terminate"}}, ROOT)
+        self.assertEqual(other_tool.returncode, 0, "tools that call no AWS API are left alone")
 
 
 class StopGate(unittest.TestCase):
@@ -166,6 +215,9 @@ class HookWiring(unittest.TestCase):
             kiro = json.loads((project / ".kiro/hooks/moda-skill.json").read_text())
             self.assertEqual({h["trigger"] for h in kiro["hooks"]}, {"PreToolUse", "Stop"})
             self.assertEqual(next(h for h in kiro["hooks"] if h["trigger"] == "PreToolUse")["matcher"], "shell")
+            guards = [h for h in kiro["hooks"] if h["trigger"] == "PreToolUse"]
+            self.assertEqual({h["matcher"] for h in guards}, {"shell", "use_aws"}, "Kiro's AWS tool is guarded too")
+            self.assertTrue(all(h["action"]["command"].endswith(" guard") for h in guards))
             self.assertIn(".kiro/skills/moda-skill/scripts/hook.py", kiro["hooks"][0]["action"]["command"])
             claude = json.loads((project / ".claude/settings.json").read_text())
             self.assertEqual(claude["permissions"], {"allow": ["Read"]}, "other settings untouched")

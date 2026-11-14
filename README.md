@@ -170,7 +170,9 @@ older unmodified copy.
 `.codex/hooks.json`): a **read-only guard** that blocks any `aws` command before it runs unless it is a
 describe/list/get metadata call (data reads such as `get-secret-value` or `s3api get-object` are blocked too),
 and a **stop gate** that asks the agent to keep going while a run has unfinished stages or a draft report. The
-guard turns the "read-only" promise from an instruction into a mechanism. Each client asks you to trust project
+guard turns the "read-only" promise from an instruction into a mechanism. In Kiro it also checks the built-in
+`use_aws` tool. It does not see other AWS tools you add yourself (for example an AWS API MCP server), so the
+read-only role in [Permissions](#permissions) remains the boundary that holds in every case. Each client asks you to trust project
 hooks once (Kiro: trust the workspace; Claude Code: accept at session start; Codex: `/hooks`, `t`).
 
 ### 3. Run
@@ -275,6 +277,13 @@ Denied calls do not stop the run: the collector records `access_denied`, the rel
 become UNKNOWN, and the report says so. The run stops only if the STS account differs from the
 one you named. Credentials are never written to any artifact, and static keys are stripped from
 the environment when a profile is used.
+
+**Where the collected data goes.** The helpers keep everything under `artifacts/` on the machine
+that runs them. The agent reads that evidence to write the report, so it is sent to the model
+provider behind the agent you use (Kiro CLI, Claude Code or Codex); use one your organization
+approves for this account's metadata. `artifacts/` holds unmasked identifiers (account ID, ARNs,
+IAM user names); only the report masks the account ID and IAM user names. Handle the folder as the
+account owner's confidential data and delete it when the engagement ends.
 
 ## Limits
 

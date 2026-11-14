@@ -2,7 +2,8 @@
 """Hooks for moda-skill: a read-only guard before shell tools and a stop gate at the end of a turn. Python stdlib only.
 
   hook.py guard   PreToolUse: reads the hook event JSON on stdin, finds every `aws ...` invocation in the shell
-                  command and exits 2 (blocked, reason on stderr) unless each one is a read-only metadata call.
+                  command (or the service and operation of Kiro CLI's `use_aws` tool) and exits 2 (blocked, reason
+                  on stderr) unless each one is a read-only metadata call. A `use_aws` call without them is blocked.
   hook.py stop    Stop: if the latest run under ./artifacts is incomplete, was touched recently and is not paused,
                   prints {"decision": "block", "reason": ...} so the client starts another turn.
   hook.py pause "reason" / resume   Mark the latest run as waiting for the person (the stop gate then stays quiet).
@@ -18,7 +19,9 @@ import shlex
 import sys
 import time
 
-READ_PREFIXES = ("describe-", "list-", "get-", "batch-get-", "head-", "lookup-", "search-", "query-", "check-", "estimate-", "generate-", "preview-", "test-", "validate-", "simulate-", "select-")
+# `generate-` and `test-` are left out on purpose: `kms generate-data-key` returns key material and
+# `apigateway test-invoke-method` calls the backend. The helpers use neither.
+READ_PREFIXES = ("describe-", "list-", "get-", "batch-get-", "head-", "lookup-", "search-", "query-", "check-", "estimate-", "preview-", "validate-", "simulate-", "select-")
 # Data content and credential material: denied even though the verb reads. Matches docs/iam/assessment-policy.json.
 DENY = {
     ("secretsmanager", "get-secret-value"), ("ssm", "get-parameter"), ("ssm", "get-parameters"), ("ssm", "get-parameters-by-path"),
@@ -30,7 +33,7 @@ DENY = {
     ("cognito-idp", "admin-get-user"), ("iam", "get-login-profile"),
 }
 # The one write the assessment may perform (optional host inspection), plus the local CLI configuration verbs.
-ALLOW_EXACT = {("ssm", "send-command"), ("ssm", "start-session"), ("sso", "login"), ("sso", "logout"), ("sts", "assume-role"),
+ALLOW_EXACT = {("ssm", "send-command"), ("sso", "login"), ("sso", "logout"), ("sts", "assume-role"),
                ("sts", "get-caller-identity"), ("s3", "ls"), ("s3api", "list-buckets"), ("cloudtrail", "lookup-events")}
 ALLOW_SERVICES = {"configure", "help", "--version"}
 GLOBAL_WITH_VALUE = {"--profile", "--region", "--output", "--query", "--endpoint-url", "--cli-connect-timeout", "--cli-read-timeout",
@@ -60,6 +63,30 @@ def command_text(event):
         if isinstance(value, list):
             return " ".join(str(v) for v in value)
     return event.get("command") if isinstance(event.get("command"), str) else ""
+
+
+AWS_TOOLS = {"use_aws"}  # Kiro CLI's built-in AWS tool: it calls AWS without a shell command line
+
+
+def cli_name(value):
+    """`DescribeInstances` or `describe_instances` -> `describe-instances`; CLI names pass through unchanged."""
+    text = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "-", str(value).strip())
+    return text.replace("_", "-").lower()
+
+
+def aws_tool_call(event):
+    """(service, operation) for a structured AWS tool call, ("", "") when its fields are missing, None for other tools."""
+    tool_input = event.get("tool_input") or event.get("toolInput") or event.get("input") or {}
+    if not isinstance(tool_input, dict):
+        tool_input = {}
+    service = tool_input.get("service_name") or tool_input.get("serviceName") or tool_input.get("service")
+    operation = tool_input.get("operation_name") or tool_input.get("operationName") or tool_input.get("operation")
+    tool = str(event.get("tool_name") or event.get("toolName") or "")
+    if tool not in AWS_TOOLS and not (isinstance(service, str) and isinstance(operation, str)):
+        return None
+    if not isinstance(service, str) or not isinstance(operation, str) or not service.strip() or not operation.strip():
+        return "", ""
+    return cli_name(service), cli_name(operation)
 
 
 def segments(command):
@@ -120,6 +147,16 @@ def judge(service, operation):
 
 
 def guard(event):
+    structured = aws_tool_call(event)
+    if structured is not None:
+        service, operation = structured
+        reason = judge(service, operation) if service and operation else (
+            "this AWS tool call names no service and operation, so it cannot be checked")
+        if reason:
+            sys.stderr.write("moda-skill read-only guard blocked this AWS tool call:\n- " + reason +
+                             "\nUse the equivalent describe/list/get call, or tell the person what you needed and why.\n")
+            return 2
+        return 0
     command = command_text(event)
     if not command or "aws" not in command:
         return 0

@@ -14,6 +14,7 @@
     .\install.ps1 -From .\moda-skill-2.2.1.zip          # offline; SHA256SUMS next to the zip is used when present
     $env:MODA_SKILL_BASE_URL = 'https://dxxxx.cloudfront.net/moda-skill'; .\install.ps1
 #>
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '', Justification = 'Interactive installer: progress messages are for the console only.')]
 [CmdletBinding()]
 param(
   [string]$Version = $env:MODA_SKILL_VERSION,
@@ -57,7 +58,10 @@ foreach ($candidate in @(@('py', '-3'), @('python'), @('python3'))) {
   try {
     $probe = & $exe.Source @argv 2>$null
     if ("$probe".Trim() -eq '1') { $pythonCommand = $candidate -join ' '; break }
-  } catch { }
+  } catch {
+    # This interpreter could not run the version probe; try the next candidate. The installer stops below if none works.
+    Write-Verbose "Python probe failed for $($candidate -join ' '): $($_.Exception.Message)"
+  }
 }
 if (-not $pythonCommand) { Fail 'Python 3.11 or later is required (install from python.org or the Microsoft Store, then re-run)' }
 

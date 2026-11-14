@@ -97,6 +97,8 @@ def wire_hooks(harness, scope, project_root, dry_run=False):
         doc = {"version": "v1", "hooks": [
             {"name": "moda-skill read-only guard", "description": "Blocks aws CLI calls that are not describe/list/get metadata reads",
              "trigger": "PreToolUse", "matcher": "shell", "action": {"type": "command", "command": commands["guard"]}, "timeout": 20},
+            {"name": "moda-skill read-only guard (AWS tool)", "description": "Blocks use_aws calls that are not describe/list/get metadata reads",
+             "trigger": "PreToolUse", "matcher": "use_aws", "action": {"type": "command", "command": commands["guard"]}, "timeout": 20},
             {"name": "moda-skill stop gate", "description": "Keeps an assessment run going until its stages and report are complete",
              "trigger": "Stop", "action": {"type": "command", "command": commands["stop"]}, "timeout": 30},
         ]}
