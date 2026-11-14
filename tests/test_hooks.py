@@ -276,7 +276,7 @@ class HookWiring(unittest.TestCase):
             self.assertEqual({h["trigger"] for h in kiro["hooks"]}, {"PreToolUse", "Stop"})
             self.assertEqual(next(h for h in kiro["hooks"] if h["trigger"] == "PreToolUse")["matcher"], "shell")
             guards = [h for h in kiro["hooks"] if h["trigger"] == "PreToolUse"]
-            self.assertEqual({h["matcher"] for h in guards}, {"shell", "use_aws"}, "Kiro's AWS tool is guarded too")
+            self.assertEqual({h["matcher"] for h in guards}, {"shell", "use_aws", "write"}, "Kiro's AWS tool and file edits are guarded too")
             self.assertTrue(all(h["action"]["command"].endswith(" guard") for h in guards))
             self.assertIn(".kiro/skills/moda-skill/scripts/hook.py", kiro["hooks"][0]["action"]["command"])
             claude = json.loads((project / ".claude/settings.json").read_text())
@@ -284,6 +284,8 @@ class HookWiring(unittest.TestCase):
             commands = [h["command"] for g in claude["hooks"]["PreToolUse"] for h in g["hooks"]]
             self.assertIn("echo other-tool", commands, "foreign hook kept")
             self.assertTrue(any(".claude/skills/moda-skill/scripts/hook.py\" guard" in c for c in commands))
+            matchers = {g.get("matcher") for g in claude["hooks"]["PreToolUse"] if any("moda-skill" in h["command"] for h in g["hooks"])}
+            self.assertEqual(matchers, {"Bash", "Edit|Write|MultiEdit|NotebookEdit"}, "shell commands and file edits are both guarded")
             self.assertTrue((project / ".claude/settings.json.bak-moda").is_file())
             codex = json.loads((project / ".codex/hooks.json").read_text())
             self.assertIn("Stop", codex["hooks"])

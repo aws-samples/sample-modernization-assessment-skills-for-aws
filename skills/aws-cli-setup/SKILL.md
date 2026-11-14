@@ -28,6 +28,8 @@ The user may give nothing beyond "start the assessment". Reuse whatever the requ
    ```
 
    Replace `--profile NAME` with `--environment` for temporary environment credentials. On Windows, use `py -3` or the installed Python executable.
+
+   **Write-capability gate.** `access-check.json` also records `principal_type` and `write_capability` (`yes`, `no` or `unknown`), judged with IAM's policy simulator against changes, data reads and credential operations. `no` continues. For `yes` or `unknown`, pause (`hook.py pause "write-capable profile"`) and tell the person in one short paragraph what the profile can do (`write_capability.allowed`, and `long_term_credentials` for an IAM user's keys), then offer, in this order: (1) switch to a read-only profile, such as an IAM Identity Center ReadOnlyAccess permission set or the dedicated role in the README's Permissions section, which the person creates; (2) stop here; (3) continue with this profile anyway. Never create or change IAM roles, users or policies yourself. Only for (3) pass `--acknowledge-write-capable "<the person's reason>"` to `scope.py write` below; without it the collecting helpers refuse to start (`write_capable_profile_not_acknowledged`). After a switch, rerun `verify_access.py` with the new profile into a fresh run directory.
 6. If the account is unknown, first verify STS identity without `--expected-account`. Reconcile it with the user's target and always provide the expected account during collection. STS success does not prove service permissions.
 7. **Scope interview.** Look around read-only, then ask the user to confirm the scope. Skip any question the request already answered; if the user said "use defaults" / "기본값으로 진행", skip the interview and record `confirmed_by: defaults`.
 

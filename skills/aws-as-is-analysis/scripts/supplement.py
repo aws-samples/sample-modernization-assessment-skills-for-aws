@@ -623,6 +623,11 @@ def main():
     parser.add_argument("--source-files", type=int, default=25, help="pinned CodeCommit files to read for in-scope build projects (0 = none)")
     parser.add_argument("--timeout", type=int, default=60)
     args = parser.parse_args()
+    shared = load_collect()
+    problem = shared.verify_skill_files() or shared.assessment_gate(args.output)
+    if problem:
+        print(f"Supplement stopped: {problem}", file=sys.stderr)
+        return 1
     try:
         inventory = json.loads((args.as_is / "inventory.json").read_text(encoding="utf-8"))
         manifest = json.loads((args.as_is / "collection-manifest.json").read_text(encoding="utf-8"))

@@ -226,6 +226,64 @@ def now():
     return datetime.now(timezone.utc).isoformat()
 
 
+SKILL_DIR = Path(__file__).resolve().parent.parent
+
+
+def find_run_dir(path):
+    """The run directory above an output path: the nearest folder that holds 01-setup/access-check.json."""
+    for folder in [Path(path).resolve(), *Path(path).resolve().parents][:5]:
+        if (folder / "01-setup/access-check.json").is_file():
+            return folder
+    return None
+
+
+def assessment_gate(output):
+    """None when this run may call AWS, else the reason it may not.
+
+    Stage 1 records in 01-setup/access-check.json whether the profile can change the account (`write_capability`).
+    `yes` or `unknown` needs the person's decision recorded in scope.json (`write_capable_acknowledged`); until then the
+    helpers that call AWS refuse to start. A run without access-check.json (a helper used on its own) is not gated."""
+    run = find_run_dir(output)
+    if run is None:
+        return None
+    try:
+        access = json.loads((run / "01-setup/access-check.json").read_text(encoding="utf-8"))
+        scope_file = run / "scope.json"
+        scope = json.loads(scope_file.read_text(encoding="utf-8")) if scope_file.is_file() else {}
+    except (OSError, ValueError):
+        return "access_check_unreadable"
+    status = (access.get("write_capability") or {}).get("status", "unknown")
+    if status == "no":
+        return None
+    acknowledged = scope.get("write_capable_acknowledged")
+    if isinstance(acknowledged, dict) and str(acknowledged.get("reason") or "").strip():
+        return None
+    return f"write_capable_profile_not_acknowledged (write_capability={status}; switch to a read-only profile or record the person's decision in scope.json)"
+
+
+def verify_skill_files(skill_dir=None):
+    """None when this skill's files match the install manifest, else the first file that differs.
+
+    The manifest (aws-skills-install/assets/install-manifest.json next to this skill) records every file's SHA-256, so
+    a helper edited after installation, for example to add a call outside its allowlist, refuses to run."""
+    skill_dir = Path(skill_dir or SKILL_DIR)
+    manifest_path = skill_dir.parent / "aws-skills-install/assets/install-manifest.json"
+    if not manifest_path.is_file():
+        return None
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return "install_manifest_unreadable"
+    entry = next((s for s in manifest.get("skills", []) if s.get("name") == skill_dir.name), None)
+    if entry is None:
+        return None
+    for item in entry.get("files", []):
+        file = skill_dir / item["path"]
+        if not file.is_file() or hashlib.sha256(file.read_bytes()).hexdigest() != item.get("sha256"):
+            return f"skill_file_modified ({skill_dir.name}/{item['path']}); reinstall the skills"
+    return None
+
+
 def checked_arguments(arguments):
     """Guard for every CLI invocation: list form only (no shell), the program name is a literal at the call site
     (`["aws", *checked_arguments(...)]`, resolved through PATH exactly as shutil.which resolved it), and every argument
@@ -1010,6 +1068,10 @@ def main():
         return 0
     if args.output.exists():
         parser.error("output exists; use a fresh snapshot directory")
+    problem = verify_skill_files() or assessment_gate(args.output)
+    if problem:
+        print(f"Collection stopped: {problem}", file=sys.stderr)
+        return 1
     try:
         return Collector(args).run()
     except (ValueError, OSError, subprocess.SubprocessError) as exc:

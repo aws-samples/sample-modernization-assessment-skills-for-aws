@@ -99,6 +99,8 @@ def wire_hooks(harness, scope, project_root, dry_run=False):
              "trigger": "PreToolUse", "matcher": "shell", "action": {"type": "command", "command": commands["guard"]}, "timeout": 20},
             {"name": "moda-skill read-only guard (AWS tool)", "description": "Blocks use_aws calls that are not describe/list/get metadata reads",
              "trigger": "PreToolUse", "matcher": "use_aws", "action": {"type": "command", "command": commands["guard"]}, "timeout": 20},
+            {"name": "moda-skill file guard", "description": "During an assessment, blocks edits to AWS credentials, installed skills, hook settings and the run's verified records",
+             "trigger": "PreToolUse", "matcher": "write", "action": {"type": "command", "command": commands["guard"]}, "timeout": 20},
             {"name": "moda-skill stop gate", "description": "Keeps an assessment run going until its stages and report are complete",
              "trigger": "Stop", "action": {"type": "command", "command": commands["stop"]}, "timeout": 30},
         ]}
@@ -115,17 +117,19 @@ def wire_hooks(harness, scope, project_root, dry_run=False):
     hooks = data.setdefault("hooks", {})
     if not isinstance(hooks, dict):
         raise ValueError(f"{path}: hooks must be an object")
-    wanted = {"PreToolUse": {"matcher": "Bash", "hooks": [{"type": "command", "command": commands["guard"], "timeout": 20}]},
-              "Stop": {"hooks": [{"type": "command", "command": commands["stop"], "timeout": 30}]}}
+    file_tools = "Edit|Write|MultiEdit|NotebookEdit" if harness == "claude" else "apply_patch|Edit|Write"
+    guard_hook = {"type": "command", "command": commands["guard"], "timeout": 20}
+    wanted = {"PreToolUse": [{"matcher": "Bash", "hooks": [guard_hook]}, {"matcher": file_tools, "hooks": [dict(guard_hook)]}],
+              "Stop": [{"hooks": [{"type": "command", "command": commands["stop"], "timeout": 30}]}]}
     changed = False
-    for event, entry in wanted.items():
+    for event, entries in wanted.items():
         groups = hooks.setdefault(event, [])
         if not isinstance(groups, list):
             raise ValueError(f"{path}: hooks.{event} must be a list")
         ours = [g for g in groups if isinstance(g, dict) and any(HOOK_MARK in str(h.get("command", "")) for h in g.get("hooks", []))]
-        if ours == [entry]:
+        if ours == entries:
             continue
-        hooks[event] = [g for g in groups if g not in ours] + [entry]
+        hooks[event] = [g for g in groups if g not in ours] + entries
         changed = True
     action = "unchanged" if not changed else ("update" if path.exists() else "install")
     if not dry_run and changed:

@@ -11,6 +11,7 @@
 The same file serves Kiro CLI (.kiro/hooks/*.json), Claude Code (.claude/settings.json) and Codex (.codex/hooks.json);
 `moda-skill config --hooks` wires it. Exit codes follow the shared convention: 0 allow, 2 block.
 """
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -134,10 +135,17 @@ def split_substitutions(command):
 
 def strip_wrappers(tokens):
     """Drop env assignments and launchers (`env`, `nohup`, `timeout 60`, `sudo -u x`, ...) in front of a command."""
-    changed = True
+    return strip_wrappers_with_env(tokens)[0]
+
+
+def strip_wrappers_with_env(tokens):
+    """strip_wrappers, plus the `NAME=value` assignments it dropped (they set the command's environment)."""
+    assignments, changed = [], True
     while tokens and changed:
         changed = False
         while tokens and (re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", tokens[0]) or tokens[0] in LAUNCHERS):
+            if "=" in tokens[0] and tokens[0] not in LAUNCHERS:
+                assignments.append(tokens[0])
             tokens, changed = tokens[1:], True
         if tokens and tokens[0] == "timeout":
             tokens, changed = tokens[2:] if len(tokens) > 2 else [], True
@@ -145,7 +153,9 @@ def strip_wrappers(tokens):
             tokens, changed = tokens[1:], True
             while tokens and tokens[0].startswith("-"):
                 tokens = tokens[2:] if tokens[0] in {"-u", "-g", "-C", "-D", "-h", "-p", "-r", "-t", "-U"} else tokens[1:]
-    return tokens
+    if tokens and tokens[0] in {"export", "declare", "typeset", "readonly", "set", "setenv"}:
+        assignments += [t for t in tokens[1:] if "=" in t]
+    return tokens, assignments
 
 
 SEPARATORS = {";", "&&", "||", "|", "&", "\n", "(", ")", ";;", "|&"}
@@ -164,6 +174,11 @@ def shell_words(text):
 
 def segments(command, depth=0):
     """Split a shell command line into simple commands: operators, substitutions, wrappers, `sh -c` and `eval`."""
+    return [tokens for tokens, _ in segments_with_env(command, depth)]
+
+
+def segments_with_env(command, depth=0):
+    """segments, each with the environment assignments in front of it (`AWS_PROFILE=x aws ...`, `export X=y`)."""
     text, inner = split_substitutions(command)
     parts, current = [], []
     for word in shell_words(text):
@@ -175,19 +190,21 @@ def segments(command, depth=0):
     parts.append(current)
     out = []
     for tokens in parts:
-        tokens = strip_wrappers(tokens)
+        tokens, assignments = strip_wrappers_with_env(tokens)
         if not tokens:
+            if assignments:
+                out.append(([], assignments))
             continue
         program = os.path.basename(tokens[0])
         inline = next((i for i, t in enumerate(tokens[1:], 1) if re.fullmatch(r"-[a-z]*c", t)), None) if program in SHELLS else None
         if depth < 5 and inline is not None and inline + 1 < len(tokens):
-            out += segments(tokens[inline + 1], depth + 1)
+            out += segments_with_env(tokens[inline + 1], depth + 1)
         elif depth < 5 and program == "eval":
-            out += segments(" ".join(tokens[1:]), depth + 1)
+            out += segments_with_env(" ".join(tokens[1:]), depth + 1)
         else:
-            out.append(tokens)
+            out.append((tokens, assignments))
     for nested in inner:
-        out += segments(nested, depth + 1) if depth < 5 else []
+        out += segments_with_env(nested, depth + 1) if depth < 5 else []
     return out
 
 
@@ -271,22 +288,240 @@ def judge(service, operation, arguments=()):
     return f"aws {service} {operation} is not a read-only metadata call; the assessment runs describe/list/get only"
 
 
-def guard(event):
+BOOTSTRAP = {("sts", "get-caller-identity"), ("sso", "login"), ("sso", "logout"), ("login", ""), ("help", ""), ("", "")}
+# Environment variables that change which credentials, profile files or endpoint the AWS CLI uses.
+CREDENTIAL_ENV = re.compile(r"^(AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY|AWS_SESSION_TOKEN|AWS_SECURITY_TOKEN|AWS_CONFIG_FILE|"
+                            r"AWS_SHARED_CREDENTIALS_FILE|AWS_ROLE_ARN|AWS_ROLE_SESSION_NAME|AWS_WEB_IDENTITY_TOKEN_FILE|"
+                            r"AWS_CONTAINER_CREDENTIALS_[A-Z_]+|AWS_CONTAINER_AUTHORIZATION_TOKEN[A-Z_]*|AWS_ENDPOINT_URL[A-Z_]*|"
+                            r"AWS_CA_BUNDLE|AWS_LOGIN_CACHE_DIRECTORY)=")
+PROFILE_ENV = re.compile(r"^(AWS_PROFILE|AWS_DEFAULT_PROFILE)=(.*)$")
+# Profile settings that decide which identity a profile resolves to; frozen once the run's profile is verified.
+IDENTITY_KEYS = re.compile(r"(?i)(^|\.)(role_arn|source_profile|credential_source|credential_process|mfa_serial|"
+                           r"web_identity_token_file|role_session_name|external_id|sso_[a-z_]+|endpoint_url|ca_bundle)$")
+FILE_PATH_KEYS = ("path", "file_path", "filePath", "target_file", "notebook_path", "destination", "new_path", "old_path")
+WRITE_PROGRAMS = {"cp", "mv", "rm", "tee", "truncate", "ln", "install", "chmod", "chown", "touch", "dd", "rsync", "unlink",
+                  "rmdir", "mkdir", "shred", "patch", "ed"}
+PLAN_FILE = "agent-commands.json"
+APPROVED_FILE = "agent-commands.approved.json"
+
+
+def run_context(project_root):
+    """The assessment run the guard enforces, once stage 1 has written its scope: the latest run under ./artifacts
+    with scope.json. None outside an assessment project, so the guard then only applies its read-only rules."""
+    run = latest_run(project_root) if project_root else None
+    if run is None or not (run / "scope.json").is_file():
+        return None
+    try:
+        scope = json.loads((run / "scope.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        scope = {}
+    auth = scope.get("auth") or {}
+    return {"run": run, "root": Path(project_root).resolve(), "mode": auth.get("mode"), "profile": auth.get("profile"),
+            "regions": scope.get("regions") or []}
+
+
+def protected_paths(ctx):
+    """Files the agent must not change while a run is active: AWS credentials and config, the installed skills and
+    hook settings, and the run files that record what the person and the checks decided."""
+    home, root, run = Path.home(), ctx["root"], ctx["run"]
+    roots = [home / ".aws", home / ".kiro/skills", home / ".claude/skills", home / ".agents/skills", home / ".kiro/hooks",
+             home / ".codex/hooks.json", home / ".claude/settings.json", home / ".local/share/moda-skill",
+             root / ".kiro/skills", root / ".claude/skills", root / ".agents/skills", root / ".kiro/hooks",
+             root / ".claude/settings.json", root / ".claude/settings.local.json", root / ".codex/hooks.json"]
+    files = [run / "01-setup/access-check.json", run / "scope.json", run / APPROVED_FILE]
+    return [p.resolve() for p in roots], [p.resolve() for p in files]
+
+
+def expand(path, root):
+    text = os.path.expandvars(os.path.expanduser(str(path).strip().strip("'\"")))
+    candidate = Path(text)
+    return (candidate if candidate.is_absolute() else Path(root) / candidate).resolve()
+
+
+def protected_reason(path, ctx):
+    roots, files = protected_paths(ctx)
+    target = expand(path, ctx["root"])
+    for item in files:
+        if target == item:
+            return f"{item.name} records the run's verified access and decisions; only the stage helpers write it"
+    for item in roots:
+        if target == item or item in target.parents:
+            return f"{item} holds credentials, skills or hook settings; the agent does not change it during an assessment"
+    return None
+
+
+def file_tool_paths(event):
+    """Paths a file-editing tool is about to write (Kiro write, Claude Code Edit/Write, Codex apply_patch)."""
+    tool_input = event.get("tool_input") or event.get("toolInput") or event.get("input") or {}
+    paths = []
+    if isinstance(tool_input, dict):
+        for key in FILE_PATH_KEYS:
+            if isinstance(tool_input.get(key), str):
+                paths.append(tool_input[key])
+        for key in ("paths", "files"):
+            if isinstance(tool_input.get(key), list):
+                paths += [p if isinstance(p, str) else str(p.get("path", "")) for p in tool_input[key] if p]
+        text = "\n".join(v for v in tool_input.values() if isinstance(v, str))
+    else:
+        text = str(tool_input)
+    patch = r"(?m)^\*\*\* (?:Add File|Update File|Delete File|Move to): (.+)$"  # Codex apply_patch
+    paths += [p.strip() for p in re.findall(patch, text)]
+    return [p for p in paths if p]
+
+
+def shell_write_targets(tokens):
+    """Paths a simple command writes: redirection targets, and the arguments of programs that change files."""
+    targets = [tokens[k + 1] for k, t in enumerate(tokens[:-1]) if t in {">", ">>", ">|", "&>", "&>>", ">&"}]
+    program = os.path.basename(tokens[0]) if tokens else ""
+    edits_in_place = program in {"sed", "perl", "ruby"} and any(re.fullmatch(r"-[a-zA-Z]*i.*", t) for t in tokens[1:])
+    if program in WRITE_PROGRAMS or edits_in_place:
+        targets += [t for t in tokens[1:] if not t.startswith("-")]
+    return targets
+
+
+def canonical(service, operation, arguments):
+    """A call in comparable form: service, operation and the sorted (option, value) pairs."""
+    pairs, k, arguments = [], 0, list(arguments)
+    while k < len(arguments):
+        token = arguments[k]
+        if token.startswith("--") and "=" in token:
+            pairs.append(token.split("=", 1))
+            k += 1
+        elif token.startswith("--") and k + 1 < len(arguments) and not arguments[k + 1].startswith("--"):
+            pairs.append([token, arguments[k + 1]])
+            k += 2
+        else:
+            pairs.append([token, ""] if token.startswith("--") else ["", token])
+            k += 1
+    return [service, operation, sorted(pairs)]
+
+
+def cli_canonical(tokens):
+    """canonical() of the aws invocation in the tokens, with global options (`--profile`, `--region`) included."""
+    start = next(i for i, t in enumerate(tokens) if os.path.basename(re.sub(r"^[$(`]+", "", t)) in AWS_BINARIES)
+    positional, rest, i = [], [], start + 1
+    while i < len(tokens):
+        t = tokens[i]
+        if t.startswith("--"):
+            rest.append(t)
+            if "=" not in t and i + 1 < len(tokens) and not tokens[i + 1].startswith("--") and (t in GLOBAL_WITH_VALUE or len(positional) >= 2):
+                rest.append(tokens[i + 1])
+                i += 1
+        elif len(positional) < 2:
+            positional.append(t)
+        else:
+            rest.append(t)
+        i += 1
+    positional += [""] * (2 - len(positional))
+    return canonical(positional[0], positional[1], rest)
+
+
+def tool_canonical(event):
+    tool_input = event.get("tool_input") or event.get("toolInput") or {}
+    service, operation, arguments = aws_tool_call(event)
+    if tool_input.get("region"):
+        arguments += ["--region", str(tool_input["region"])]
+    if tool_input.get("profile_name") or tool_input.get("profile"):
+        arguments += ["--profile", str(tool_input.get("profile_name") or tool_input.get("profile"))]
+    return canonical(service, operation, arguments)
+
+
+def call_profile(form):
+    return next((v for k, v in form[2] if k == "--profile"), None)
+
+
+def scope_reason(form, ctx, assignments=(), arguments=None):
+    """Profile pinning: during a run every AWS call uses the profile stage 1 verified, and nothing swaps credentials."""
+    for assignment in assignments:
+        if CREDENTIAL_ENV.match(assignment):
+            return f"{assignment.split('=', 1)[0]} would change the credentials or endpoint the AWS CLI uses during the assessment"
+        match = PROFILE_ENV.match(assignment)
+        if match and (ctx["mode"] != "profile" or match.group(2).strip("'\"") != ctx["profile"]):
+            return f"{match.group(1)} must stay the run's profile ({ctx['profile'] or 'environment credentials'})"
+    if form is None:
+        return None
+    service, operation = form[0], form[1]
+    profile = call_profile(form)
+    if service == "configure":
+        if operation == "set":
+            ordered = arguments if arguments is not None else [v for k, v in form[2] if k == ""]
+            key = next((a for a in ordered if not a.startswith("-")), "")
+            target = key.split(".")[1] if key.startswith("profile.") and key.count(".") >= 2 else (profile or "default")
+            if IDENTITY_KEYS.search(key) and (ctx["mode"] != "profile" or target == ctx["profile"]):
+                return f"aws configure set {key} would change which identity the run's verified profile uses"
+        return None
+    if (service, operation) in BOOTSTRAP or service in {"sso", "login", "help"}:
+        return None
+    if ctx["mode"] == "profile":
+        if profile != ctx["profile"]:
+            return (f"AWS calls in this run use --profile {ctx['profile']} (the profile stage 1 verified); "
+                    f"this call uses {('--profile ' + profile) if profile else 'no --profile'}")
+    elif profile:
+        return "this run uses the environment credentials stage 1 verified; --profile would switch identities"
+    return None
+
+
+def plan_reason(form, ctx):
+    """Approved-command mode: during a run the agent's own AWS calls must be ones plan_check.py approved."""
+    service, operation = form[0], form[1]
+    if service in {"configure", "sso", "login", "help"} or (service, operation) in BOOTSTRAP:
+        return None
+    hint = (f"write it to {ctx['run'] / PLAN_FILE}, run `python3 <skills>/moda-skill/scripts/plan_check.py --run-dir "
+            f"{ctx['run']}`, then run exactly the approved command")
+    approved_file, plan_file = ctx["run"] / APPROVED_FILE, ctx["run"] / PLAN_FILE
+    try:
+        approved = json.loads(approved_file.read_text(encoding="utf-8"))
+        current = hashlib.sha256(plan_file.read_bytes()).hexdigest()
+    except (OSError, ValueError):
+        return f"aws {service} {operation} is not in an approved command list; {hint}"
+    if approved.get("source_sha256") != current:
+        return f"{PLAN_FILE} changed after it was approved; {hint}"
+    if not any(entry.get("form") == form for entry in approved.get("commands", [])):
+        return f"aws {service} {operation} with these arguments is not in the approved list; {hint}"
+    return None
+
+
+def guard(event, project_root=None):
+    ctx = run_context(event.get("cwd") or project_root)
+    blocked = []
+    if ctx:
+        for path in file_tool_paths(event):
+            reason = protected_reason(path, ctx)
+            if reason:
+                blocked.append(reason)
+        if blocked:
+            sys.stderr.write("moda-skill read-only guard blocked this file change:\n- " + "\n- ".join(dict.fromkeys(blocked)) + "\n")
+            return 2
     structured = aws_tool_call(event)
     if structured is not None:
         service, operation, arguments = structured
         reason = judge(service, operation, arguments) if service and operation else (
             "this AWS tool call names no service and operation, so it cannot be checked")
+        if not reason and ctx:
+            form = tool_canonical(event)
+            reason = scope_reason(form, ctx) or plan_reason(form, ctx)
         if reason:
             sys.stderr.write("moda-skill read-only guard blocked this AWS tool call:\n- " + reason +
                              "\nUse the equivalent describe/list/get call, or tell the person what you needed and why.\n")
             return 2
         return 0
     command = command_text(event)
-    if not command or not re.search(r"(?i)aws|boto|encodedcommand|-enc\b|\bpwsh\b|\bpowershell\b", command):
+    if not command or not re.search(r"(?i)aws|boto|encodedcommand|-enc\b|\bpwsh\b|\bpowershell\b|\.kiro|\.claude|\.agents|\.codex|"
+                                    + re.escape(APPROVED_FILE) + "|access-check|scope\\.json|moda-skill", command):
         return 0
-    blocked = []
-    for tokens in segments(command):
+    for tokens, assignments in segments_with_env(command):
+        if ctx:
+            reason = scope_reason(None, ctx, assignments)
+            if reason:
+                blocked.append(reason)
+            for target in shell_write_targets(tokens):
+                reason = protected_reason(target, ctx)
+                if reason:
+                    blocked.append(reason)
+            if any(".aws/credentials" in t or re.search(r"\.aws/(sso|cli|login)/cache", t) for t in tokens):
+                blocked.append("~/.aws/credentials and the credential caches hold secrets; the assessment never reads them")
+        if not tokens:
+            continue
         reason = inline_code_reason(tokens)
         if reason:
             blocked.append(reason)
@@ -295,6 +530,9 @@ def guard(event):
         if call is None:
             continue
         reason = judge(*call)
+        if not reason and ctx:
+            form = cli_canonical(tokens)
+            reason = scope_reason(form, ctx, arguments=call[2]) or plan_reason(form, ctx)
         if reason:
             blocked.append(reason)
     if blocked:
@@ -363,7 +601,7 @@ def main():
         return 2
     project_root = os.environ.get("MODA_PROJECT_ROOT") or os.getcwd()
     if sys.argv[1] == "guard":
-        return guard(read_event())
+        return guard(read_event(), project_root)
     if sys.argv[1] == "stop":
         return stop(read_event(), project_root)
     run = latest_run(project_root)

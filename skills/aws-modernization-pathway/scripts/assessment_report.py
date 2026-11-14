@@ -1147,6 +1147,35 @@ def usage_markdown(run_meta, inventory):
     return lines[:4] + clock + lines[4:] if clock else lines
 
 
+def write_audit_text(audit):
+    """What CloudTrail shows about changes by the assessment's principal (write_audit.py), in plain text, so the reader
+    can see that the run stayed read-only rather than take it on trust."""
+    if not audit:
+        return "not run. write_audit.py checks CloudTrail for changes made by the assessment's principal during the run."
+    regions = ", ".join(sorted(audit.get("regions") or {}))
+    window = audit.get("window") or {}
+    if audit.get("status") == "clean":
+        expected = len(audit.get("expected") or [])
+        extra = f" {expected} SSM SendCommand call(s) for the host inspection are the expected exception." if expected else ""
+        text = f"CloudTrail shows no change by the assessment's principal from {window.get('start', '')} to {window.get('end', '')} in {regions}.{extra}"
+    elif audit.get("status") == "writes_found":
+        items = "; ".join(f"{e.get('time', '')} {e.get('source', '')} {e.get('name', '')} ({e.get('region', '')})" for e in audit.get("unexpected", [])[:20])
+        text = (f"CloudTrail shows {len(audit.get('unexpected', []))} change(s) by the assessment's principal during the run: {items}. "
+                "Review them before this report is used.")
+    else:
+        failed = ", ".join(f"{r} ({v.get('error_code') or 'error'})" for r, v in (audit.get("regions") or {}).items() if v.get("status") != "ok")
+        text = f"the CloudTrail check could not read every region: {failed}. No change was found in the regions it read."
+    return f"{text} {audit.get('note', '')}".strip()
+
+
+def write_audit_html(audit):
+    return f'<p class="small"><b>Write audit:</b> {kit.esc(write_audit_text(audit))}</p>'
+
+
+def write_audit_markdown(audit):
+    return [f"- Write audit: {write_audit_text(audit)}", ""]
+
+
 def run_clock_html(inventory):
     """Wall-clock time from the start of the run (its id is the UTC start time) to this report, so the assistant's own
     usage figures below are not read as the length of the assessment."""
@@ -1350,6 +1379,7 @@ def render(args):
     diagram_audit = read_json(audit_path) if Path(audit_path).is_file() else None
     diagram_ok = bool(diagram_audit) and diagram_audit.get("status") == "pass" and (diagram_audit.get("coverage") or {}).get("status") == "pass"
     run_meta = kit.load_run_metadata(args.run_metadata)
+    write_audit = read_json(run / "write-audit.json") if (run / "write-audit.json").is_file() else None
     grades = kit.grade_all(checks, PILLARS)
     as_is_svg = safe_svg(args.as_is_diagram) if args.as_is_diagram else None
     to_be_svg = safe_svg(args.to_be_diagram) if args.to_be_diagram else None
@@ -1421,7 +1451,7 @@ def render(args):
 <section id="next"><h2>Reference material</h2>{next_steps_html(pathways_doc.get("next_steps") or {}, args.language)}</section>
 <section id="terms"><h2>Terms used in this report</h2>@@TERMS@@</section>
 <section id="evidence"><h2>Evidence</h2>{evidence_html(evidence_rows)}</section>
-<section id="appendix"><h2>Method and provenance</h2>{method_appendix(scores, checks, pathways, pathways_doc["weights"])}{run_clock_html(inventory)}{usage_html(run_meta, inventory)}
+<section id="appendix"><h2>Method and provenance</h2>{method_appendix(scores, checks, pathways, pathways_doc["weights"])}{run_clock_html(inventory)}{write_audit_html(write_audit)}{usage_html(run_meta, inventory)}
 <details><summary>Scope and limitations</summary><div class="body"><ul><li>Services in scope: {kit.esc(", ".join(inventory["services"]))}.</li><li>Query results: <code>{kit.esc(json.dumps(manifest["coverage"]))}</code>.</li>
 <li>Configuration evidence does not establish traffic, application compatibility, recovery success, cost or business criticality; those need separate evidence.</li></ul></div></details></section>
 <footer>findings.json · scorecard.json · pathways.json · diagrams · {kit.esc(status)} · generated {datetime.now(timezone.utc).isoformat(timespec="minutes")}</footer></div>"""
@@ -1500,6 +1530,7 @@ def render(args):
     md += [f"| {r['id']} | `{r['what']}` | {r['target']} | {r['kind']} | {r['when']} | {', '.join(r['findings'][:6])}{' +' + str(len(r['findings']) - 6) if len(r['findings']) > 6 else ''} |" for r in evidence_rows]
     md.append("")
     md += usage_markdown(run_meta, inventory)
+    md += write_audit_markdown(write_audit)
     out = args.output or run / "06-assessment"
     out.mkdir(parents=True, exist_ok=True)
     (out / "assessment.html").write_text(plain_words(mask_people(html_doc)), encoding="utf-8")

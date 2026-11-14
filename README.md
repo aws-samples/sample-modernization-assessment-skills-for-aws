@@ -177,6 +177,10 @@ allows `ssm send-command` only with the `AWS-RunShellScript` document of the hos
 read-only role in [Permissions](#permissions) remains the boundary that holds in every case. Each client asks you to trust project
 hooks once (Kiro: trust the workspace; Claude Code: accept at session start; Codex: `/hooks`, `t`).
 
+Once a run has its `scope.json`, the guard is stricter (see [If the profile can change the account](#if-the-profile-can-change-the-account)):
+every AWS call must use the run's profile, the agent's own AWS commands run only after `plan_check.py` approved
+them, and edits to `~/.aws`, the installed skills, hook settings and the run's verified records are refused.
+
 ### 3. Run
 
 Open the client in that folder (Kiro: `kiro-cli chat`, then `/tools trust-all`) and type:
@@ -286,6 +290,35 @@ provider behind the agent you use (Kiro CLI, Claude Code or Codex); use one your
 approves for this account's metadata. `artifacts/` holds unmasked identifiers (account ID, ARNs,
 IAM user names); only the report masks the account ID and IAM user names. Handle the folder as the
 account owner's confidential data and delete it when the engagement ends.
+
+### If the profile can change the account
+
+Use the read-only role above whenever you can: it is the only control that holds whatever the
+agent does. When the profile could still change the account (an administrator role or an IAM
+user's keys), the toolkit adds these checks, all of them read-only:
+
+1. **Stage 1 asks first.** After STS, `verify_access.py` asks IAM's policy simulator
+   (`iam simulate-principal-policy`, plus `iam get-role` for a role session) whether the profile
+   may make 20 representative changes, data reads and credential operations, and records the
+   result as `write_capability` (`yes`, `no` or `unknown`) with the principal type in
+   `01-setup/access-check.json`. For `yes` or `unknown` the agent stops and offers to switch to a
+   read-only profile, to stop, or to continue; it never creates or changes IAM itself. The
+   simulator does not see organization SCPs or resource policies, which can only deny more.
+2. **The helpers refuse to start** (`collect.py`, `supplement.py`, `inspect_host.py --execute`)
+   until the person's decision to continue is recorded in `scope.json`
+   (`write_capable_acknowledged`), and when a skill file differs from the install manifest.
+3. **The guard pins the run.** Every AWS call must use the run's profile; environment
+   assignments that swap credentials, profile files or the endpoint are refused, and so is
+   changing the run profile's `role_arn`, `source_profile` or SSO settings. The agent's own AWS
+   commands (outside the helpers) must first be listed in `RUN_DIR/agent-commands.json` and
+   approved by `plan_check.py`, which accepts only plain read commands on the run's profile and
+   regions, without options that change the endpoint or TLS checks, print request details or
+   read local files; the guard then runs exactly those commands.
+4. **CloudTrail confirms it afterwards.** `write_audit.py` lists the run's management events with
+   `ReadOnly=false` by the run's principal (`cloudtrail lookup-events`, in every scoped region and
+   us-east-1). The report states the result under Method and provenance: no change, the changes
+   found, or which regions could not be read. CloudTrail can take up to 15 minutes to show an
+   event, and data events are not covered.
 
 ## Limits
 

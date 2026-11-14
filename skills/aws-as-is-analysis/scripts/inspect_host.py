@@ -278,6 +278,10 @@ def main():
               "probe_sha256": hashlib.sha256(payload(args.app_root).encode()).hexdigest()}
     data = None
     if args.execute:
+        problem = collect.verify_skill_files() or collect.assessment_gate(args.output)
+        if problem:
+            print(f"Host inspection stopped: {problem}", file=sys.stderr)
+            return 1
         try:
             data = execute(args, report)
             report["status"] = data["status"]

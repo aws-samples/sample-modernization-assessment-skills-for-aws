@@ -82,6 +82,10 @@ def validate(doc):
             problems.append("auth must not contain credential values")
     if doc.get("confirmed_by") not in SOURCES:
         problems.append(f"confirmed_by must be one of {SOURCES}")
+    ack = doc.get("write_capable_acknowledged")
+    if ack is not None and not (isinstance(ack, dict) and isinstance(ack.get("reason"), str) and ack["reason"].strip()
+                                and isinstance(ack.get("at"), str)):
+        problems.append("write_capable_acknowledged must record the person's reason and time")
     if not isinstance(doc.get("confirmed_at"), str):
         problems.append("confirmed_at (ISO-8601) required")
     return problems
@@ -109,6 +113,10 @@ def build(args):
         "context": {"environment": args.environment_type or "unknown", "operator": args.operator or "unknown", "support_plan": args.support_plan or "unknown",
                     "compliance": [c.strip() for c in (args.compliance or "").split(",") if c.strip()] or ["unknown"]},
     }
+    reason = getattr(args, "acknowledge_write_capable", None)
+    if reason and reason.strip():
+        # The person chose to go on with a profile that can change the account (01-setup/access-check.json says so).
+        doc["write_capable_acknowledged"] = {"reason": reason.strip(), "at": datetime.now(timezone.utc).isoformat()}
     return doc
 
 
@@ -134,6 +142,8 @@ def main():
     w.add_argument("--support-plan", choices=SUPPORT_PLANS, help="the account's AWS Support plan as the owner states it")
     w.add_argument("--compliance", help="comma-separated obligations the workload must show (ISMS-P, PCI DSS, SOC 2 ...), or 'none'")
     w.add_argument("--confirmed-by", choices=SOURCES, required=True)
+    w.add_argument("--acknowledge-write-capable", metavar="REASON",
+                   help="only when the person chose to continue with a profile that can change the account; their reason")
     w.add_argument("--note", action="append")
     w.add_argument("--output", type=Path, required=True)
     v = sub.add_parser("validate", help="validate an existing scope.json")

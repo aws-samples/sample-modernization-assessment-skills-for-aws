@@ -69,6 +69,72 @@ def error_code(stderr):
     return "cli_or_network_error"
 
 
+# Representative changes, data reads and credential operations. If the principal may perform any of them, the profile
+# can change or read the account beyond metadata, and the assessment asks the person before it goes on.
+WRITE_PROBES = (
+    "ec2:RunInstances", "ec2:TerminateInstances", "ec2:AuthorizeSecurityGroupIngress", "ec2:CreateTags",
+    "iam:CreateUser", "iam:CreateAccessKey", "iam:AttachRolePolicy", "iam:PutRolePolicy",
+    "s3:PutObject", "s3:DeleteBucket", "s3:PutBucketPolicy", "s3:GetObject",
+    "rds:DeleteDBInstance", "rds:ModifyDBInstance", "lambda:UpdateFunctionCode", "cloudformation:DeleteStack",
+    "dynamodb:DeleteTable", "kms:ScheduleKeyDeletion", "secretsmanager:GetSecretValue", "organizations:LeaveOrganization",
+)
+# The one write the assessment may make (optional host inspection); reported, but not counted as write capability.
+EXPECTED_WRITES = ("ssm:SendCommand",)
+
+
+def principal_type(arn):
+    if re.match(r"arn:aws[a-z-]*:iam::\d{12}:root$", arn):
+        return "root"
+    if ":assumed-role/" in arn:
+        return "assumed_role"
+    if re.match(r"arn:aws[a-z-]*:iam::\d{12}:user/", arn):
+        return "iam_user"
+    if ":federated-user/" in arn:
+        return "federated_user"
+    return "unknown"
+
+
+def aws_json(argv, env, args):
+    if args.profile:
+        argv = [*argv, "--profile", args.profile]
+    response = subprocess.run(["aws", *checked_arguments([*argv, "--output", "json", "--no-cli-pager"])],  # nosec B603 B607 - see checked_arguments
+                              capture_output=True, text=True, timeout=45, env=env)
+    if response.returncode:
+        return None, error_code(response.stderr)
+    return json.loads(response.stdout or "{}"), None
+
+
+def write_capability(arn, env, args):
+    """What the verified principal may do beyond metadata reads, judged by IAM's policy simulator (read-only calls).
+
+    `no` only when every probe is denied; an error or an unsupported principal is `unknown`, which the setup stage
+    treats like `yes`. The simulator evaluates identity policies and permission boundaries; organization SCPs and
+    resource policies can still deny more, never less, so `yes` may overstate and `no` stays trustworthy."""
+    kind = principal_type(arn)
+    out = {"principal_type": kind, "long_term_credentials": kind == "iam_user"}
+    if kind == "root":
+        return dict(out, write_capability={"status": "yes", "reason": "root_user", "allowed": []})
+    if kind == "iam_user":
+        source = arn
+    elif kind == "assumed_role":
+        role_name = arn.split(":assumed-role/", 1)[1].split("/", 1)[0]
+        role, failure = aws_json(["iam", "get-role", "--role-name", role_name, "--region", args.region], env, args)
+        if failure or not role.get("Role", {}).get("Arn"):
+            return dict(out, write_capability={"status": "unknown", "reason": failure or "role_not_readable", "allowed": []})
+        source = role["Role"]["Arn"]
+    else:
+        return dict(out, write_capability={"status": "unknown", "reason": f"unsupported_principal_{kind}", "allowed": []})
+    result, failure = aws_json(["iam", "simulate-principal-policy", "--policy-source-arn", source, "--region", args.region,
+                                "--action-names", *WRITE_PROBES, *EXPECTED_WRITES], env, args)
+    if failure:
+        return dict(out, write_capability={"status": "unknown", "reason": failure, "allowed": []})
+    allowed = sorted({r.get("EvalActionName") for r in result.get("EvaluationResults", []) if r.get("EvalDecision") == "allowed"})
+    risky = [a for a in allowed if a not in EXPECTED_WRITES]
+    return dict(out, write_capability={"status": "yes" if risky else "no", "method": "iam simulate-principal-policy",
+                                       "probes": len(WRITE_PROBES), "allowed": risky,
+                                       "expected_writes_allowed": [a for a in allowed if a in EXPECTED_WRITES]})
+
+
 def verify(args):
     result = {
         "schema_version": "1.0",
@@ -103,6 +169,11 @@ def verify(args):
         result.update(account_id=account, principal_arn=identity.get("Arn"))
         if args.expected_account and account != args.expected_account:
             return dict(result, status="account_mismatch")
+        try:
+            result.update(write_capability(identity.get("Arn") or "", env, args))
+        except (ValueError, subprocess.TimeoutExpired, OSError):
+            result.update(principal_type=principal_type(identity.get("Arn") or ""),
+                          write_capability={"status": "unknown", "reason": "check_failed", "allowed": []})
         return dict(result, status="verified")
     except ValueError as exc:
         # Never include AWS stdout, stderr, env, or exception repr in the report.
@@ -139,7 +210,9 @@ def main():
     except OSError:
         pass
     print(json.dumps({"status": result["status"], "output": str(args.output),
-                      "error_code": result.get("error_code")}, ensure_ascii=False))
+                      "error_code": result.get("error_code"),
+                      "principal_type": result.get("principal_type"),
+                      "write_capability": (result.get("write_capability") or {}).get("status")}, ensure_ascii=False))
     return 0 if result["status"] == "verified" else 1
 
 
