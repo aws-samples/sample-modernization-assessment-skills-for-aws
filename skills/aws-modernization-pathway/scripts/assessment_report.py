@@ -320,13 +320,25 @@ def plain_words(text):
     return PLAIN_RE.sub(lambda m: PLAIN[m.group(0)], text)
 
 
+# Words that follow "IAM user" in ordinary prose ("one IAM user with long-term keys") and are not names.
+PROSE_AFTER_USER = {"with", "without", "has", "had", "have", "that", "which", "who", "whose", "and", "or", "in", "on", "for",
+                    "from", "to", "of", "is", "was", "are", "can", "could", "would", "may", "might", "keys", "key",
+                    "credentials", "credential", "access", "accounts", "account", "names", "name", "policies", "policy",
+                    "permissions", "uses", "used", "holds", "owns", "still", "also", "as", "at", "by", "via"}
+
+
 def mask_people(text):
     """Individual IAM user names become an initial plus asterisks in the customer-facing report: the finding is about a
     long-lived credential, not about a person, and the full identifier stays in findings.json and the evidence files."""
     def initial(m):
         return m.group(1) + m.group(2)[0] + "***"
-    text = USER_WORD.sub(initial, USER_ARN.sub(initial, text))
+
+    def initial_unless_prose(m):
+        return m.group(0) if m.group(2).lower() in PROSE_AFTER_USER else initial(m)
+    text = USER_WORD.sub(initial_unless_prose, USER_ARN.sub(initial, text))
     for name in sorted(KNOWN_USERS, key=len, reverse=True):
+        # "user/<name>" on its own (an EKS access entry's principal, a shortened ARN) is the same person.
+        text = re.sub(rf"(\buser/){re.escape(name)}(?![A-Za-z0-9_@+=-])", lambda m: m.group(1) + name[0] + "***", text)
         text = re.sub(rf"(?<![A-Za-z0-9_@.+=/-]){re.escape(name)}(?![A-Za-z0-9_@+=-])", name[0] + "***", text)
     return text
 

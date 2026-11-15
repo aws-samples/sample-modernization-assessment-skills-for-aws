@@ -7,6 +7,8 @@
   hook.py stop    Stop: if the latest run under ./artifacts is incomplete, was touched recently and is not paused,
                   prints {"decision": "block", "reason": ...} so the client starts another turn.
   hook.py pause "reason" / resume   Mark the latest run as waiting for the person (the stop gate then stays quiet).
+  --root DIR      (guard, stop) the project folder whose run is enforced; `moda-skill config --hooks` writes it, so a
+                  `cd` into a subfolder does not change which run the guard checks.
 
 The same file serves Kiro CLI (.kiro/hooks/*.json), Claude Code (.claude/settings.json) and Codex (.codex/hooks.json);
 `moda-skill config --hooks` wires it. Exit codes follow the shared convention: 0 allow, 2 block.
@@ -481,8 +483,10 @@ def plan_reason(form, ctx):
     return None
 
 
-def guard(event, project_root=None):
-    ctx = run_context(event.get("cwd") or project_root)
+def guard(event, project_root=None, pinned=False):
+    """`pinned` is set when the hook command names the project (`--root`); the agent's current folder, which a `cd` can
+    move into a subfolder, then does not decide which run is enforced."""
+    ctx = run_context(project_root if pinned else (event.get("cwd") or project_root))
     blocked = []
     if ctx:
         for path in file_tool_paths(event):
@@ -599,9 +603,11 @@ def main():
     if len(sys.argv) < 2 or sys.argv[1] not in {"guard", "stop", "pause", "resume"}:
         print(__doc__)
         return 2
-    project_root = os.environ.get("MODA_PROJECT_ROOT") or os.getcwd()
+    pinned = "--root" in sys.argv[2:-1]
+    root_arg = sys.argv[sys.argv.index("--root") + 1] if pinned else None
+    project_root = root_arg or os.environ.get("MODA_PROJECT_ROOT") or os.getcwd()
     if sys.argv[1] == "guard":
-        return guard(read_event(), project_root)
+        return guard(read_event(), project_root, pinned=pinned)
     if sys.argv[1] == "stop":
         return stop(read_event(), project_root)
     run = latest_run(project_root)

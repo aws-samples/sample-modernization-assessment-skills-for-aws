@@ -350,10 +350,10 @@
     {
       "name": "aws-modernization-pathway",
       "source": "skills/aws-modernization-pathway",
-      "digest": "9dc0cf0f38683d7b69064b6ba85e7c94ac338766dd3ab1d8feb3414568909543",
+      "digest": "f31243770f1a691bf05edf1125040d8355036101d4e5cca79c48c26d0056715c",
       "stamp": {
         "package": "moda-skills",
-        "sha256": "9dc0cf0f38683d7b69064b6ba85e7c94ac338766dd3ab1d8feb3414568909543"
+        "sha256": "f31243770f1a691bf05edf1125040d8355036101d4e5cca79c48c26d0056715c"
       },
       "files": [
         {
@@ -458,8 +458,8 @@
         },
         {
           "path": "scripts/assessment_report.py",
-          "bytes": 123755,
-          "sha256": "9766edd389fb23d0feabf18d4e5f2ae7414e48c90e338f8f0af228a977df1fac"
+          "bytes": 124692,
+          "sha256": "a6bf371cfb0175be0de4ceedb2e1676d1db0c211e8b71c2083e0e225169f34b1"
         },
         {
           "path": "scripts/list_price.py",
@@ -491,10 +491,10 @@
     {
       "name": "moda-skill",
       "source": "skills/moda-skill",
-      "digest": "6ca26d075c1e044600f40030d49d2ad23588c19e68aaafd3c97d6a535b8359c6",
+      "digest": "3f4f8ae41174931ff482a3bc83cd1d77c53b70a1d418d6f5139d4c7ed3bad3b7",
       "stamp": {
         "package": "moda-skills",
-        "sha256": "6ca26d075c1e044600f40030d49d2ad23588c19e68aaafd3c97d6a535b8359c6"
+        "sha256": "3f4f8ae41174931ff482a3bc83cd1d77c53b70a1d418d6f5139d4c7ed3bad3b7"
       },
       "files": [
         {
@@ -519,8 +519,8 @@
         },
         {
           "path": "scripts/hook.py",
-          "bytes": 32406,
-          "sha256": "25bca428e53f23b570027c881ec79801ed18a44d5c7a128c66f67501789067c8"
+          "bytes": 32987,
+          "sha256": "bbe74e89ae90e218c72c4c12050f8fcc8fc66202b359f63c4b0a230ae3bcb250"
         },
         {
           "path": "scripts/moda.py",

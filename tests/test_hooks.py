@@ -277,19 +277,37 @@ class HookWiring(unittest.TestCase):
             self.assertEqual(next(h for h in kiro["hooks"] if h["trigger"] == "PreToolUse")["matcher"], "shell")
             guards = [h for h in kiro["hooks"] if h["trigger"] == "PreToolUse"]
             self.assertEqual({h["matcher"] for h in guards}, {"shell", "use_aws", "write"}, "Kiro's AWS tool and file edits are guarded too")
-            self.assertTrue(all(h["action"]["command"].endswith(" guard") for h in guards))
-            self.assertIn(".kiro/skills/moda-skill/scripts/hook.py", kiro["hooks"][0]["action"]["command"])
+            root = project.resolve().as_posix()
+            self.assertTrue(all(h["action"]["command"].endswith(f' guard --root "{root}"') for h in guards))
+            self.assertIn(f'"{root}/.kiro/skills/moda-skill/scripts/hook.py"', kiro["hooks"][0]["action"]["command"],
+                          "absolute path: hooks run in the agent's current folder, which a cd can move")
             claude = json.loads((project / ".claude/settings.json").read_text())
             self.assertEqual(claude["permissions"], {"allow": ["Read"]}, "other settings untouched")
             commands = [h["command"] for g in claude["hooks"]["PreToolUse"] for h in g["hooks"]]
             self.assertIn("echo other-tool", commands, "foreign hook kept")
-            self.assertTrue(any(".claude/skills/moda-skill/scripts/hook.py\" guard" in c for c in commands))
+            self.assertTrue(any(f'{root}/.claude/skills/moda-skill/scripts/hook.py" guard --root' in c for c in commands))
             matchers = {g.get("matcher") for g in claude["hooks"]["PreToolUse"] if any("moda-skill" in h["command"] for h in g["hooks"])}
             self.assertEqual(matchers, {"Bash", "Edit|Write|MultiEdit|NotebookEdit"}, "shell commands and file edits are both guarded")
             self.assertTrue((project / ".claude/settings.json.bak-moda").is_file())
             codex = json.loads((project / ".codex/hooks.json").read_text())
             self.assertIn("Stop", codex["hooks"])
-            self.assertIn(".agents/skills/moda-skill/scripts/hook.py", codex["hooks"]["PreToolUse"][0]["hooks"][0]["command"])
+            self.assertIn(f"{root}/.agents/skills/moda-skill/scripts/hook.py", codex["hooks"]["PreToolUse"][0]["hooks"][0]["command"])
+
+    def test_guard_keeps_the_projects_run_after_a_cd(self):
+        """The hook command names the project with --root, so the run-mode checks hold in a subfolder too."""
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp).resolve()
+            run = project / "artifacts/shop/20261115T000000Z"
+            (run / "01-setup").mkdir(parents=True)
+            (run / "scope.json").write_text(json.dumps({"auth": {"mode": "profile", "profile": "assessment"}, "regions": ["us-east-1"]}))
+            sub = project / ".claude/skills/aws-as-is-analysis"
+            sub.mkdir(parents=True)
+            event = json.dumps({"tool_name": "Bash", "cwd": str(sub), "tool_input": {"command": "AWS_PROFILE=other aws ec2 describe-vpcs --region us-east-1"}})
+            loose = run_python(str(HOOK), "guard", input=event, capture_output=True, text=True, cwd=sub)
+            self.assertEqual(loose.returncode, 0, "without --root the subfolder has no run, the gap this closes")
+            pinned = run_python(str(HOOK), "guard", "--root", str(project), input=event, capture_output=True, text=True, cwd=sub)
+            self.assertEqual(pinned.returncode, 2, pinned.stderr)
+            self.assertIn("AWS_PROFILE must stay the run's profile", pinned.stderr)
 
 
 if __name__ == "__main__":

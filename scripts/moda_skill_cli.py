@@ -82,15 +82,22 @@ def python_token():
     return "py -3" if WINDOWS else "python3"
 
 
-def hook_commands(harness, scope):
-    skills_dir = ("~/" if scope == "user" else "") + HARNESSES[harness]["dir"]
-    base = f'{python_token()} "{skills_dir}/moda-skill/scripts/hook.py"'
-    return {"guard": base + " guard", "stop": base + " stop"}
+def hook_commands(harness, scope, project_root=None):
+    """Hook commands with absolute paths: clients run hooks in the agent's current folder, which can be a subfolder
+    after a `cd`, and a quoted `~` is not expanded. `--root` tells the guard which project's run to enforce."""
+    root = (Path.home() if scope == "user" else Path(project_root or Path.cwd())).resolve()
+    script = (root / HARNESSES[harness]["dir"] / "moda-skill/scripts/hook.py").as_posix()
+    for value in (script, root.as_posix()):
+        if re.search(r'["$`\n\r]', value):
+            raise ValueError(f"{value}: the hook command cannot quote a path that contains \", $, ` or a line break")
+    base = f'{python_token()} "{script}"'
+    pinned = "" if scope == "user" else f' --root "{root.as_posix()}"'
+    return {"guard": f"{base} guard{pinned}", "stop": f"{base} stop{pinned}"}
 
 
 def wire_hooks(harness, scope, project_root, dry_run=False):
     """Register the read-only guard (before shell tools) and the stop gate. Existing hooks of other tools are kept."""
-    commands = hook_commands(harness, scope)
+    commands = hook_commands(harness, scope, project_root)
     root = Path.home() if scope == "user" else Path(project_root)
     if harness == "kiro":
         path = root / ".kiro/hooks/moda-skill.json"
