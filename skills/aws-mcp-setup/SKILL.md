@@ -26,7 +26,7 @@ Reuse `01-setup/access-check.json`, `$RUN_DIR/scope.json` (take `output_language
 
    Narrow `--targets` to the selected clients. `--dry-run` previews changes. `--update` updates only managed, unmodified copies. Preserve locally edited skills and conflicting MCP entries.
 3. If D2 is missing, use the current official OS/CPU-specific installation instructions. The installer does not modify global PATH or install package managers automatically.
-4. Reuse an available browser renderer, or prepare Playwright/Chromium in an isolated project tool directory. Node render helpers resolve Playwright from the **current working directory**.
+4. Prepare the browser renderer in the project folder. Node render helpers resolve Playwright from the **current working directory**, so check with `node -e "require.resolve('playwright')"` there. If that fails, run `npm install --no-save playwright@1.64.1` and `npx playwright@1.64.1 install chromium` in the project folder (see [compatibility](references/compatibility.md)), or tell the person that PNG export and visual QA will be skipped. Do not use a renderer or `node_modules` from another project folder.
 5. Verify local prerequisites and the real MCP handshake:
 
    ```bash

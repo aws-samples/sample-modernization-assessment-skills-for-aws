@@ -8,6 +8,8 @@ regions in scope.json, then lists the run's CloudTrail management events with Re
 us-east-1, where global services such as IAM log) with `cloudtrail lookup-events`. Events by that principal are kept;
 SSM SendCommand is expected when host inspection was enabled. The result, RUN_DIR/write-audit.json, is `clean`,
 `writes_found` or `unavailable` (a region could not be read), and the report shows it under Method and provenance.
+Each event names the tool that made it (from the CloudTrail user agent), because other work done with the same
+principal during the run, such as a deployment from another session, appears here too.
 
 CloudTrail can take up to 15 minutes to show an event, so a run's last minutes may be missing; rerun the script later
 to cover them. Data events (object-level S3, Lambda invoke) are not in lookup-events and are not checked here.
@@ -57,12 +59,27 @@ def collect_error(stderr):
     return match.group(1) if match else "cli_or_network_error"
 
 
-def by_principal(event, principal_arn):
+def detail_of(event):
     try:
         detail = json.loads(event.get("CloudTrailEvent") or "{}")
     except ValueError:
-        return False
-    return (detail.get("userIdentity") or {}).get("arn") == principal_arn
+        return {}
+    return detail if isinstance(detail, dict) else {}
+
+
+def by_principal(event, principal_arn):
+    return (detail_of(event).get("userIdentity") or {}).get("arn") == principal_arn
+
+
+def tool_of(user_agent):
+    """A short name for the program that made a call: the CLI or SDK name with its version and any `app/` or `exec-env/`
+    marker (for example `aws-cli/2.34.45 app/kiro-cli`), or the AWS service that acted for the principal."""
+    text = str(user_agent or "").strip()
+    if not text:
+        return "unknown"
+    parts = text.split()
+    markers = [p for p in parts[1:] if p.startswith(("app/", "exec-env/"))]
+    return " ".join([parts[0], *markers])[:120]
 
 
 def audit(run, timeout=60):
@@ -84,8 +101,13 @@ def audit(run, timeout=60):
         result["regions"][region] = {"status": "error" if error else "ok", "error_code": error, "write_events_in_account": len(events),
                                      "by_principal": len(mine)}
         for event in mine:
-            item = {"time": str(event.get("EventTime")), "source": event.get("EventSource"), "name": event.get("EventName"), "region": region}
+            item = {"time": str(event.get("EventTime")), "source": event.get("EventSource"), "name": event.get("EventName"), "region": region,
+                    "tool": tool_of(detail_of(event).get("userAgent"))}
             (result["expected"] if (item["source"], item["name"]) in expected else result["unexpected"]).append(item)
+    tools = {}
+    for item in result["unexpected"]:
+        tools[item["tool"]] = tools.get(item["tool"], 0) + 1
+    result["unexpected_by_tool"] = dict(sorted(tools.items(), key=lambda kv: -kv[1]))
     failed = [r for r, v in result["regions"].items() if v["status"] != "ok"]
     result["status"] = "writes_found" if result["unexpected"] else ("unavailable" if failed else "clean")
     return result

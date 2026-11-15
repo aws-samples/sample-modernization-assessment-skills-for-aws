@@ -94,7 +94,9 @@ Reading the reply:
 
 If the user's original prompt already named a region, stack, tag, workload name or language, do
 not ask that question; record `confirmed_by: prompt` for the whole scope when nothing had to be
-asked, `interview` otherwise.
+asked, `interview` otherwise. A workload name alone does not answer the workload filter or the
+context questions (environment, operator, support plan, compliance): take those only from what
+the person stated, and otherwise ask them or record `unknown`.
 
 ## 4. Write and validate
 

@@ -110,6 +110,9 @@ artifacts/<workload>/<UTC run id>/
 명령 하나로 도구를 설치하고, 다른 명령 하나로 사용하는 클라이언트에 맞게 프로젝트를 구성합니다. 그다음부터는
 `/moda-skill`(Codex에서는 `$moda-skill`)로 평가 전체를 진행합니다.
 
+클라이언트별 단계 안내와 테스트 실행 결과는 각 가이드에 정리했습니다:
+[Kiro CLI](docs/guides/kiro-cli.ko.md) · [Claude Code](docs/guides/claude-code.ko.md) · [Codex](docs/guides/codex.ko.md).
+
 ### 1. 설치
 
 1. 필요한 환경을 확인합니다. Python 3.11 이상(`python3`, Windows에서는 `py -3` 또는 `python`)과 `curl`이
@@ -323,7 +326,8 @@ Agent와 `AmazonSSMManagedInstanceCore` 정책이 연결된 인스턴스 프로�
    승인된 명령만 그대로 실행되도록 허용합니다.
 4. **평가가 끝나면 CloudTrail로 확인합니다.** `write_audit.py`가 `cloudtrail lookup-events`로 평가 기간 동안 실행 주체가
    남긴 `ReadOnly=false` 관리 이벤트를 조회합니다. 대상은 평가 범위의 모든 리전과 us-east-1입니다. 결과는 보고서의 "방법과
-   출처" 부분에 변경 없음, 확인된 변경 내역, 조회하지 못한 리전 중 하나로 표시됩니다. CloudTrail에 이벤트가 나타나기까지
+   출처" 부분에 변경 없음, 확인된 변경 내역, 조회하지 못한 리전 중 하나로 표시됩니다. 같은 주체로 한 다른 작업(예: 다른
+   세션의 배포)도 함께 나타나기 때문에, 변경마다 그 호출을 만든 도구를 표시합니다. CloudTrail에 이벤트가 나타나기까지
    최대 15분이 걸릴 수 있고, 데이터 이벤트는 확인 대상에 포함되지 않습니다.
 
 ## 한계

@@ -195,3 +195,36 @@ workflow, then inspected in Chromium. Service Screener import was exercised with
 **87 tests passed** (five new: grade rubric, importer mapping and guards, unified report sections
 and invented-reference refusal, side-by-side security chapter, glossary pre-fill and rejection).
 
+
+## Live runs in three clients and read-only guard checks (2026-11-15)
+
+One full assessment in each client, started at the same time against the same account
+(7 CloudFormation stacks, 71 resources in scope, us-east-1, no host inspection). The profile was an
+IAM user with long-term keys and write access, so each run stopped at the write-capability check
+and continued only after the person's decision was recorded.
+
+| Client | Model | Stage 1 to the last stage file | Report |
+|---|---|---|---|
+| Kiro CLI 3.3.0 | claude-opus-5.5, effort high | 145 min, 632.64 credits | Final |
+| Claude Code 2.1.309 (Amazon Bedrock) | Opus 5.5, effort xhigh | 66 min, US$38.38 by `/cost` | Final |
+| Codex CLI 0.155.1 (Amazon Bedrock) | openai.gpt-6-astra, effort high | 46 min | Final |
+
+After each run the agent tried nine actions the guard must stop: `create-tags --dry-run` direct,
+inside `bash -c` and through inline boto3; `get-secret-value`; a profile switch through
+`AWS_PROFILE`; a read not in the approved list (then approved with `plan_check.py` and run); a
+shell write under `~/.aws`; and file-tool edits of an installed `SKILL.md` and of `scope.json`. All
+nine behaved as intended in every client, including the Codex `Bash` and `apply_patch` matchers.
+CloudTrail showed no `CreateTags` or `GetSecretValue` call afterwards. Kiro's session had no
+`use_aws` tool, so that hook was not exercised.
+
+Fixes from these runs: scope discovery runs its calls in parallel (about 20 seconds for one region,
+45 seconds for 17 regions, where Kiro's shell had stopped it at 120 seconds) and the skill passes
+the named regions; the report's run length ends at the last file in the stage folders instead of
+the first render (Codex had shown 18 minutes for a 46-minute run); the write audit names the tool
+that made each change, because all three audits listed changes from a deployment running in
+another session under the same IAM user; the person's reason for continuing with a write-capable
+profile is taken in their own words; context answers are not inferred from other replies; and the
+renderer is installed in the project folder rather than borrowed from another one. Step-by-step
+guides for the three clients are in [docs/guides](guides/).
+
+**200 tests passed.**

@@ -128,6 +128,9 @@ licenses.
 Install the toolkit with one command and set up a project for your client with another. After
 that, you run the whole assessment with `/moda-skill` (`$moda-skill` in Codex).
 
+Step-by-step guides for each client, with the results of a test run:
+[Kiro CLI](docs/guides/kiro-cli.md) · [Claude Code](docs/guides/claude-code.md) · [Codex](docs/guides/codex.md).
+
 ### 1. Install
 
 1. Check the prerequisites: Python 3.11 or later (`python3`; on Windows `py -3` or `python`) and
@@ -365,8 +368,10 @@ read-only calls.
 4. **CloudTrail is checked at the end.** `write_audit.py` uses `cloudtrail lookup-events` to list
    management events with `ReadOnly=false` made by the run's principal during the run, in every
    region in scope and in us-east-1. The report shows the result under Method and provenance: no
-   change, the changes found, or the regions it could not read. CloudTrail can take up to
-   15 minutes to show an event, and data events are not included.
+   change, the changes found, or the regions it could not read. Each change names the tool that
+   made it, because other work done with the same principal during the run, such as a deployment
+   from another session, appears too. CloudTrail can take up to 15 minutes to show an event, and
+   data events are not included.
 
 ## Limits
 

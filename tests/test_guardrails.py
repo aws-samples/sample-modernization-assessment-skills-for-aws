@@ -299,9 +299,9 @@ class RunGateAndIntegrity(unittest.TestCase):
 class WriteAudit(unittest.TestCase):
     PRINCIPAL = f"arn:aws:sts::{ACCOUNT}:assumed-role/Assessment/session"
 
-    def event(self, source, name, arn):
+    def event(self, source, name, arn, agent="aws-cli/2.34.45 md/awscrt#0.32.2 ua/2.1 os/macos#25.6.0 app/kiro-cli"):
         return {"EventTime": "2026-11-14T00:10:00Z", "EventSource": source, "EventName": name,
-                "CloudTrailEvent": json.dumps({"userIdentity": {"arn": arn}})}
+                "CloudTrailEvent": json.dumps({"userIdentity": {"arn": arn}, "userAgent": agent})}
 
     def test_changes_by_the_principal_are_reported_and_others_ignored(self):
         events = [self.event("ec2.amazonaws.com", "TerminateInstances", self.PRINCIPAL),
@@ -313,6 +313,8 @@ class WriteAudit(unittest.TestCase):
                 result = audit.audit(run)
             self.assertEqual(result["status"], "writes_found")
             self.assertEqual({e["name"] for e in result["unexpected"]}, {"TerminateInstances"})
+            self.assertEqual(result["unexpected"][0]["tool"], "aws-cli/2.34.45 app/kiro-cli", "the tool that made the call")
+            self.assertEqual(result["unexpected_by_tool"], {"aws-cli/2.34.45 app/kiro-cli": 2}, "one event per region from the mock")
             self.assertEqual({e["name"] for e in result["expected"]}, {"SendCommand"})
             self.assertEqual(sorted(result["regions"]), ["ap-northeast-2", "us-east-1"])
             argv = run_cli.call_args[0][0]
@@ -338,6 +340,26 @@ class WriteAudit(unittest.TestCase):
         self.assertIn("no change by the assessment's principal", report.write_audit_text(clean))
         found = dict(clean, status="writes_found", unexpected=[{"time": "t", "source": "ec2.amazonaws.com", "name": "TerminateInstances", "region": "us-east-1"}])
         self.assertIn("TerminateInstances", report.write_audit_html(found))
+        found.update(unexpected_by_tool={"cloudformation.amazonaws.com": 3}, regions={"us-east-1": {"status": "error", "error_code": "page_limit_reached"}})
+        text = report.write_audit_text(found)
+        self.assertIn("cloudformation.amazonaws.com (3)", text)
+        self.assertIn("another session", text)
+        self.assertIn("us-east-1 (page_limit_reached)", text)
+
+    def test_run_length_ends_at_the_last_stage_file(self):
+        sys.path.insert(0, str(ROOT / "skills/aws-modernization-pathway/scripts"))
+        report = load("guard_report_clock", "skills/aws-modernization-pathway/scripts/assessment_report.py")
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp) / "20261115T080000Z"
+            stamp = lambda path, minute: (path.parent.mkdir(parents=True, exist_ok=True), path.write_text("{}"),
+                                          os.utime(path, (1794729600 + minute * 60,) * 2))  # 2026-11-15T08:00:00Z + minutes
+            stamp(run / "05-modernization/pathways.json", 40)
+            stamp(run / "06-assessment/assessment.html", 55)
+            stamp(run / "agent-commands.json", 300)
+            report.WALL_CLOCK.update(minutes=None, end=report.last_stage_write(run))
+            self.assertEqual(report.run_minutes({"run_id": run.name}), 40, "report folders and later files do not count")
+            report.WALL_CLOCK.update(minutes=12)
+            self.assertEqual(report.run_minutes({"run_id": run.name}), 12, "--wall-clock-minutes wins")
 
 
 if __name__ == "__main__":

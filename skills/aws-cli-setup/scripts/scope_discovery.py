@@ -10,6 +10,7 @@ aws-cli-setup; this script only gathers the facts and proposes defaults.
 """
 import argparse
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 import json
 import os
@@ -33,6 +34,9 @@ def checked_arguments(arguments):
     return list(arguments)
 
 SCHEMA = "1.0"
+# Calls run a few at a time: each CLI call takes about two seconds, and one by one a busy account took longer than some
+# agent shells allow for a single command.
+WORKERS = 8
 # Regions enabled by default in most accounts; opt-in regions are only probed when --regions names them.
 DEFAULT_REGIONS = ("us-east-1", "us-east-2", "us-west-1", "us-west-2", "ap-south-1", "ap-northeast-1",
                    "ap-northeast-2", "ap-northeast-3", "ap-southeast-1", "ap-southeast-2", "ca-central-1",
@@ -115,16 +119,14 @@ class Discovery:
 
     def regions_with_resources(self, candidates):
         """Resource Groups Tagging API lists resource ARNs per region (the CLI paginates; --query disables --max-items)."""
-        out = {}
-        for region in candidates:
+        def probe(region):
             data, status, code = self.call("resourcegroupstaggingapi", "get-resources", region,
                                            "--resources-per-page", "100",
                                            query="length(ResourceTagMappingList)")
             if status == "ok":
-                out[region] = {"status": "ok", "resources": int(data) if isinstance(data, int) else 0}
-            else:
-                out[region] = {"status": status, "error_code": code}
-        return out
+                return {"status": "ok", "resources": int(data) if isinstance(data, int) else 0}
+            return {"status": status, "error_code": code}
+        return dict(zip(candidates, parallel(probe, candidates)))
 
     def stacks(self, region):
         data, status, code = self.call("cloudformation", "list-stacks", region,
@@ -132,18 +134,17 @@ class Discovery:
                                        query="StackSummaries[].{name:StackName,status:StackStatus,parent:ParentId}")
         if status != "ok":
             return {"status": status, "error_code": code, "items": []}
-        items = []
-        for stack in (data or [])[: self.args.max_stacks]:
-            if stack.get("parent"):
-                continue  # nested stacks are counted under their parent
+        def describe(stack):
             resources, rstatus, _ = self.call("cloudformation", "list-stack-resources", region,
                                               "--stack-name", stack["name"],
                                               query="StackResourceSummaries[].ResourceType")
             types = Counter(resources or []) if rstatus == "ok" else Counter()
-            items.append({"name": stack["name"], "status": stack["status"],
-                          "resource_count": sum(types.values()) if rstatus == "ok" else None,
-                          "top_types": [t for t, _ in types.most_common(5)]})
-        return {"status": "ok", "items": items}
+            return {"name": stack["name"], "status": stack["status"],
+                    "resource_count": sum(types.values()) if rstatus == "ok" else None,
+                    "top_types": [t for t, _ in types.most_common(5)]}
+        # Nested stacks are counted under their parent.
+        top = [s for s in (data or [])[: self.args.max_stacks] if not s.get("parent")]
+        return {"status": "ok", "items": parallel(describe, top)}
 
     def tags(self, region):
         data, status, code = self.call("resourcegroupstaggingapi", "get-resources", region,
@@ -169,6 +170,15 @@ class Discovery:
         items = data or []
         return {"status": "ok", "online": sum(1 for i in items if i.get("ping") == "Online"),
                 "instances": [{"id": i["id"], "ping": i.get("ping"), "platform": i.get("platform")} for i in items[:50]]}
+
+
+def parallel(function, items):
+    """function(item) for every item, in order, at most WORKERS at a time."""
+    items = list(items)
+    if len(items) < 2:
+        return [function(item) for item in items]
+    with ThreadPoolExecutor(max_workers=min(WORKERS, len(items))) as pool:
+        return list(pool.map(function, items))
 
 
 def propose_defaults(regions, stacks_by_region):
@@ -211,9 +221,9 @@ def main():
     candidates = [r.strip() for r in args.regions.split(",")] if args.regions else list(DEFAULT_REGIONS)
     regions = disco.regions_with_resources(candidates)
     active = [r for r, v in regions.items() if v.get("status") == "ok" and v.get("resources", 0) > 0]
-    stacks = {r: disco.stacks(r) for r in active}
-    tags = {r: disco.tags(r) for r in active}
-    ssm = {r: disco.ssm_instances(r) for r in active}
+    stacks = dict(zip(active, parallel(disco.stacks, active)))
+    tags = dict(zip(active, parallel(disco.tags, active)))
+    ssm = dict(zip(active, parallel(disco.ssm_instances, active)))
     result = {
         "schema_version": SCHEMA, "discovered_at": started, "completed_at": now(), "read_only": True,
         "identity": who, "auth_mode": "profile" if args.profile else "environment",

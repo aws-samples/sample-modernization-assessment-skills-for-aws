@@ -1107,13 +1107,29 @@ WALL_CLOCK = {"minutes": None}
 
 
 def run_minutes(inventory):
+    """Minutes from the run's start (its id is the UTC start time) to the newest file in the stage folders, so a report
+    rendered early, re-rendered later or localized shows the same length of run."""
     if WALL_CLOCK["minutes"] is not None:
         return WALL_CLOCK["minutes"]
     try:
         started = datetime.strptime(str(inventory.get("run_id", ""))[:16], "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
     except ValueError:
         return None
-    return max(0, int((datetime.now(timezone.utc) - started).total_seconds() // 60))
+    end = WALL_CLOCK.get("end") or datetime.now(timezone.utc)
+    return max(0, int((end - started).total_seconds() // 60))
+
+
+def last_stage_write(run):
+    """Time of the newest file in the stage folders 01- to 05-, or None. Report folders, the usage record and files written
+    after the assessment (a later write audit, follow-up commands) do not move the end."""
+    newest = None
+    for path in run.rglob("*"):
+        relative = path.relative_to(run).parts
+        if not path.is_file() or not re.match(r"0[1-5]-", relative[0]):
+            continue
+        mtime = path.stat().st_mtime
+        newest = mtime if newest is None or mtime > newest else newest
+    return datetime.fromtimestamp(newest, timezone.utc) if newest is not None else None
 
 
 def usage_withheld(run_meta, inventory):
@@ -1160,7 +1176,12 @@ def write_audit_text(audit):
         text = f"CloudTrail shows no change by the assessment's principal from {window.get('start', '')} to {window.get('end', '')} in {regions}.{extra}"
     elif audit.get("status") == "writes_found":
         items = "; ".join(f"{e.get('time', '')} {e.get('source', '')} {e.get('name', '')} ({e.get('region', '')})" for e in audit.get("unexpected", [])[:20])
-        text = (f"CloudTrail shows {len(audit.get('unexpected', []))} change(s) by the assessment's principal during the run: {items}. "
+        tools = ", ".join(f"{tool} ({count})" for tool, count in list((audit.get("unexpected_by_tool") or {}).items())[:5])
+        by_tool = (f" Calls by tool: {tools}. Other work done with the same principal during the run, such as a deployment "
+                   "from another session, appears here too; a profile used only for the assessment keeps this check clear.") if tools else ""
+        failed = ", ".join(f"{r} ({v.get('error_code') or 'error'})" for r, v in (audit.get("regions") or {}).items() if v.get("status") != "ok")
+        partial = f" Not every event could be read: {failed}." if failed else ""
+        text = (f"CloudTrail shows {len(audit.get('unexpected', []))} change(s) by the assessment's principal during the run: {items}.{by_tool}{partial} "
                 "Review them before this report is used.")
     else:
         failed = ", ".join(f"{r} ({v.get('error_code') or 'error'})" for r, v in (audit.get("regions") or {}).items() if v.get("status") != "ok")
@@ -1337,13 +1358,8 @@ def glance_markdown(rows):
 
 def render(args):
     run = args.run_dir
-    previous = (args.output or run / "06-assessment") / "assessment-summary.json"
     WALL_CLOCK["minutes"] = args.wall_clock_minutes
-    if WALL_CLOCK["minutes"] is None and previous.is_file():
-        try:
-            WALL_CLOCK["minutes"] = json.loads(previous.read_text(encoding="utf-8")).get("wall_clock_minutes")
-        except ValueError:
-            pass
+    WALL_CLOCK["end"] = last_stage_write(run)
     findings = read_json(run / "04-review/findings.json"); scores = read_json(run / "04-review/scorecard.json")
     as_is = resolve_as_is(run, findings)
     inventory = read_json(as_is / "inventory.json"); manifest = read_json(as_is / "collection-manifest.json")
@@ -1564,8 +1580,8 @@ def main():
     parser.add_argument("--as-is-diagram", type=Path)
     parser.add_argument("--to-be-diagram", type=Path)
     parser.add_argument("--output", type=Path)
-    parser.add_argument("--wall-clock-minutes", type=int, help="minutes from run start to the first report; default: kept from an earlier "
-                        "assessment-summary.json in the output folder, else counted now")
+    parser.add_argument("--wall-clock-minutes", type=int, help="minutes from run start to the end of the assessment; default: from the "
+                        "run id to the newest file in the stage folders 01- to 05-")
     args = parser.parse_args()
     try:
         print(json.dumps(render(args), ensure_ascii=False))

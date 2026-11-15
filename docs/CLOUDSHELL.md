@@ -15,7 +15,7 @@ mkdir -p ~/assessment && cd ~/assessment
 moda-skill config --harness kiro && moda-skill doctor
 ```
 
-While the repository is private, upload the release zip with **Actions > Upload file** (one file per
+To install from a release zip instead, upload it with **Actions > Upload file** (one file per
 upload; the picker is the browser's native dialog) together with its `SHA256SUMS`, then
 `sh install.sh --from ~/moda-skill-2.2.1.zip`. Or point the installer at a mirror:
 `MODA_SKILL_BASE_URL=https://<host>/path sh install.sh` (the path must serve `VERSION`,
