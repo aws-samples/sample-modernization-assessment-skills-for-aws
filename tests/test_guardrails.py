@@ -162,7 +162,7 @@ class PlanCheck(unittest.TestCase):
         return result.returncode, json.loads(result.stdout)
 
     def test_reads_on_the_runs_profile_and_regions_are_approved(self):
-        code, out = self.check(READ, "aws iam list-roles --region us-east-1 --profile assessment --output json",
+        code, out = self.check(READ, "aws iam list-roles --region us-east-1 --profile assessment --output json --no-paginate",
                                "aws rds describe-db-instances --region ap-northeast-2 --profile assessment --query 'DBInstances[].Engine'")
         self.assertEqual((code, out["status"]), (0, "approved"), out)
         approved = json.loads((self.run / "agent-commands.approved.json").read_text())
@@ -181,6 +181,9 @@ class PlanCheck(unittest.TestCase):
             "aws ec2 describe-vpcs --region $REGION --profile assessment": "literal values",
             READ + " --endpoint-url https://example.invalid": "--endpoint-url is not allowed",
             READ + " --debug": "--debug is not allowed",
+            READ + " --debu": "--debu is not allowed",
+            READ + " --endpoint https://example.invalid": "--endpoint is not allowed",
+            READ + " --no-verify": "--no-verify is not allowed",
             "aws ec2 describe-vpcs --filters file://f.json --region us-east-1 --profile assessment": "reads a local file",
             "AWS_PROFILE=assessment " + READ: "must start with aws",
             "aws configure list-profiles": "do not need approval",

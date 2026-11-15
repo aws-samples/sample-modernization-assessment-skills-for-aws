@@ -13,15 +13,14 @@
 
 > **운영 환경용이 아닌 샘플 코드입니다.** 이 저장소는 하나의 접근 방식을 보여 드리기 위한 샘플 코드입니다. 실제 환경에
 > 적용하기 전에 보안, 법무, 컴플라이언스 담당 부서와 함께 검토하시고, 평가 권한을 받은 계정에서만 실행하시기 바랍니다.
-> 보고서는 AI의 도움을 받아 작성한 초안이며, 고객에게 전달하기 전에 평가를 맡은 아키텍트가 내용을 확인합니다.
+> 보고서는 AI의 도움을 받아 작성한 초안입니다.
 
 ![한눈에 보기: 보고서 첫 페이지의 요약](docs/img/ko/report-at-a-glance.png)
 
 ![보고서의 핵심 문제 섹션](docs/img/ko/report-key-issues.png)
 
-이전 버전으로 만든 보고서 전체 예시는 [docs/examples/assessment-orders-ko.html](docs/examples/assessment-orders-ko.html)에서
-보실 수 있습니다. 데모 워크로드 "orders"를 한국어로 평가한 보고서이며, 계정과 리소스 식별자는 가렸습니다. 핵심 문제, 현재
-구성 다이어그램, 영역별 등급, 점검 결과, 보안 권고가 실제로 전달되는 형태 그대로 들어 있습니다. 위 화면에 보이는 "한눈에
+이전 버전으로 만든 데모 보고서 전체는 [docs/examples/assessment-orders-ko.html](docs/examples/assessment-orders-ko.html)에서
+보실 수 있습니다. 핵심 문제, 현재 구성 다이어그램, 영역별 등급, 점검 결과, 보안 권고가 실제로 전달되는 형태 그대로 들어 있습니다. 위 화면에 보이는 "한눈에
 보기"와 Specialist SA Agent 섹션은 그 뒤 2.1.14와 2.2 버전에서 추가되었습니다.
 
 ## 만든 이유
@@ -63,7 +62,7 @@ artifacts/<workload>/<UTC run id>/
 
 ![영역별 등급과 등급을 결정한 점검 항목](docs/img/ko/report-grades.png)
 
-통합 보고서(`06-assessment/assessment.html`)는 읽는 분이 필요로 하는 순서로 구성됩니다.
+통합 보고서는 아래 순서로 구성됩니다.
 
 1. 한눈에 보기: 아래 섹션의 내용을 한 페이지로 요약
 2. 핵심 문제: 무엇이 문제인지, 왜 중요한지, 제언, 관련 점검 결과
@@ -77,8 +76,7 @@ artifacts/<workload>/<UTC run id>/
 10. 참고 자료와 용어
 11. 근거(접힌 상태), 그리고 방법·점수·작성 정보를 담은 부록
 
-작업 우선순위는 보고서가 정하지 않고, 워크로드 담당자와 미팅에서 함께 정합니다. 보고서는 요청한 언어로 작성되며, 영어
-원본도 함께 보관됩니다.
+보고서는 요청한 언어로 작성되며, 영어 원본도 함께 보관됩니다.
 
 ![Specialist SA Agent 검토 화면: 현재 상태, 지금은 하지 않을 것, 대안과 되돌리는 방법이 붙은 제언](docs/img/ko/report-specialist.png)
 
@@ -89,9 +87,6 @@ artifacts/<workload>/<UTC run id>/
 | 주의(Watch) | 주의가 1~2건이거나 확인 질문(UNKNOWN)이 있음 |
 | 양호(Sound) | 판정한 점검이 모두 충족이고 확인 질문이 없음 |
 | 평가 전(Unassessed) | 판정한 점검이 없음 |
-
-이 등급과 0~100 점수는 이 도구의 자체 기준이며, AWS Well-Architected Tool의 점수나 HRI/MRI 등급과는 다릅니다. 전체
-기준은 [평가 방법](skills/aws-architecture-review/references/review-method.md#qualitative-grades)에 정리되어 있습니다.
 
 ## 동작 방식
 
@@ -117,40 +112,55 @@ artifacts/<workload>/<UTC run id>/
 
 ### 1. 설치
 
-> **이 저장소가 공개되기 전까지는** 아래 GitHub 릴리스 URL이 404를 반환합니다. 전달받은 릴리스 파일
-> (`moda-skill-<version>.zip`, `SHA256SUMS`, `install.sh` / `install.ps1`)을 한 폴더에 두고
-> `sh install.sh --from ./moda-skill-2.2.1.zip`(Windows: `.\install.ps1 -From .\moda-skill-2.2.1.zip`)을 실행해 주세요.
-> `VERSION`, zip, `SHA256SUMS`를 제공하는 미러가 있다면 `MODA_SKILL_BASE_URL=https://<host>/path sh install.sh`처럼
-> 지정할 수도 있습니다.
+1. 필요한 환경을 확인합니다. Python 3.11 이상(`python3`, Windows에서는 `py -3` 또는 `python`)과 `curl`이
+   필요하며, Node와 Bun은 필요 없습니다.
+2. 설치 스크립트를 실행합니다.
 
-macOS, Linux, WSL, AWS CloudShell(`python3` 3.11 이상과 `curl` 필요, Node나 Bun은 필요 없음):
+   macOS, Linux, WSL, AWS CloudShell:
 
-```bash
-curl -fsSL https://github.com/aws-samples/sample-modernization-assessment-skills-for-aws/releases/latest/download/install.sh | sh
-export PATH="$HOME/.local/bin:$PATH"     # if the installer says so; add it to ~/.zshrc or ~/.bashrc to keep it
-moda-skill version                        # moda-skill 2.2.1
-```
+   ```bash
+   curl -fsSL https://github.com/aws-samples/sample-modernization-assessment-skills-for-aws/releases/latest/download/install.sh | sh
+   ```
 
-Windows(PowerShell 5.1 또는 7, "관리자 권한으로 실행"이 아닌 일반 창):
+   Windows(PowerShell 5.1 또는 7, "관리자 권한으로 실행"이 아닌 일반 창):
 
-```powershell
-irm https://github.com/aws-samples/sample-modernization-assessment-skills-for-aws/releases/latest/download/install.ps1 | iex
-moda-skill version
-```
+   ```powershell
+   irm https://github.com/aws-samples/sample-modernization-assessment-skills-for-aws/releases/latest/download/install.ps1 | iex
+   ```
 
-설치 후에도 `moda-skill` 명령을 찾지 못한다면 설치가 끝까지 진행되지 않은 것입니다.
-`~/.local/share/moda-skill/current`(Windows: `%LOCALAPPDATA%\moda-skill\current`)가 있는지 확인하고 설치 스크립트를 다시
-실행해 주세요. 다운로드나 체크섬 확인에 실패하면 설치 스크립트가 원인을 알려 줍니다.
+3. 설치 스크립트가 안내하면 `~/.local/bin`을 PATH에 추가합니다. 계속 유지하려면 같은 줄을 `~/.zshrc`나
+   `~/.bashrc`에 넣어 주세요. Windows에서는 `-NoModifyPath`를 지정하지 않는 한 설치 스크립트가
+   `%LOCALAPPDATA%\moda-skill\bin`을 사용자 PATH에 추가합니다.
 
-두 설치 스크립트 모두 릴리스에서 `moda-skill-<version>.zip`과 `SHA256SUMS`를 내려받아 체크섬을 확인한 다음,
-`~/.local/share/moda-skill/versions/<version>/`(Windows: `%LOCALAPPDATA%\moda-skill\versions\`)에 압축을 풀고 `moda-skill`
-실행 파일을 만듭니다. Unix에서는 `~/.local/bin/moda-skill`, Windows에서는 `%LOCALAPPDATA%\moda-skill\bin` 아래의
-`moda-skill.cmd`와 `moda-skill.ps1`이며, Windows에서는 `-NoModifyPath`를 지정하지 않는 한 이 폴더가 사용자 PATH에
-추가됩니다. Unix 설치 스크립트는 root 권한으로는 실행되지 않고, Windows 설치 스크립트는 관리자 권한 창에서 실행하면 경고를
-표시합니다. 오프라인 환경이나 다른 호스트에서 설치할 때는 `sh install.sh --from moda-skill-2.2.1.zip` /
-`.\install.ps1 -From .\moda-skill-2.2.1.zip`(zip 옆의 `SHA256SUMS`를 사용)을 실행하거나
-`MODA_SKILL_BASE_URL=https://<your host>/path`를 지정하면 됩니다. 필요한 런타임은 Python 3.11 이상뿐입니다(Windows에서는
-`py -3` 또는 `python`).
+   ```bash
+   export PATH="$HOME/.local/bin:$PATH"
+   ```
+
+4. 설치를 확인합니다.
+
+   ```bash
+   moda-skill version     # moda-skill 2.2.1
+   ```
+
+   `moda-skill` 명령을 찾지 못한다면 설치가 끝까지 진행되지 않은 것입니다.
+   `~/.local/share/moda-skill/current`(Windows: `%LOCALAPPDATA%\moda-skill\current`)가 있는지 확인하고 설치
+   스크립트를 다시 실행해 주세요. 다운로드나 체크섬 확인에 실패하면 설치 스크립트가 원인을 알려 줍니다.
+
+설치 스크립트가 하는 일:
+
+- 릴리스에서 `moda-skill-<version>.zip`과 `SHA256SUMS`를 내려받아 체크섬을 확인합니다.
+- `~/.local/share/moda-skill/versions/<version>/`(Windows: `%LOCALAPPDATA%\moda-skill\versions\`)에 압축을
+  풉니다.
+- `moda-skill` 실행 파일을 만듭니다. Unix에서는 `~/.local/bin/moda-skill`, Windows에서는
+  `%LOCALAPPDATA%\moda-skill\bin` 아래의 `moda-skill.cmd`와 `moda-skill.ps1`입니다.
+- Unix에서는 root 권한으로 실행되지 않고, Windows에서는 관리자 권한 창에서 실행하면 경고를 표시합니다.
+
+오프라인 환경이나 다른 호스트에서 설치하는 방법:
+
+- zip과 `SHA256SUMS`를 한 폴더에 두고 `sh install.sh --from moda-skill-2.2.1.zip`(Windows:
+  `.\install.ps1 -From .\moda-skill-2.2.1.zip`)을 실행합니다.
+- 또는 `VERSION`, zip, `SHA256SUMS`를 제공하는 미러를 지정합니다:
+  `MODA_SKILL_BASE_URL=https://<your host>/path sh install.sh`
 
 ### 2. 프로젝트 구성
 
@@ -318,10 +328,9 @@ Agent와 `AmazonSSMManagedInstanceCore` 정책이 연결된 인스턴스 프로�
 
 ## 한계
 
-- 등급, 점수, 현대화 방향 판단은 문서화된 자체 규칙에 따라 항상 같은 방식으로 산출되지만, AWS Well-Architected Tool의
-  결과나 보안 인증을 대신하지는 않습니다.
-- 핵심 문제와 Specialist SA Agent 제언은 에이전트가 작성하고, 고객에게 전달하기 전에 사람이 검토합니다. 헬퍼는 인용한
-  근거가 실제로 있는지 확인하고 근거 없는 금액, 일정, 홍보성 표현을 걸러 내지만, 제언 자체가 옳은지까지 보증하지는
+- 등급, 점수, 현대화 방향 판단은 [평가 방법](skills/aws-architecture-review/references/review-method.md#qualitative-grades)에
+  정리된 자체 규칙에 따라 항상 같은 방식으로 산출되지만, AWS Well-Architected Tool의 결과나 보안 인증을 대신하지는 않습니다.
+- 핵심 문제와 Specialist SA Agent 제언은 에이전트가 작성합니다. 헬퍼는 인용한 근거가 실제로 있는지 확인하고 근거 없는 금액, 일정, 홍보성 표현을 걸러 내지만, 제언 자체가 옳은지까지 보증하지는
   않습니다.
 - 평가 범위는 지정한 워크로드입니다. 애플리케이션 로직과 데이터베이스에 저장된 데이터는 확인하지 않습니다.
 - 비용은 산정 기준이 함께 표시된 공개 온디맨드 요금이며, 청구액 예측이 아닙니다. 절감액, 일정, 인일 단위 공수는 추정하지
@@ -351,34 +360,6 @@ python3 skills/aws-skills-install/scripts/build_manifest.py --check   # install 
 
 보안 문제를 발견하셨다면 [CONTRIBUTING.md](CONTRIBUTING.md#security-issue-notifications)의 절차에 따라 알려 주세요.
 취약점은 공개 이슈로 등록하지 말아 주시기 바랍니다.
-
-이 저장소를 정적 분석하면 아래 항목이 보고됩니다. 항목별로 코드에서 어떻게 처리하고 있는지 정리했습니다.
-
-- **하위 프로세스 사용(Bandit B603/B607, Semgrep subprocess audit).** 이 도구는 AWS CLI, `ssh`, `d2`, `git`을 하위
-  프로세스로 실행하는 방식으로 동작합니다. 모든 호출은 셸을 거치지 않는 리스트 형식이고, 프로그램 이름은 호출하는 위치에
-  리터럴로 적습니다(`["aws", *checked_arguments(argv)]`). 실행 파일은 앞에서 `shutil.which`로 확인한 것과 같은 방식으로
-  `PATH`에서 찾습니다. `checked_arguments()`는 문자열이 아니거나 제어 문자가 들어간 인자를 거부하며, 인자는 수집기 자체의
-  목록, AWS 응답에서 읽은 식별자, 먼저 검증한 CLI 옵션에서만 가져옵니다. `moda-skill doctor`는 `doctor.py`를 별도
-  프로세스로 띄우지 않고 같은 프로세스에서 호출하며, 도구 버전 확인은 도구마다 고정된 인자 목록 하나를 씁니다. 테스트는
-  프로그램 이름을 리터럴로 적는 헬퍼 하나(`tests/harness.py`)를 통해서만 프로세스를 실행합니다(테스트 인터프리터를
-  가리키는 shim 폴더를 거친 `python3`, `sh`, `pwsh`).
-- **XML 파싱(B314, use-defused-xml).** XML 파서는 쓰지 않습니다. SVG 다이어그램은 태그와 속성을 검사하는 방식
-  (`report_kit.scan_svg`, DTD와 엔티티를 처리하지 않는 `html.parser` 기반)으로 확인합니다. DTD나 엔티티 선언, 25 MB를
-  넘는 문서, 스크립트, `foreignObject`, 이벤트 핸들러 속성, `#`과 `data:image/` 이외를 가리키는 참조가 있으면 거부하고,
-  원본 텍스트를 그대로 삽입합니다.
-- **URL 가져오기(B310).** HTTP 클라이언트 호출은 고정된 AWS Knowledge MCP 엔드포인트를 확인하는 한 곳뿐이며, `https://`로
-  시작하지 않는 URL은 거부합니다. 설치 스크립트의 `--base-url`도 쿼리 문자열이나 자격 증명이 없는 https URL만 받습니다.
-- **동적 코드.** 호스트 점검 스크립트는 `globals()`를 읽지 않습니다. 설정은 스크립트 앞부분에 기본값을 명시한 할당문으로
-  두고, 이 설정을 확인하는 테스트도 `exec` 대신 `ast.literal_eval`로 읽습니다.
-- **Playwright 탐색.** 렌더러는 로컬에 있는 자체 완결형 문서를 읽어, 실제로는 해석되지 않는 예약 도메인
-  (`moda-render.invalid`)의 고정 주소 하나에서 메모리로 제공합니다. 그 밖의 요청은 모두 중단하므로 `file://` 경로나
-  네트워크 URL을 여는 일이 없습니다.
-- **IAM 샘플 정책.** `ssm:SendCommand`는 `AWS-RunShellScript` 문서와 평가마다 지정한 인스턴스 ARN에만 허용하며, `*`에는
-  허용하지 않습니다. 읽기 전용 SSM 작업은 와일드카드를 그대로 둡니다.
-
-선택 사항인 SSM Run Command 호스트 점검을 제외하면, 이 도구는 AWS에서 읽기만 합니다. 수집기마다 허용 목록으로 이를
-강제하고, 훅을 설치했다면
-읽기 전용 가드가 그 밖의 `aws` 명령을 실행 전에 막습니다.
 
 ## 라이선스
 

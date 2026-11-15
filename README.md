@@ -16,8 +16,7 @@ helper on its own does not produce an assessment.
 > **Sample code, not for production use.** This repository is sample code that shows one
 > approach. Review it with your security, legal and compliance teams before you use it in your
 > environment, and run it only against accounts you are authorized to assess. Reports are drafts
-> written with AI assistance, and the assessing architect reviews them before they go to a
-> customer.
+> written with AI assistance.
 
 ![At a glance: the one-page summary at the top of a generated report](docs/img/ko/report-at-a-glance.png)
 
@@ -25,8 +24,8 @@ helper on its own does not produce an assessment.
 
 *The screenshots show a report generated in Korean (`lang ko`). English captures will replace them.*
 
-A complete report from an earlier version is in [docs/examples/assessment-orders-ko.html](docs/examples/assessment-orders-ko.html)
-(Korean, demo workload "orders", with account and resource identifiers masked). It shows the key
+A complete demo report made with an earlier version is in
+[docs/examples/assessment-orders-ko.html](docs/examples/assessment-orders-ko.html) (in Korean). It shows the key
 issues, the current-architecture diagram, pillar grades, findings and security recommendations as
 a reader receives them. The At a glance page and the Specialist SA Agent section in the
 screenshots above came later, in 2.1.14 and 2.2.
@@ -78,7 +77,7 @@ artifacts/<workload>/<UTC run id>/
 
 ![Pillar grades with driving checks](docs/img/ko/report-grades.png)
 
-The unified report (`06-assessment/assessment.html`) follows the order a reader needs:
+The unified report has these sections, in this order:
 
 1. At a glance, a one-page summary built from the sections below
 2. Key issues: the problem, why it matters, a suggestion, and the linked findings
@@ -93,8 +92,7 @@ The unified report (`06-assessment/assessment.html`) follows the order a reader 
 10. Reference material and terms
 11. Evidence (collapsed), and an appendix with the method, scores and run provenance
 
-The report does not set the order of the work; that is agreed with the workload owner. It is
-written in the language of your request, and the English draft is kept next to it.
+The report is written in the language of your request, and the English draft is kept next to it.
 
 ![A Specialist SA Agent's review: what it sees, what it would leave for now, and each recommendation with its alternative and way back](docs/img/ko/report-specialist.png)
 
@@ -105,9 +103,6 @@ written in the language of your request, and the English draft is kept next to i
 | Watch | one or two WARN, or any open question (UNKNOWN) |
 | Sound | every judged check passed and no open question |
 | Unassessed | no judged checks |
-
-The grades and the 0–100 scores are this toolkit's own rubric. They are not AWS Well-Architected
-Tool scores or HRI/MRI ratings. See the full rubric in [review method](skills/aws-architecture-review/references/review-method.md#qualitative-grades).
 
 ## How it works
 
@@ -135,41 +130,56 @@ that, you run the whole assessment with `/moda-skill` (`$moda-skill` in Codex).
 
 ### 1. Install
 
-> **Until this repository is public**, the GitHub release URLs below return 404. Put the release
-> files you received (`moda-skill-<version>.zip`, `SHA256SUMS`, `install.sh` / `install.ps1`) in
-> one folder and run `sh install.sh --from ./moda-skill-2.2.1.zip` (Windows:
-> `.\install.ps1 -From .\moda-skill-2.2.1.zip`). You can also point the installer at a mirror that
-> serves `VERSION`, the zip and `SHA256SUMS`: `MODA_SKILL_BASE_URL=https://<host>/path sh install.sh`.
+1. Check the prerequisites: Python 3.11 or later (`python3`; on Windows `py -3` or `python`) and
+   `curl`. Node and Bun are not needed.
+2. Run the installer.
 
-macOS, Linux, WSL or AWS CloudShell (requires `python3` 3.11 or later and `curl`; Node and Bun are not needed):
+   macOS, Linux, WSL or AWS CloudShell:
 
-```bash
-curl -fsSL https://github.com/aws-samples/sample-modernization-assessment-skills-for-aws/releases/latest/download/install.sh | sh
-export PATH="$HOME/.local/bin:$PATH"     # if the installer says so; add it to ~/.zshrc or ~/.bashrc to keep it
-moda-skill version                        # moda-skill 2.2.1
-```
+   ```bash
+   curl -fsSL https://github.com/aws-samples/sample-modernization-assessment-skills-for-aws/releases/latest/download/install.sh | sh
+   ```
 
-Windows (PowerShell 5.1 or 7, in a normal window rather than "Run as administrator"):
+   Windows, in PowerShell 5.1 or 7 (a normal window, not "Run as administrator"):
 
-```powershell
-irm https://github.com/aws-samples/sample-modernization-assessment-skills-for-aws/releases/latest/download/install.ps1 | iex
-moda-skill version
-```
+   ```powershell
+   irm https://github.com/aws-samples/sample-modernization-assessment-skills-for-aws/releases/latest/download/install.ps1 | iex
+   ```
 
-If `moda-skill` is still not found, the installation did not complete. Check that
-`~/.local/share/moda-skill/current` (Windows: `%LOCALAPPDATA%\moda-skill\current`) exists, then
-run the installer again. When a download or checksum fails, the installer prints the reason.
+3. If the installer asks you to, add `~/.local/bin` to your PATH. To keep the setting, add the
+   same line to `~/.zshrc` or `~/.bashrc`. On Windows, the installer adds
+   `%LOCALAPPDATA%\moda-skill\bin` to your user PATH unless you pass `-NoModifyPath`.
 
-Both installers download `moda-skill-<version>.zip` and `SHA256SUMS` from the release, verify the
-checksum, and unpack the release under `~/.local/share/moda-skill/versions/<version>/`
-(Windows: `%LOCALAPPDATA%\moda-skill\versions\`). They then create the `moda-skill` launcher:
-`~/.local/bin/moda-skill` on Unix, and `moda-skill.cmd` and `moda-skill.ps1` in
-`%LOCALAPPDATA%\moda-skill\bin` on Windows, which is added to your user PATH unless you pass
-`-NoModifyPath`. The Unix installer does not run as root, and the Windows installer warns when
-it runs in an elevated window. To install offline or from another host, use
-`sh install.sh --from moda-skill-2.2.1.zip` / `.\install.ps1 -From .\moda-skill-2.2.1.zip` (the
-`SHA256SUMS` file next to the zip is used), or set `MODA_SKILL_BASE_URL=https://<your host>/path`.
-The only runtime you need is Python 3.11 or later (`py -3` or `python` on Windows).
+   ```bash
+   export PATH="$HOME/.local/bin:$PATH"
+   ```
+
+4. Confirm the installation.
+
+   ```bash
+   moda-skill version     # moda-skill 2.2.1
+   ```
+
+   If `moda-skill` is not found, the installation did not complete. Check that
+   `~/.local/share/moda-skill/current` (Windows: `%LOCALAPPDATA%\moda-skill\current`) exists, then
+   run the installer again. When a download or checksum check fails, the installer prints the
+   reason.
+
+What the installer does:
+
+- Downloads `moda-skill-<version>.zip` and `SHA256SUMS` from the release and verifies the checksum.
+- Unpacks the release under `~/.local/share/moda-skill/versions/<version>/` (Windows:
+  `%LOCALAPPDATA%\moda-skill\versions\`).
+- Creates the `moda-skill` launcher: `~/.local/bin/moda-skill` on Unix, and `moda-skill.cmd` and
+  `moda-skill.ps1` in `%LOCALAPPDATA%\moda-skill\bin` on Windows.
+- Refuses to run as root on Unix, and warns when it runs in an elevated window on Windows.
+
+To install offline or from another host:
+
+- Put the zip and `SHA256SUMS` in one folder and run `sh install.sh --from moda-skill-2.2.1.zip`
+  (Windows: `.\install.ps1 -From .\moda-skill-2.2.1.zip`).
+- Or point the installer at a mirror that serves `VERSION`, the zip and `SHA256SUMS`:
+  `MODA_SKILL_BASE_URL=https://<your host>/path sh install.sh`.
 
 ### 2. Set up a project
 
@@ -360,10 +370,10 @@ read-only calls.
 
 ## Limits
 
-- Grades, scores and direction ratings follow documented, deterministic rules of this toolkit.
+- Grades, scores and direction ratings follow this toolkit's own deterministic rules, documented
+  in the [review method](skills/aws-architecture-review/references/review-method.md#qualitative-grades).
   They are not AWS Well-Architected Tool results or a security certification.
-- The agent writes the key issues and the Specialist SA Agent recommendations, and a person
-  reviews them before they go to a customer. The helpers confirm that cited references exist and
+- The agent writes the key issues and the Specialist SA Agent recommendations. The helpers confirm that cited references exist and
   reject made-up amounts, schedules and promotional wording, but they cannot prove that the advice
   is right.
 - The scope is the workload you name. Application logic and database contents are not inspected.
@@ -397,43 +407,6 @@ translated.
 
 To report a security issue, follow [CONTRIBUTING.md](CONTRIBUTING.md#security-issue-notifications).
 Please do not open a public issue for a vulnerability.
-
-Static analysis of this repository reports the items below. Each one is explained with how the
-code handles it.
-
-- **Subprocess use (Bandit B603/B607, Semgrep subprocess audit).** The toolkit works by running
-  the AWS CLI, `ssh`, `d2` and `git` as child processes. Every call uses a list of arguments
-  instead of a shell, and the program name is written as a literal at the call site
-  (`["aws", *checked_arguments(argv)]`), resolved through `PATH` in the same way as the
-  `shutil.which` check before it. `checked_arguments()` rejects any argument that is not a string
-  or that contains control characters. Arguments come only from the collector's own tables,
-  identifiers returned by AWS, or CLI options that were validated first. `moda-skill doctor` runs
-  `doctor.py` in the same process instead of starting a new one, and its version checks use one
-  literal argument list per tool. The test suite starts processes only through one helper
-  (`tests/harness.py`), which also names its programs literally (`python3` through a shim folder
-  that points to the test interpreter, `sh`, `pwsh`).
-- **XML parsing (B314, use-defused-xml).** No XML parser is used. SVG diagrams are checked by a
-  tag and attribute scan (`report_kit.scan_svg`, built on `html.parser`, which does not process
-  DTDs or entities). The scan rejects DTD or entity declarations, documents larger than 25 MB,
-  scripts, `foreignObject`, event-handler attributes, and references other than `#` and
-  `data:image/`. The original text is embedded as is.
-- **URL fetch (B310).** The only HTTP client call checks the fixed AWS Knowledge MCP endpoint and
-  rejects URLs that do not start with `https://`. The installer's `--base-url` must be an https URL
-  without a query string or credentials.
-- **Dynamic code.** The host probe does not read `globals()`. Its configuration is an assignment
-  with an explicit default at the top of the script, and the test that checks this configuration
-  reads it with `ast.literal_eval` rather than `exec`.
-- **Playwright navigation.** The renderer reads the local, self-contained document and serves it
-  from memory at one fixed address on a reserved domain that never resolves
-  (`moda-render.invalid`). All other requests are aborted, so the renderer never opens a
-  `file://` path or a network URL.
-- **IAM sample policy.** `ssm:SendCommand` is allowed only for the `AWS-RunShellScript` document
-  and the instance ARNs named for the engagement, never for `*`. The read-only SSM actions keep the
-  wildcard.
-
-Apart from the optional SSM Run Command for host inspection, the toolkit only reads from AWS.
-Each collector enforces this with its own allowlist, and when the hooks are installed, the read-only guard blocks any
-other `aws` command before it runs.
 
 ## License
 

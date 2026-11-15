@@ -491,10 +491,10 @@
     {
       "name": "moda-skill",
       "source": "skills/moda-skill",
-      "digest": "4688dfdf7f217fb56a3baaa9adeafa11ba34cfe7a228f6f0a4200f2cd1f582d1",
+      "digest": "6ca26d075c1e044600f40030d49d2ad23588c19e68aaafd3c97d6a535b8359c6",
       "stamp": {
         "package": "moda-skills",
-        "sha256": "4688dfdf7f217fb56a3baaa9adeafa11ba34cfe7a228f6f0a4200f2cd1f582d1"
+        "sha256": "6ca26d075c1e044600f40030d49d2ad23588c19e68aaafd3c97d6a535b8359c6"
       },
       "files": [
         {
@@ -529,8 +529,8 @@
         },
         {
           "path": "scripts/plan_check.py",
-          "bytes": 7855,
-          "sha256": "534150ce9db18db30bfe66227c4e706241e51766a0e3f71174a46de7841c84b4"
+          "bytes": 8413,
+          "sha256": "de12e0e807b51762591b81b947b865fd000b25428094203d986e5de7fef677aa"
         }
       ]
     }

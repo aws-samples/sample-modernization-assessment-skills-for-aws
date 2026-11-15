@@ -34,14 +34,23 @@ spec.loader.exec_module(hook)
 MAX_COMMANDS = 50
 MAX_ROUNDS = 3
 ROUNDS_FILE = ".agent-commands-rounds"
-FORBIDDEN_OPTIONS = {"--endpoint-url", "--no-verify-ssl", "--ca-bundle", "--cli-input-json", "--cli-input-yaml", "--debug",
-                     "--generate-cli-skeleton", "--no-sign-request"}
+# Options that send the request elsewhere, change TLS checking, print request details or read input from a file.
+# A name matches when it starts with one of these or abbreviates one, so a shortened spelling is caught as well.
+# "--no-verify" covers the switch that turns off TLS certificate checks.
+FORBIDDEN_OPTIONS = ("--endpoint-url", "--no-verify", "--ca-bundle", "--cli-input-json", "--cli-input-yaml", "--debug",
+                     "--generate-cli-skeleton", "--no-sign-request")
 OUTPUT_FORMATS = {"json", "text", "table", "yaml", "yaml-stream"}
 GLOBAL_SERVICES = {"iam", "organizations", "route53", "cloudfront", "sts", "support", "ce", "health", "budgets",
                    "globalaccelerator", "shield", "account", "s3control", "route53domains"}
 REGION = re.compile(r"^[a-z]{2}(-gov)?-[a-z]+-\d$")
 SHELL_SYNTAX = re.compile(r"[$`\\]|\$\(|<\(|>\(")
 REDIRECTIONS = {">", ">>", "<", "<<", "<<<", ">&", "&>", "&>>", ">|", "<>"}
+
+
+def forbidden_option(name):
+    """True for a forbidden option, a longer spelling of one, or an abbreviation of one."""
+    name = name.split("=", 1)[0]
+    return len(name) > 3 and any(name.startswith(item) or item.startswith(name) for item in FORBIDDEN_OPTIONS)
 
 
 def check_entry(entry, ctx):
@@ -73,7 +82,7 @@ def check_entry(entry, ctx):
         return reason
     options = {k: v for k, v in form[2] if k}
     for key, value in form[2]:
-        if key in FORBIDDEN_OPTIONS:
+        if forbidden_option(key):
             return f"{key} is not allowed in an approved command"
         if value.startswith(("file://", "fileb://")):
             return f"{key} reads a local file; write the values into the command instead"
