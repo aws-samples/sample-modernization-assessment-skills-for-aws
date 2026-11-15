@@ -15,6 +15,9 @@ based on a test run on 2026-11-15:
 The guides for [Claude Code](claude-code.md) and [Codex](codex.md) follow the same steps. For
 AWS CloudShell, see [CLOUDSHELL.md](../CLOUDSHELL.md).
 
+Screenshots are from the test sessions. The account ID, the user name and the names of other
+projects in the test account are replaced or removed, and hooks of other tools are hidden.
+
 ## Before you start
 
 - Install the toolkit as described in the [README](../../README.md#1-install) and check that
@@ -57,6 +60,8 @@ Run `/config hooks` and check that four moda-skill hooks are listed:
 | moda-skill file guard | PreToolUse | `write` |
 | moda-skill stop gate | Stop | |
 
+![Kiro CLI /config hooks listing the four moda-skill hooks](../img/guides/kiro-hooks.png)
+
 Then turn off the per-tool confirmations with `/tools trust-all` (or start with
 `kiro-cli chat --trust-all-tools`). The run makes several hundred tool calls, so confirming each
 one is not practical. The hooks still check every shell command and file change; see
@@ -68,12 +73,14 @@ The status line shows the model and effort, for example `claude-opus-5.5 · medi
 assessment is tested at effort `high` or above.
 
 1. Run `/model` and keep `claude-opus-5.5` selected.
-2. Press Tab to move to "Settings for selected model", then the down arrow to `effort`.
+2. Press Tab to move to "Settings for selected model". The cursor is on `effort`.
 3. Press the right arrow until it shows `high`, then Esc twice.
 
 Kiro saves the setting in `~/.kiro/settings/cli.json` under
 `chat.modelDefaults.claude-opus-5.5.output_config.effort`, so it applies to later sessions with
 that model as well.
+
+![The effort setting for claude-opus-5.5 in Kiro CLI's /model panel](../img/guides/kiro-effort.png)
 
 ## 4. Start the assessment
 
@@ -99,12 +106,16 @@ example:
 3, continue with this profile. Reason: my own PoC account; the read-only guard is installed.
 ```
 
+![Kiro CLI pauses at stage 1 and offers three choices for a write-capable profile](../img/en/guides/kiro-write-check.png)
+
 The reason is stored in `scope.json`. Until it is recorded, the collecting helpers refuse to start.
 
 **Scope.** The agent looks around the account read-only and sends one numbered message: region,
 workload (stacks, a tag or the whole account), host inspection, report language and context
 (environment, operator, support plan). Reply with only what you want to change, for example
 `2 a, 3 no, 5 non-production internal unknown unknown`, or `confirm` to accept the defaults.
+
+![The numbered scope message in Kiro CLI](../img/en/guides/kiro-scope.png)
 
 ## 6. While it runs, and after
 
@@ -164,3 +175,4 @@ CloudTrail showed no `CreateTags` or `GetSecretValue` call afterwards. The sessi
 | `/moda-skill start` says the stage skills are missing | Run `moda-skill config --harness kiro` in this folder, restart Kiro and start again. Do not copy skills from `~/.kiro/skills`. |
 | The model check stops the run | Switch the model or effort as in step 3 and start again, or reply that you want to continue anyway. |
 | No moda-skill hooks under `/config hooks` | The folder is not trusted, or `config` ran without `--hooks`. Run `moda-skill config --harness kiro --hooks` and restart Kiro. |
+| The guard stops checking after you moved the project folder | The hook commands contain the folder's absolute path. Run `moda-skill config --harness kiro --hooks` in the new location and restart the client. |

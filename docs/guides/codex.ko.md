@@ -15,6 +15,9 @@
 [Kiro CLI](kiro-cli.ko.md)와 [Claude Code](claude-code.ko.md) 가이드도 같은 순서로 구성되어
 있습니다.
 
+화면은 테스트 세션에서 캡처했습니다. 계정 ID, 사용자 이름, 테스트 계정에 있는 다른 프로젝트 이름은 다른 값으로 바꾸거나
+지웠고, 다른 도구의 훅은 보이지 않게 했습니다.
+
 ## 시작하기 전에
 
 - [README](../../README.ko.md#1-설치)의 안내대로 도구를 설치하고 `moda-skill version`이 동작하는지
@@ -49,9 +52,16 @@ codex -m openai.gpt-6-astra -c model_reasoning_effort=high -a never -s danger-fu
 
 1. "Do you trust the contents of this directory?" **1. Yes, continue**를 선택합니다. Codex는
    신뢰한 폴더에서만 프로젝트 설정과 훅을 불러옵니다.
+
+   ![폴더를 신뢰할지 묻는 Codex 화면](../img/guides/codex-trust.png)
+
 2. "Hooks need review. 3 hooks are new or changed." **1. Review hooks**를 선택해 표를 확인하고,
    **t**를 눌러 모두 신뢰한 뒤 Esc를 누릅니다. (**2. Trust all and continue**는 표를 보지 않고 같은
    일을 합니다.) 나중에는 `/hooks`로 같은 화면을 열 수 있습니다.
+
+   ![검토할 새 훅이 세 개 있다고 알리는 Codex 화면](../img/guides/codex-hooks-prompt.png)
+
+   ![신뢰하기 전 Codex 훅 표: 검토할 PreToolUse 훅 두 개와 Stop 훅 하나](../img/guides/codex-hooks-table.png)
 
 신뢰하고 나면 PreToolUse에 moda-skill 가드 두 개가 활성으로 표시됩니다. 하나는 `Bash`, 하나는
 `apply_patch|Edit|Write`용입니다. Stop에는 moda-skill 진행 확인 훅이 있습니다.
@@ -77,6 +87,8 @@ codex -m openai.gpt-6-astra -c model_reasoning_effort=high -a never -s danger-fu
 현재 모델(openai.gpt-6-astra, effort high)로 계속 진행해 주세요.
 ```
 
+![모델 확인에서 멈추고 계속할지 묻는 Codex 화면](../img/ko/guides/codex-model-check.png)
+
 이 결정은 실행 기록의 노트에 남습니다.
 
 ## 4. 평가 시작
@@ -97,12 +109,16 @@ $moda-skill start profile assessment region us-east-1 workload shopnow lang ko
 네, 111122223333이 평가 대상 계정이 맞고 이 프로필로 계속 진행합니다. 이유: 본인 소유 PoC 계정이고 읽기 전용 가드를 설치했습니다.
 ```
 
+![변경 권한이 있는 프로필로 계속하기 전에 이유를 묻는 Codex 화면](../img/ko/guides/codex-write-check.png)
+
 이유는 `scope.json`에 기록되며, 기록되기 전까지 수집 헬퍼는 실행되지 않습니다.
 
 **평가 범위.** 테스트에서 Codex는 앞선 답변을 근거로 범위를 정하고 범위 질문을 따로 하지
 않았습니다. 환경과 운영 주체도 이유 문구에서 추정해 기록했습니다. 지금은 사람이 말하지 않은 항목은
 묻도록 스킬에 명시했습니다. 범위를 확실히 하려면 시작 명령에 범위를 지정하고(`stack <이름>`,
-`tag Key=Value`, `account-wide`), 3단계로 넘어가기 전에 에이전트가 보여 주는 범위를 확인해 주세요.
+`tag Key=Value`, `account-wide`), 3단계로 넘어가기 전에 에이전트가 보여 주는 범위를 확인해 주세요. 바뀐 스킬에서는 에이전트가 다음과 같이 범위를 확인합니다.
+
+![평가 범위를 확정할지 묻는 Codex 화면](../img/ko/guides/codex-scope.png)
 
 ## 6. 실행 중과 실행 후
 
@@ -159,3 +175,4 @@ $moda-skill start profile assessment region us-east-1 workload shopnow lang ko
 | AWS 호출이 네트워크나 엔드포인트 오류로 실패함 | 샌드박스가 네트워크 접근을 막고 있습니다. `-s danger-full-access`로 시작하거나 Codex 설정에서 이 폴더의 네트워크 접근을 허용해 주세요. |
 | `$moda-skill start`가 단계 스킬이 없다고 안내함 | 이 폴더에서 `moda-skill config --harness codex`를 실행하고 Codex를 다시 시작한 뒤 시도해 주세요. |
 | `/hooks`에 moda-skill 훅이 없음 | 폴더나 훅을 신뢰하지 않았거나 `config`를 `--hooks` 없이 실행한 경우입니다. `moda-skill config --harness codex --hooks`를 실행하고 Codex를 다시 시작한 뒤 훅을 신뢰해 주세요. |
+| 프로젝트 폴더를 옮긴 뒤 가드가 동작하지 않음 | 훅 명령에 폴더의 절대 경로가 들어 있습니다. 새 위치에서 `moda-skill config --harness codex --hooks`를 실행하고 클라이언트를 다시 시작해 주세요. |

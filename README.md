@@ -18,17 +18,14 @@ helper on its own does not produce an assessment.
 > environment, and run it only against accounts you are authorized to assess. Reports are drafts
 > written with AI assistance.
 
-![At a glance: the one-page summary at the top of a generated report](docs/img/ko/report-at-a-glance.png)
+![At a glance: the one-page summary at the top of a generated report](docs/img/en/report-at-a-glance.png)
 
-![Key issues section of a generated report](docs/img/ko/report-key-issues.png)
+![Key issues section of a generated report](docs/img/en/report-key-issues.png)
 
-*The screenshots show a report generated in Korean (`lang ko`). English captures will replace them.*
-
-A complete demo report made with an earlier version is in
-[docs/examples/assessment-orders-ko.html](docs/examples/assessment-orders-ko.html) (in Korean). It shows the key
-issues, the current-architecture diagram, pillar grades, findings and security recommendations as
-a reader receives them. The At a glance page and the Specialist SA Agent section in the
-screenshots above came later, in 2.1.14 and 2.2.
+A complete demo report from the test run below is in
+[docs/examples/assessment-shopnow-en.html](docs/examples/assessment-shopnow-en.html), with the account
+and resource identifiers replaced. It shows every section as a reader receives it. A Korean report
+from an earlier version is in [docs/examples/assessment-orders-ko.html](docs/examples/assessment-orders-ko.html).
 
 ## Why
 
@@ -75,7 +72,7 @@ artifacts/<workload>/<UTC run id>/
   06-assessment-ko/ assessment.html                   the report in the language you asked for (here Korean)
 ```
 
-![Pillar grades with driving checks](docs/img/ko/report-grades.png)
+![Pillar grades with driving checks](docs/img/en/report-grades.png)
 
 The unified report has these sections, in this order:
 
@@ -94,7 +91,7 @@ The unified report has these sections, in this order:
 
 The report is written in the language of your request, and the English draft is kept next to it.
 
-![A Specialist SA Agent's review: what it sees, what it would leave for now, and each recommendation with its alternative and way back](docs/img/ko/report-specialist.png)
+![A Specialist SA Agent's review: what it sees, what it would leave for now, and each recommendation with its alternative and way back](docs/img/en/report-specialist.png)
 
 | Grade | Rule (the first rule that matches applies) |
 |---|---|
@@ -123,12 +120,32 @@ licenses.
 
 ![Agent reading the skill definitions before starting](docs/img/cloudshell-skill-invoked.png)
 
+## Tested clients
+
+On 2026-11-15 each client ran one full assessment of the same demo workload (7 CloudFormation
+stacks, 71 resources in us-east-1), at the same time and against the same account. The profile
+could change the account.
+
+| Client | Model | Run time | Report | Read-only guard |
+|---|---|---|---|---|
+| Kiro CLI 3.3.0 | `claude-opus-5.5`, effort high | 145 min | Final | 9 of 9 checks |
+| Claude Code 2.1.309 (Amazon Bedrock) | Opus 5.5, effort xhigh | 66 min | Final | 9 of 9 checks |
+| Codex CLI 0.155.1 (Amazon Bedrock) | `openai.gpt-6-astra`, effort high | 46 min | Final | 9 of 9 checks |
+
+All three stopped at stage 1 because the profile could make changes, and continued only after the
+decision was recorded. After each run the agent tried nine actions the guard must stop, such as
+`create-tags --dry-run`, reading a secret, switching the profile and editing an installed skill.
+The guard blocked every attempt except one read that `plan_check.py` had approved first.
+Each figure comes from a single run, not a benchmark. The guides show each client's steps and
+screens: [Kiro CLI](docs/guides/kiro-cli.md) · [Claude Code](docs/guides/claude-code.md) ·
+[Codex](docs/guides/codex.md).
+
 ## Quick start
 
 Install the toolkit with one command and set up a project for your client with another. After
 that, you run the whole assessment with `/moda-skill` (`$moda-skill` in Codex).
 
-Step-by-step guides for each client, with the results of a test run:
+Step-by-step guides for each client:
 [Kiro CLI](docs/guides/kiro-cli.md) · [Claude Code](docs/guides/claude-code.md) · [Codex](docs/guides/codex.md).
 
 ### 1. Install
@@ -217,6 +234,10 @@ read-only role described in [Permissions](#permissions) is the control that hold
 Each client asks you to trust project hooks once (Kiro: trust the workspace; Claude Code: accept
 at session start; Codex: `/hooks`, then `t`).
 
+The hook commands use the project folder's absolute path, so the guard keeps checking the run
+after the agent changes into a subfolder. If you move the project folder, run
+`moda-skill config --harness <client> --hooks` again.
+
 When a run has a `scope.json`, the guard applies stricter rules, described in
 [If the profile can change the account](#if-the-profile-can-change-the-account). All AWS calls
 must use the run's profile, AWS commands that the agent runs on its own need prior approval from
@@ -226,7 +247,18 @@ the files that record the run's verified access and decisions (`01-setup/access-
 
 ### 3. Run
 
-Open the client in that folder (Kiro: `kiro-cli chat`, then `/tools trust-all`) and enter:
+Open the client in that folder. The clients differ in a few steps:
+
+| | Kiro CLI | Claude Code | Codex |
+|---|---|---|---|
+| Open | `kiro-cli chat` | `claude` | `codex` |
+| Trust the project hooks | Trust the workspace when asked | Trust the folder when asked; check with `/hooks` | Trust the folder, then review the hooks and press `t` |
+| Turn off per-command prompts | `/tools trust-all` | `--dangerously-skip-permissions` | `-a never`, plus `-s danger-full-access` so the commands can reach AWS |
+| Model and effort | `/model`; effort in the settings panel | `/model`; `--effort high` | `-m <model> -c model_reasoning_effort=high` |
+| Start | `/moda-skill start ...` | `/moda-skill start ...` | `$moda-skill start ...` |
+
+A run makes several hundred tool calls, which is why the table turns the prompts off. The hooks
+still check every shell command and file edit. Then enter:
 
 > A folder created by unzipping the release or cloning this repository contains only the two
 > bootstrap skills (`moda-skill` and `aws-skills-install`). `/moda-skill start` first checks for the
@@ -280,7 +312,10 @@ report's provenance section records the model, and a report made with a weaker m
 Choose the model with `/model` (Kiro, Claude Code) or `-m` (Codex). In Kiro CLI, also check the
 effort set for the model in `~/.kiro/settings/cli.json`
 (`chat.modelDefaults.<model>.output_config.effort`). The model tiers are listed in
-[skills/moda-skill/assets/models.json](skills/moda-skill/assets/models.json).
+[skills/moda-skill/assets/models.json](skills/moda-skill/assets/models.json). Codex was tested with
+`openai.gpt-6-astra` at effort high. OpenAI models are not in the model guidance, so
+`$moda-skill start` asks you to confirm before it continues; the test run still produced a Final
+report.
 
 ### Useful follow-up prompts
 
@@ -335,9 +370,9 @@ profile, static keys are removed from the environment of the helpers.
 that runs them. The agent reads this evidence to write the report, so it is sent to the model
 provider of the agent you use (Kiro CLI, Claude Code or Codex). Use an agent that your
 organization has approved for this account's metadata. Files under `artifacts/` contain
-identifiers in clear (account ID, ARNs, IAM user names); only the report masks the account ID and
-IAM user names. Treat the folder as confidential data of the account owner, and delete it when
-the engagement ends.
+identifiers in clear (account ID, ARNs, IAM user names). The report also shows the account ID and
+resource ARNs, and masks only IAM user names. Treat the folder and the report as confidential data
+of the account owner, and delete the folder when the engagement ends.
 
 ### If the profile can change the account
 
@@ -372,6 +407,8 @@ read-only calls.
    made it, because other work done with the same principal during the run, such as a deployment
    from another session, appears too. CloudTrail can take up to 15 minutes to show an event, and
    data events are not included.
+
+The [test runs](#tested-clients) went through these checks in all three clients.
 
 ## Limits
 

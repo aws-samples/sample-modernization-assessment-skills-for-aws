@@ -14,6 +14,9 @@
 
 [Kiro CLI](kiro-cli.ko.md)와 [Codex](codex.ko.md) 가이드도 같은 순서로 구성되어 있습니다.
 
+화면은 테스트 세션에서 캡처했습니다. 계정 ID, 사용자 이름, 테스트 계정에 있는 다른 프로젝트 이름은 다른 값으로 바꾸거나
+지웠고, 다른 도구의 훅은 보이지 않게 했습니다.
+
 ## 시작하기 전에
 
 - [README](../../README.ko.md#1-설치)의 안내대로 도구를 설치하고 `moda-skill version`이 동작하는지
@@ -56,6 +59,8 @@ claude --dangerously-skip-permissions --effort xhigh
 | PreToolUse | `Edit\|Write\|MultiEdit\|NotebookEdit` |
 | Stop | |
 
+![프로젝트 PreToolUse 가드 두 개가 보이는 Claude Code의 /hooks 화면](../img/guides/claude-hooks.png)
+
 평가 한 번에 도구 호출이 수백 번 일어나므로, 테스트에서는 `--dangerously-skip-permissions`로 권한
 확인을 껐습니다. 이 상태에서도 PreToolUse 훅은 모든 Bash 명령과 파일 수정 전에 실행됩니다.
 [가드가 막은 항목](#가드가-막은-항목)을 참고해 주세요. 명령마다 직접 승인하고 싶다면 이 옵션 없이
@@ -83,8 +88,16 @@ Claude Code는 탭으로 나뉜 입력 양식으로 질문합니다. 화살표 �
 something."이나 에이전트가 따로 묻는 메시지에 이유를 직접 한 줄로 적어 주세요. 이유는
 `scope.json`에 기록되며, 기록되기 전까지 수집 헬퍼는 실행되지 않습니다.
 
+![변경 권한이 있는 프로필에 대해 묻는 Claude Code의 질문 양식](../img/ko/guides/claude-write-check.png)
+
 **평가 범위.** 두 번째 양식에서는 워크로드(에이전트가 찾은 스택 또는 계정 전체), 호스트 점검,
 환경, Support 플랜을 묻습니다.
+
+![Claude Code의 평가 범위 양식 첫 번째 탭](../img/ko/guides/claude-scope.png)
+
+양식을 제출하면 에이전트가 계속 진행하는 이유를 직접 적어 달라고 따로 묻습니다.
+
+![계속 진행하는 이유를 직접 적어 달라고 요청하는 메시지](../img/ko/guides/claude-reason.png)
 
 ## 6. 실행 중과 실행 후
 
@@ -140,3 +153,4 @@ something."이나 에이전트가 따로 묻는 메시지에 이유를 직접 �
 | `/hooks`에 `[Project]` 항목이 없음 | 폴더를 신뢰하지 않았거나 `config`를 `--hooks` 없이 실행한 경우입니다. `moda-skill config --harness claude --hooks`를 실행하고 Claude Code를 다시 시작해 주세요. |
 | 모델 확인 단계에서 멈춤 | Opus로 바꾸거나 effort를 높여 다시 시작하거나, 현재 설정으로 계속하겠다고 답합니다. |
 | 다이어그램이 PNG 없이 SVG로만 남음 | 프로젝트 폴더에 Playwright가 없습니다. "시작하기 전에"의 방법으로 설치한 뒤 에이전트에게 PNG를 다시 내보내 달라고 요청해 주세요. |
+| 프로젝트 폴더를 옮긴 뒤 가드가 동작하지 않음 | 훅 명령에 폴더의 절대 경로가 들어 있습니다. 새 위치에서 `moda-skill config --harness claude --hooks`를 실행하고 클라이언트를 다시 시작해 주세요. |

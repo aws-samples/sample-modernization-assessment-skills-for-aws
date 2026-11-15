@@ -14,6 +14,9 @@ is based on a test run on 2026-11-15:
 
 The guides for [Kiro CLI](kiro-cli.md) and [Claude Code](claude-code.md) follow the same steps.
 
+Screenshots are from the test sessions. The account ID, the user name and the names of other
+projects in the test account are replaced or removed, and hooks of other tools are hidden.
+
 ## Before you start
 
 - Install the toolkit as described in the [README](../../README.md#1-install) and check that
@@ -48,9 +51,16 @@ Two questions appear on the first start in the folder:
 
 1. "Do you trust the contents of this directory?" Choose **1. Yes, continue**. Codex loads
    project-local configuration and hooks only in a trusted folder.
+
+   ![Codex asks whether to trust the folder](../img/guides/codex-trust.png)
+
 2. "Hooks need review. 3 hooks are new or changed." Choose **1. Review hooks**, check the table,
    press **t** to trust all, then Esc. (**2. Trust all and continue** does the same without the
    table.) Later you can open the same screen with `/hooks`.
+
+   ![Codex reports three new hooks to review](../img/guides/codex-hooks-prompt.png)
+
+   ![The Codex hook table before trusting: two PreToolUse hooks and one Stop hook to review](../img/guides/codex-hooks-table.png)
 
 After trusting, PreToolUse lists the two moda-skill guards as active: one for `Bash` and one for
 `apply_patch|Edit|Write`. Stop has the moda-skill stop gate.
@@ -76,6 +86,8 @@ continue with the current model, for example:
 Continue with the current model (openai.gpt-6-astra, effort high).
 ```
 
+![Codex stops at the model check and asks whether to continue](../img/en/guides/codex-model-check.png)
+
 The decision is recorded in the run's notes.
 
 ## 4. Start the assessment
@@ -97,13 +109,17 @@ example:
 Yes, 111122223333 is the account to assess. Continue with this profile. Reason: my own PoC account; the read-only guard is installed.
 ```
 
+![Codex asks for a reason before it continues with a write-capable profile](../img/en/guides/codex-write-check.png)
+
 The reason is stored in `scope.json`, and the collecting helpers do not start until it is there.
 
 **Scope.** In the test run Codex took the scope from the earlier replies and did not ask the
 scope question separately; it recorded the environment and operator from the wording of the
 reason. The skill now tells the agent to ask for anything the person did not state. To be sure of
 the scope, name it in the start command (`stack <name>`, `tag Key=Value` or `account-wide`), and
-check the scope the agent reports before stage 3.
+check the scope the agent reports before stage 3. With the change, the agent asks:
+
+![Codex asks to confirm the scope](../img/en/guides/codex-scope.png)
 
 ## 6. While it runs, and after
 
@@ -161,3 +177,4 @@ CloudTrail showed no `CreateTags` or `GetSecretValue` call afterwards.
 | AWS calls fail with network or endpoint errors | The sandbox blocks network access. Start with `-s danger-full-access`, or allow network access for the folder in your Codex configuration. |
 | `$moda-skill start` says the stage skills are missing | Run `moda-skill config --harness codex` in this folder, restart Codex and start again. |
 | No moda-skill hooks under `/hooks` | The folder or the hooks are not trusted, or `config` ran without `--hooks`. Run `moda-skill config --harness codex --hooks`, restart Codex and trust the hooks. |
+| The guard stops checking after you moved the project folder | The hook commands contain the folder's absolute path. Run `moda-skill config --harness codex --hooks` in the new location and restart the client. |
