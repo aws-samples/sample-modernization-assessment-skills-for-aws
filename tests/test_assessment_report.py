@@ -144,6 +144,8 @@ class ReaderFeedbackTests(unittest.TestCase):
         self.assertNotIn("jdoe", masked)
         self.assertIn("IAM user j***", masked); self.assertIn("user/j***", masked)
         self.assertEqual(self.report.mask_people("role/AppRole and user-data script"), "role/AppRole and user-data script")
+        prose = "One IAM user with long-term keys has an EKS access entry."
+        self.assertEqual(self.report.mask_people(prose), prose, "ordinary words after 'IAM user' are not names")
 
     def test_key_issue_size_vocabulary_and_quick_wins_board(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -193,6 +195,13 @@ class ReaderFeedbackTests(unittest.TestCase):
         self.assertEqual(self.report.mask_people("user-data script, role/user-service"), "user-data script, role/user-service")
         docs = "https://docs.aws.amazon.com/inspector/latest/user/getting_started_tutorial.html"
         self.assertEqual(self.report.mask_people(docs), docs, "documentation URLs are not IAM users")
+        self.report.KNOWN_USERS.add("jdoe")
+        try:
+            self.assertEqual(self.report.mask_people("Target user/jdoe (EKS access entry)"), "Target user/j*** (EKS access entry)",
+                             "a principal written as user/<name> without the ARN prefix is masked too")
+            self.assertEqual(self.report.mask_people(docs), docs, "a known name does not change documentation URLs")
+        finally:
+            self.report.KNOWN_USERS.discard("jdoe")
         self.assertEqual(self.report.rule_words("ALARM_NOTIFICATION_TARGET"), "Alarm notification target")
         self.assertEqual(self.report.rule_words("EKS_ADMIN_IAM_USER"), "EKS admin IAM user")
         self.assertEqual(self.report.rule_words("GENAI_INVOCATION_LOGGING"), "GenAI invocation logging")

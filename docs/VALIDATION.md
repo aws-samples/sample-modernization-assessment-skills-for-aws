@@ -228,3 +228,19 @@ renderer is installed in the project folder rather than borrowed from another on
 guides for the three clients are in [docs/guides](guides/).
 
 **200 tests passed.**
+
+## Hook commands with absolute paths, screenshots of this version (2026-11-15)
+
+A Korean run in Claude Code for the README screenshots stopped at stage 3: the agent had changed
+into a skill folder, and the hook commands named `hook.py` by a relative path, so every tool call
+failed until the folder was changed back. The test also showed that a guard started from a
+subfolder found no run and applied only its read-only rules. `moda-skill config --hooks` now writes
+the absolute path of `hook.py` and passes the project folder with `--root`, so the run-mode checks
+hold in any subfolder (`tests/test_hooks.py`). Preparing the example report also showed two masking
+gaps: an EKS access entry's principal written as `user/<name>` kept the IAM user name, and the word
+after "IAM user" in ordinary prose ("one IAM user with long-term keys") was masked as if it were a
+name. Both are fixed, with tests. The README and guide screenshots come from this run
+and from short sessions in each client that stopped at the scope question, with the account ID,
+user name and names of other projects in the test account replaced.
+
+**201 tests passed.**

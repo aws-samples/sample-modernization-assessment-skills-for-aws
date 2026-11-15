@@ -14,6 +14,9 @@ based on a test run on 2026-11-15:
 
 The guides for [Kiro CLI](kiro-cli.md) and [Codex](codex.md) follow the same steps.
 
+Screenshots are from the test sessions. The account ID, the user name and the names of other
+projects in the test account are replaced or removed, and hooks of other tools are hidden.
+
 ## Before you start
 
 - Install the toolkit as described in the [README](../../README.md#1-install) and check that
@@ -58,6 +61,8 @@ in a trusted folder. Run `/hooks` and check the `[Project]` entries:
 | PreToolUse | `Edit\|Write\|MultiEdit\|NotebookEdit` |
 | Stop | |
 
+![Claude Code /hooks showing the two project PreToolUse guards](../img/guides/claude-hooks.png)
+
 The run makes several hundred tool calls, so the test run turned off permission prompts with
 `--dangerously-skip-permissions`. The PreToolUse hooks still run before every Bash command and
 file edit; see [What the guard blocked](#what-the-guard-blocked). If you prefer to approve each
@@ -86,8 +91,12 @@ continue anyway. A second tab asks you to confirm the account. If you continue, 
 reason in your own words, either with "Type something." or when the agent asks for it. The reason
 is stored in `scope.json`, and the collecting helpers do not start until it is there.
 
+![Claude Code's question form for a write-capable profile](../img/en/guides/claude-write-check.png)
+
 **Scope.** The second form asks for the workload (the stacks the agent found, or the whole
 account), host inspection, the environment and the support plan.
+
+![Claude Code's scope form, first tab](../img/en/guides/claude-scope.png)
 
 ## 6. While it runs, and after
 
@@ -146,3 +155,4 @@ CloudTrail showed no `CreateTags` or `GetSecretValue` call afterwards.
 | `/hooks` shows no `[Project]` entries | The folder is not trusted, or `config` ran without `--hooks`. Run `moda-skill config --harness claude --hooks` and restart Claude Code. |
 | The model check stops the run | Switch to Opus or raise the effort and start again, or reply that you want to continue anyway. |
 | Diagrams are left as SVG without PNG | Playwright is not installed in the project folder. Install it as in "Before you start" and ask the agent to export the PNG files again. |
+| The guard stops checking after you moved the project folder | The hook commands contain the folder's absolute path. Run `moda-skill config --harness claude --hooks` in the new location and restart the client. |

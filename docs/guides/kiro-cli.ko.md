@@ -15,6 +15,9 @@
 [Claude Code](claude-code.ko.md)와 [Codex](codex.ko.md) 가이드도 같은 순서로 구성되어 있습니다.
 AWS CloudShell에서 실행한다면 [CLOUDSHELL.md](../CLOUDSHELL.md)를 참고해 주세요.
 
+화면은 테스트 세션에서 캡처했습니다. 계정 ID, 사용자 이름, 테스트 계정에 있는 다른 프로젝트 이름은 다른 값으로 바꾸거나
+지웠고, 다른 도구의 훅은 보이지 않게 했습니다.
+
 ## 시작하기 전에
 
 - [README](../../README.ko.md#1-설치)의 안내대로 도구를 설치하고 `moda-skill version`이 동작하는지
@@ -58,6 +61,8 @@ kiro-cli chat
 | moda-skill file guard | PreToolUse | `write` |
 | moda-skill stop gate | Stop | |
 
+![moda-skill 훅 네 개가 보이는 Kiro CLI의 /config hooks 화면](../img/guides/kiro-hooks.png)
+
 그다음 `/tools trust-all`로 도구별 확인을 끕니다(`kiro-cli chat --trust-all-tools`로 시작해도
 됩니다). 평가 한 번에 도구 호출이 수백 번 일어나서 하나하나 승인하기는 어렵습니다. 확인을 꺼도 훅은
 모든 셸 명령과 파일 변경을 계속 검사합니다. [가드가 막은 항목](#가드가-막은-항목)을 참고해 주세요.
@@ -68,11 +73,13 @@ kiro-cli chat
 이상에서 테스트했습니다.
 
 1. `/model`을 실행하고 `claude-opus-5.5`를 선택한 상태로 둡니다.
-2. Tab으로 "Settings for selected model" 영역으로 이동한 뒤, 아래 화살표로 `effort`에 갑니다.
+2. Tab으로 "Settings for selected model" 영역으로 이동하면 커서가 `effort`에 있습니다.
 3. 오른쪽 화살표로 `high`가 될 때까지 바꾸고 Esc를 두 번 누릅니다.
 
 이 설정은 `~/.kiro/settings/cli.json`의 `chat.modelDefaults.claude-opus-5.5.output_config.effort`에
 저장되어, 이후 같은 모델을 쓰는 세션에도 적용됩니다.
+
+![Kiro CLI /model 패널에서 claude-opus-5.5의 effort 설정](../img/guides/kiro-effort.png)
 
 ## 4. 평가 시작
 
@@ -97,6 +104,8 @@ kiro-cli chat
 3번, 이 프로필로 계속합니다. 이유: 본인 소유 PoC 계정이고 읽기 전용 가드를 설치했습니다.
 ```
 
+![변경 권한이 있는 프로필에서 1단계가 멈추고 세 가지 선택지를 보여 주는 Kiro CLI 화면](../img/ko/guides/kiro-write-check.png)
+
 이유는 `scope.json`에 기록되며, 기록되기 전까지 수집 헬퍼는 실행되지 않습니다.
 
 **평가 범위.** 에이전트가 계정을 읽기 전용으로 둘러본 뒤, 리전, 워크로드(스택, 태그 또는 계정
@@ -104,6 +113,8 @@ kiro-cli chat
 하나로 보여 줍니다. 바꿀 항목만 적어 답하면 됩니다. 예를 들어
 `2 a, 3 아니요, 5 non-production internal unknown unknown`처럼 적거나, 기본값 그대로라면
 `확정`이라고 답합니다.
+
+![Kiro CLI가 번호를 매겨 보여 주는 평가 범위 메시지](../img/ko/guides/kiro-scope.png)
 
 ## 6. 실행 중과 실행 후
 
@@ -162,3 +173,4 @@ kiro-cli chat
 | `/moda-skill start`가 단계 스킬이 없다고 안내함 | 이 폴더에서 `moda-skill config --harness kiro`를 실행하고 Kiro를 다시 시작한 뒤 시도해 주세요. `~/.kiro/skills`의 스킬을 복사해 쓰지 마세요. |
 | 모델 확인 단계에서 멈춤 | 3단계처럼 모델이나 effort를 바꾸고 다시 시작하거나, 현재 설정으로 계속하겠다고 답합니다. |
 | `/config hooks`에 moda-skill 훅이 없음 | 폴더를 신뢰하지 않았거나 `config`를 `--hooks` 없이 실행한 경우입니다. `moda-skill config --harness kiro --hooks`를 실행하고 Kiro를 다시 시작해 주세요. |
+| 프로젝트 폴더를 옮긴 뒤 가드가 동작하지 않음 | 훅 명령에 폴더의 절대 경로가 들어 있습니다. 새 위치에서 `moda-skill config --harness kiro --hooks`를 실행하고 클라이언트를 다시 시작해 주세요. |

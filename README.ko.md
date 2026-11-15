@@ -19,9 +19,13 @@
 
 ![보고서의 핵심 문제 섹션](docs/img/ko/report-key-issues.png)
 
-이전 버전으로 만든 데모 보고서 전체는 [docs/examples/assessment-orders-ko.html](docs/examples/assessment-orders-ko.html)에서
-보실 수 있습니다. 핵심 문제, 현재 구성 다이어그램, 영역별 등급, 점검 결과, 보안 권고가 실제로 전달되는 형태 그대로 들어 있습니다. 위 화면에 보이는 "한눈에
-보기"와 Specialist SA Agent 섹션은 그 뒤 2.1.14와 2.2 버전에서 추가되었습니다.
+![보고서의 현재 구성 다이어그램: 수집한 구성을 기준으로 가용 영역과 서브넷에 리소스를 배치하고, 템플릿이나 소스 코드에 선언된 경로는 점선으로, 단일 장애 지점은 따로 표시](docs/img/ko/report-current-architecture.png)
+
+*현재 구성 다이어그램입니다. 이미지를 열면 원래 크기로 볼 수 있습니다.*
+
+데모 보고서 전체는 [docs/examples/assessment-orders-ko.html](docs/examples/assessment-orders-ko.html)(이전 버전,
+한국어)과 [docs/examples/assessment-shopnow-en.html](docs/examples/assessment-shopnow-en.html)(아래 테스트 실행, 영어)에서
+보실 수 있습니다. 계정과 리소스 식별자는 다른 값으로 바꿨고, 읽는 분이 받는 형태 그대로 모든 섹션이 들어 있습니다.
 
 ## 만든 이유
 
@@ -105,12 +109,29 @@ artifacts/<workload>/<UTC run id>/
 
 ![평가를 시작하기 전에 스킬 정의를 읽는 에이전트](docs/img/cloudshell-skill-invoked.png)
 
+## 테스트한 클라이언트
+
+2026-11-15에 같은 데모 워크로드(CloudFormation 스택 7개, us-east-1의 리소스 71개)를 대상으로 클라이언트마다 평가를 한 번씩
+끝까지 실행했습니다. 세 클라이언트는 같은 계정에서 동시에 실행했고, 프로필은 계정을 변경할 수 있는 권한을 가지고 있었습니다.
+
+| 클라이언트 | 모델 | 소요 시간 | 보고서 | 읽기 전용 가드 |
+|---|---|---|---|---|
+| Kiro CLI 3.3.0 | `claude-opus-5.5`, effort high | 145분 | Final | 9개 항목 모두 통과 |
+| Claude Code 2.1.309(Amazon Bedrock) | Opus 5.5, effort xhigh | 66분 | Final | 9개 항목 모두 통과 |
+| Codex CLI 0.155.1(Amazon Bedrock) | `openai.gpt-6-astra`, effort high | 46분 | Final | 9개 항목 모두 통과 |
+
+세 클라이언트 모두 프로필에 변경 권한이 있어 1단계에서 멈췄고, 진행 결정이 기록된 뒤에만 계속했습니다. 평가가 끝난 뒤에는
+`create-tags --dry-run`, 시크릿 읽기, 프로필 전환, 설치된 스킬 수정처럼 가드가 막아야 하는 동작 9가지를 에이전트가 직접
+시도하게 했습니다. `plan_check.py`의 승인을 먼저 받은 조회 하나를 빼고는 모두 차단되었습니다. 수치는 각각 한 번 실행한
+결과이며 벤치마크가 아닙니다. 클라이언트별 진행 단계와 실제 화면은 가이드에 정리했습니다:
+[Kiro CLI](docs/guides/kiro-cli.ko.md) · [Claude Code](docs/guides/claude-code.ko.md) · [Codex](docs/guides/codex.ko.md).
+
 ## 빠른 시작
 
 명령 하나로 도구를 설치하고, 다른 명령 하나로 사용하는 클라이언트에 맞게 프로젝트를 구성합니다. 그다음부터는
 `/moda-skill`(Codex에서는 `$moda-skill`)로 평가 전체를 진행합니다.
 
-클라이언트별 단계 안내와 테스트 실행 결과는 각 가이드에 정리했습니다:
+클라이언트별 단계 안내는 각 가이드에 정리했습니다:
 [Kiro CLI](docs/guides/kiro-cli.ko.md) · [Claude Code](docs/guides/claude-code.ko.md) · [Codex](docs/guides/codex.ko.md).
 
 ### 1. 설치
@@ -194,6 +215,9 @@ moda-skill doctor
 [권한](#권한)에서 설명하는 읽기 전용 역할입니다. 프로젝트 훅은 클라이언트마다 처음 한 번 신뢰 설정이 필요합니다(Kiro:
 워크스페이스 신뢰, Claude Code: 세션 시작 시 승인, Codex: `/hooks`에서 `t`).
 
+훅 명령은 프로젝트 폴더의 절대 경로를 쓰기 때문에, 에이전트가 하위 폴더로 이동해도 가드는 같은 실행을 계속 검사합니다.
+프로젝트 폴더를 옮겼다면 `moda-skill config --harness <client> --hooks`를 다시 실행해 주세요.
+
 평가 실행에 `scope.json`이 만들어지면 가드는 더 엄격한 규칙을 적용합니다. 자세한 내용은
 [프로필이 계정을 변경할 수 있는 경우](#프로필이-계정을-변경할-수-있는-경우)를 참고하세요. 모든 AWS 호출은 이번 실행의
 프로필을 사용해야 하고, 에이전트가 직접 실행하는 AWS 명령은 `plan_check.py`의 승인을 먼저 받아야 합니다. `~/.aws`, 설치된
@@ -202,7 +226,18 @@ moda-skill doctor
 
 ### 3. 실행
 
-해당 폴더에서 클라이언트를 열고(Kiro: `kiro-cli chat` 실행 후 `/tools trust-all`) 다음과 같이 입력합니다.
+해당 폴더에서 클라이언트를 엽니다. 클라이언트마다 다른 부분은 다음과 같습니다.
+
+| | Kiro CLI | Claude Code | Codex |
+|---|---|---|---|
+| 실행 | `kiro-cli chat` | `claude` | `codex` |
+| 프로젝트 훅 신뢰 | 워크스페이스를 신뢰할지 물으면 신뢰 | 폴더를 신뢰할지 물으면 신뢰, `/hooks`로 확인 | 폴더를 신뢰한 뒤 훅을 검토하고 `t` |
+| 명령별 확인 끄기 | `/tools trust-all` | `--dangerously-skip-permissions` | `-a never`, AWS에 접근하도록 `-s danger-full-access` |
+| 모델과 effort | `/model`, 설정 패널에서 effort 지정 | `/model`, `--effort high` | `-m <모델> -c model_reasoning_effort=high` |
+| 시작 | `/moda-skill start ...` | `/moda-skill start ...` | `$moda-skill start ...` |
+
+평가 한 번에 도구 호출이 수백 번 일어나서 위 표처럼 확인을 끄고 진행합니다. 확인을 꺼도 훅은 모든 셸 명령과 파일 수정을
+계속 검사합니다. 그다음 다음과 같이 입력합니다.
 
 > 릴리스 압축을 풀었거나 이 저장소를 복제한 폴더에는 부트스트랩 스킬 두 개(`moda-skill`, `aws-skills-install`)만 들어
 > 있습니다. `/moda-skill start`는 먼저 다섯 단계 스킬이 있는지 확인하고, 없으면 해결 방법을 안내한 뒤 멈춥니다. 그 폴더에서
@@ -251,6 +286,8 @@ Codex에서는 `$` 접두사를 씁니다(`$moda-skill start ...`). "prepare mod
 낮은 모델로 만든 보고서에는 그 사실이 표시됩니다. 모델은 `/model`(Kiro, Claude Code)이나 `-m`(Codex)으로 선택합니다.
 Kiro CLI에서는 `~/.kiro/settings/cli.json`에 설정된 모델별 effort(`chat.modelDefaults.<model>.output_config.effort`)도
 확인해 주세요. 모델 등급은 [skills/moda-skill/assets/models.json](skills/moda-skill/assets/models.json)에 정의되어 있습니다.
+Codex는 `openai.gpt-6-astra`(effort high)로 테스트했습니다. OpenAI 모델은 모델 기준에 없어서 `$moda-skill start`가 계속할지
+먼저 묻고, 테스트에서는 이 상태로도 Final 보고서까지 만들어졌습니다.
 
 ### 평가 후 활용할 만한 요청
 
@@ -299,8 +336,9 @@ Agent와 `AmazonSSMManagedInstanceCore` 정책이 연결된 인스턴스 프로�
 **수집한 데이터의 저장 위치와 전달 범위.** 헬퍼 스크립트는 모든 결과를 실행한 컴퓨터의 `artifacts/` 아래에만 저장합니다.
 다만 에이전트가 이 근거를 읽고 보고서를 작성하므로, 그 내용은 사용하는 에이전트(Kiro CLI, Claude Code, Codex)의 모델
 제공자에게 전달됩니다. 이 계정의 메타데이터를 다뤄도 된다고 조직에서 승인한 에이전트를 사용해 주세요. `artifacts/`의
-파일에는 계정 ID, ARN, IAM 사용자 이름 같은 식별자가 그대로 들어 있고, 계정 ID와 IAM 사용자 이름은 보고서에서만 가려집니다.
-이 폴더는 계정 소유자의 기밀 정보로 관리하시고, 평가가 끝나면 삭제해 주세요.
+파일에는 계정 ID, ARN, IAM 사용자 이름 같은 식별자가 그대로 들어 있습니다. 보고서에도 계정 ID와 리소스 ARN이 그대로
+나오며, 가려지는 것은 IAM 사용자 이름뿐입니다. 폴더와 보고서 모두 계정 소유자의 기밀 정보로 관리하시고, 평가가 끝나면 폴더를
+삭제해 주세요.
 
 ### 프로필이 계정을 변경할 수 있는 경우
 
@@ -329,6 +367,8 @@ Agent와 `AmazonSSMManagedInstanceCore` 정책이 연결된 인스턴스 프로�
    출처" 부분에 변경 없음, 확인된 변경 내역, 조회하지 못한 리전 중 하나로 표시됩니다. 같은 주체로 한 다른 작업(예: 다른
    세션의 배포)도 함께 나타나기 때문에, 변경마다 그 호출을 만든 도구를 표시합니다. CloudTrail에 이벤트가 나타나기까지
    최대 15분이 걸릴 수 있고, 데이터 이벤트는 확인 대상에 포함되지 않습니다.
+
+[테스트 실행](#테스트한-클라이언트)에서 세 클라이언트 모두 이 확인 절차를 거쳤습니다.
 
 ## 한계
 
