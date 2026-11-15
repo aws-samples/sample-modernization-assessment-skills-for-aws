@@ -22,6 +22,10 @@ helper on its own does not produce an assessment.
 
 ![Key issues section of a generated report](docs/img/en/report-key-issues.png)
 
+![Current architecture diagram of a generated report: resources placed by Availability Zone and subnet from the observed configuration, paths declared in templates or source drawn dashed, and single points of failure marked](docs/img/en/report-current-architecture.png)
+
+*The current architecture diagram. Open the image to see it full size.*
+
 A complete demo report from the test run below is in
 [docs/examples/assessment-shopnow-en.html](docs/examples/assessment-shopnow-en.html), with the account
 and resource identifiers replaced. It shows every section as a reader receives it. A Korean report

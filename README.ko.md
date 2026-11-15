@@ -19,6 +19,10 @@
 
 ![보고서의 핵심 문제 섹션](docs/img/ko/report-key-issues.png)
 
+![보고서의 현재 구성 다이어그램: 수집한 구성을 기준으로 가용 영역과 서브넷에 리소스를 배치하고, 템플릿이나 소스 코드에 선언된 경로는 점선으로, 단일 장애 지점은 따로 표시](docs/img/ko/report-current-architecture.png)
+
+*현재 구성 다이어그램입니다. 이미지를 열면 원래 크기로 볼 수 있습니다.*
+
 데모 보고서 전체는 [docs/examples/assessment-orders-ko.html](docs/examples/assessment-orders-ko.html)(이전 버전,
 한국어)과 [docs/examples/assessment-shopnow-en.html](docs/examples/assessment-shopnow-en.html)(아래 테스트 실행, 영어)에서
 보실 수 있습니다. 계정과 리소스 식별자는 다른 값으로 바꿨고, 읽는 분이 받는 형태 그대로 모든 섹션이 들어 있습니다.
