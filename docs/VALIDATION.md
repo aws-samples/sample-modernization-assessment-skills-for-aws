@@ -244,3 +244,18 @@ and from short sessions in each client that stopped at the scope question, with 
 user name and names of other projects in the test account replaced.
 
 **201 tests passed.**
+
+## Usage import includes sub-agents (2026-11-16)
+
+Recounting the three live runs showed that the usage importers for Claude Code and Codex read only
+the main session. Claude Code writes each sub-agent's transcript to `<session>/subagents/`; Codex
+writes each sub-agent as its own rollout whose `session_meta` names the parent thread. In the test
+runs the sub-agents held about 60% of the Claude Code tokens and 28% of the Codex tokens (88.5M
+counted against 63.6M recorded). Both importers now include them, and the Codex importer sums the
+per-response `token_usage_record` rows instead of the cumulative snapshots, which cannot be split
+between sessions. The report's provenance section states the cache-read share of the input and the
+number of sub-agent sessions counted. The Kiro CLI importer already read the `sub-executions/`
+folder; its total for the 632-credit run matched the client's own figure. Prices are not in any
+client record and are not estimated. New tests build synthetic session trees for both clients.
+
+**203 tests passed.**

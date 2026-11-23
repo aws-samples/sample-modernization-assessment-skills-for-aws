@@ -24,7 +24,7 @@ time in these files; record it with `add --inference-seconds` from the client's 
 (Claude Code `/cost` "Total duration (API)", Codex `/status`, Kiro `/stats`) or leave it null.
 """
 import argparse
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
 import sys
@@ -198,22 +198,17 @@ def read_jsonl(path):
             continue  # client logs can contain partial trailing lines
 
 
-def cmd_import_claude_transcript(args):
-    """Sum per-assistant-message `message.usage` from a Claude Code session transcript (JSONL).
-
-    Deduplicates by message uuid (streamed snapshots repeat), counts uncached input, cache creation and
-    cache reads separately and reports their sum as input_tokens. Inference time is not in the transcript.
-    """
-    seen, models = set(), set()
+def claude_usage(path, since, until, seen):
+    """Token totals, request count and models from one Claude Code transcript, deduplicated across files by message id."""
     totals = {"input_tokens": 0, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0, "output_tokens": 0}
-    requests = 0
-    for record in read_jsonl(args.transcript):
+    requests, models = 0, set()
+    for record in read_jsonl(path):
         if not isinstance(record, dict) or record.get("type") != "assistant":
             continue
         message = record.get("message") or {}
         usage = message.get("usage")
         key = record.get("uuid") or message.get("id")
-        if not isinstance(usage, dict) or not key or key in seen or not in_window(record.get("timestamp"), args.since, args.until):
+        if not isinstance(usage, dict) or not key or key in seen or not in_window(record.get("timestamp"), since, until):
             continue
         seen.add(key)
         requests += 1
@@ -223,6 +218,32 @@ def cmd_import_claude_transcript(args):
             value = usage.get(field)
             if isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0:
                 totals[field] += int(value)
+    return totals, requests, models
+
+
+def claude_subagent_transcripts(transcript):
+    """Transcripts of the sub-agents a Claude Code session started: <session>/subagents/agent-*.jsonl next to it."""
+    folder = Path(transcript).with_suffix("") / "subagents"
+    return sorted(folder.glob("*.jsonl")) if folder.is_dir() else []
+
+
+def cmd_import_claude_transcript(args):
+    """Sum per-assistant-message `message.usage` from a Claude Code session transcript (JSONL) and from the transcripts
+    of the sub-agents that session started (the `subagents/` folder beside it).
+
+    Deduplicates by message uuid (streamed snapshots repeat), counts uncached input, cache creation and
+    cache reads separately and reports their sum as input_tokens. Inference time is not in the transcript.
+    """
+    seen = set()
+    totals, requests, models = claude_usage(args.transcript, args.since, args.until, seen)
+    sub_files = claude_subagent_transcripts(args.transcript)
+    sub_requests, sub_totals = 0, {k: 0 for k in totals}
+    for path in sub_files:
+        t, r, m = claude_usage(path, args.since, args.until, seen)
+        sub_requests += r; models |= m
+        for k in totals:
+            totals[k] += t[k]; sub_totals[k] += t[k]
+    requests += sub_requests
     if not requests:
         raise ValueError("no assistant usage records in range")
     data = load(args.file)
@@ -232,57 +253,144 @@ def cmd_import_claude_transcript(args):
                             "input_tokens": totals["input_tokens"] + totals["cache_creation_input_tokens"] + totals["cache_read_input_tokens"],
                             "output_tokens": totals["output_tokens"], "requests": requests,
                             "breakdown": {"uncached_input": totals["input_tokens"], "cache_creation_input": totals["cache_creation_input_tokens"],
-                                          "cache_read_input": totals["cache_read_input_tokens"], "models": sorted(models)}})
+                                          "cache_read_input": totals["cache_read_input_tokens"], "models": sorted(models),
+                                          "subagents": len(sub_files), "subagent_requests": sub_requests,
+                                          "subagent_input_tokens": sum(sub_totals[k] for k in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")),
+                                          "subagent_output_tokens": sub_totals["output_tokens"]}})
     data.setdefault("notes", []).append("Claude Code transcripts carry token usage but no per-request latency; record inference time from /cost (Total duration (API)) with add --inference-seconds if needed.")
     save(args.file, data)
-    return {"status": "imported", "requests": requests, "models": sorted(models), **totals}
+    return {"status": "imported", "requests": requests, "subagents": len(sub_files), "subagent_requests": sub_requests, "models": sorted(models), **totals}
 
 
-def cmd_import_codex_rollout(args):
-    """Take the delta of Codex `token_count` cumulative snapshots within the window from a rollout JSONL."""
-    before, last, requests, models = None, None, 0, set()
-    previous_total = None
-    for record in read_jsonl(args.rollout):
+CODEX_FIELDS = ("input_tokens", "cached_input_tokens", "cache_write_input_tokens", "output_tokens", "reasoning_output_tokens")
+
+
+def codex_session_meta(path):
+    """(thread id, parent thread id) from a rollout's session_meta record."""
+    for record in read_jsonl(path):
+        if isinstance(record, dict) and record.get("type") == "session_meta":
+            payload = record.get("payload") or {}
+            source = payload.get("source")
+            parent = payload.get("parent_thread_id")
+            if not parent and isinstance(source, dict):
+                parent = ((source.get("subagent") or {}).get("thread_spawn") or {}).get("parent_thread_id")
+            return str(payload.get("id") or payload.get("session_id") or ""), (str(parent) if parent else None)
+    return "", None
+
+
+def codex_subagent_rollouts(rollout):
+    """Rollouts of the sub-agents a Codex session started, found by parent thread id in the same day folder and the
+    next day's folder (a run can cross midnight). Nested sub-agents are followed too."""
+    rollout = Path(rollout).resolve()
+    root_id, _ = codex_session_meta(rollout)
+    if not root_id:
+        return []
+    folders = [rollout.parent]
+    try:
+        day = datetime.strptime("/".join(rollout.parts[-4:-1]), "%Y/%m/%d")
+        folders.append(rollout.parents[3] / (day + timedelta(days=1)).strftime("%Y/%m/%d"))
+    except ValueError:
+        pass
+    candidates = [p for folder in folders if folder.is_dir() for p in sorted(folder.glob("rollout-*.jsonl")) if p.resolve() != rollout]
+    metas = {p: codex_session_meta(p) for p in candidates}
+    wanted, found = {root_id}, []
+    changed = True
+    while changed:
+        changed = False
+        for p, (tid, parent) in metas.items():
+            if parent in wanted and tid not in wanted:
+                wanted.add(tid); found.append(p); changed = True
+    return found
+
+
+def codex_usage(path, since, until, seen):
+    """Per-request token usage from one Codex rollout. Prefers `token_usage_record` rows (one per model response, with a
+    response id); falls back to the delta of cumulative `token_count` snapshots for rollouts that lack them."""
+    totals = {k: 0 for k in CODEX_FIELDS}
+    requests, models = 0, set()
+    records_seen = False
+    before, last, previous = None, None, None
+    snapshot_requests = 0
+    for record in read_jsonl(path):
         if not isinstance(record, dict):
             continue
         payload = record.get("payload") or {}
         stamp = record.get("timestamp")
-        if record.get("type") == "turn_context" and payload.get("model") and in_window(stamp, args.since, args.until):
+        if record.get("type") == "turn_context" and payload.get("model") and in_window(stamp, since, until):
             models.add(str(payload["model"]))
+        if record.get("type") == "token_usage_record" or payload.get("type") == "token_usage_record":
+            usage = payload.get("usage") if isinstance(payload.get("usage"), dict) else None
+            key = payload.get("response_id") or f"{path.name}:{stamp}"
+            if usage is None or key in seen or not in_window(stamp, since, until):
+                continue
+            records_seen = True
+            seen.add(key)
+            requests += 1
+            for field in CODEX_FIELDS:
+                value = usage.get(field)
+                if isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0:
+                    totals[field] += int(value)
+            continue
         if record.get("type") != "event_msg" or payload.get("type") != "token_count":
             continue
         total = (payload.get("info") or {}).get("total_token_usage")
         if not isinstance(total, dict):
             continue
-        if args.since and str(stamp or "") < args.since:
+        if since and str(stamp or "") < since:
             before = total
             continue
-        if args.until and str(stamp or "") > args.until:
-            break
+        if until and str(stamp or "") > until:
+            continue
         last = total
-        snapshot = (total.get("input_tokens"), total.get("output_tokens"))
-        if snapshot != previous_total:
-            requests += 1
-            previous_total = snapshot
+        snap = (total.get("input_tokens"), total.get("output_tokens"))
+        if snap != previous:
+            snapshot_requests += 1
+            previous = snap
+    if records_seen:
+        return totals, requests, models, "records"
     if last is None:
-        raise ValueError("no token_count snapshots in range")
-
-    def delta(field):
+        return totals, 0, models, "none"
+    for field in CODEX_FIELDS:
         end = last.get(field) or 0
         start = (before or {}).get(field) or 0
         if end < start:
             raise ValueError(f"cumulative {field} decreased inside the window; the rollout may span a session reset")
-        return int(end - start)
+        totals[field] = int(end - start)
+    return totals, snapshot_requests, models, "snapshots"
 
+
+def cmd_import_codex_rollout(args):
+    """Sum the token usage of a Codex session and of the sub-agent sessions it started.
+
+    Each rollout's `token_usage_record` rows (one per model response) are summed; rollouts without them fall back to the
+    delta of the cumulative `token_count` snapshots. Sub-agent rollouts are found by their parent thread id."""
+    seen = set()
+    main_path = Path(args.rollout)
+    totals, requests, models, method = codex_usage(main_path, args.since, args.until, seen)
+    sub_files = [] if args.no_subagents else codex_subagent_rollouts(main_path)
+    sub_requests, sub_totals = 0, {k: 0 for k in CODEX_FIELDS}
+    for path in sub_files:
+        t, r, m, _ = codex_usage(path, args.since, args.until, seen)
+        sub_requests += r; models |= m
+        for k in CODEX_FIELDS:
+            totals[k] += t[k]; sub_totals[k] += t[k]
+    requests += sub_requests
+    if not requests:
+        raise ValueError("no token usage records in range")
     data = load(args.file)
     model = args.model or (next(iter(models)) if len(models) == 1 else None)
-    data["entries"].append({"label": args.label, "model_id": model, "source": f"codex rollout ({Path(args.rollout).name})",
+    data["entries"].append({"label": args.label, "model_id": model, "source": f"codex rollout ({main_path.name})",
                             "recorded_at": now(), "inference_seconds": None,
-                            "input_tokens": delta("input_tokens"), "output_tokens": delta("output_tokens"), "requests": requests,
-                            "breakdown": {"cached_input": delta("cached_input_tokens"), "reasoning_output": delta("reasoning_output_tokens"), "models": sorted(models)}})
-    data.setdefault("notes", []).append("Codex rollouts carry cumulative token usage but no per-request latency; record inference time from /status with add --inference-seconds if needed.")
+                            "input_tokens": totals["input_tokens"], "output_tokens": totals["output_tokens"], "requests": requests,
+                            "breakdown": {"cached_input": totals["cached_input_tokens"], "cache_write_input": totals["cache_write_input_tokens"],
+                                          "uncached_input": max(0, totals["input_tokens"] - totals["cached_input_tokens"]),
+                                          "reasoning_output": totals["reasoning_output_tokens"], "models": sorted(models), "method": method,
+                                          "subagents": len(sub_files), "subagent_requests": sub_requests,
+                                          "subagent_input_tokens": sub_totals["input_tokens"], "subagent_output_tokens": sub_totals["output_tokens"]}})
+    data.setdefault("notes", []).append("Codex rollouts carry per-response token usage but no latency; record inference time from /status with add --inference-seconds if needed.")
     save(args.file, data)
-    return {"status": "imported", "requests": requests, "models": sorted(models), "input_tokens": delta("input_tokens"), "output_tokens": delta("output_tokens")}
+    return {"status": "imported", "requests": requests, "subagents": len(sub_files), "subagent_requests": sub_requests, "method": method,
+            "models": sorted(models), "input_tokens": totals["input_tokens"], "output_tokens": totals["output_tokens"]}
 
 
 def cmd_show(args):
@@ -307,7 +415,8 @@ def main():
     p = sub.add_parser("import-claude-transcript"); p.add_argument("--file", required=True); p.add_argument("--transcript", required=True)
     p.add_argument("--label", required=True); p.add_argument("--model"); p.add_argument("--since"); p.add_argument("--until"); p.set_defaults(func=cmd_import_claude_transcript)
     p = sub.add_parser("import-codex-rollout"); p.add_argument("--file", required=True); p.add_argument("--rollout", required=True)
-    p.add_argument("--label", required=True); p.add_argument("--model"); p.add_argument("--since"); p.add_argument("--until"); p.set_defaults(func=cmd_import_codex_rollout)
+    p.add_argument("--label", required=True); p.add_argument("--model"); p.add_argument("--since"); p.add_argument("--until")
+    p.add_argument("--no-subagents", action="store_true", help="count only this rollout, not the sub-agent sessions it started"); p.set_defaults(func=cmd_import_codex_rollout)
     p = sub.add_parser("import-kiro-session", help="Kiro CLI V3: read ~/.kiro/sessions for this project (credits, requests, elapsed time, model)")
     p.add_argument("--file", required=True); p.add_argument("--project-root", default=str(Path.cwd())); p.add_argument("--label", default="assessment session")
     p.add_argument("--since"); p.add_argument("--until"); p.add_argument("--last", type=int, default=1, help="how many most recent matching sessions to import")

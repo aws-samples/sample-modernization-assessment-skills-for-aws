@@ -107,9 +107,9 @@ The agent runs the five stages without further questions. The report is in
 - `/moda-skill status` shows the stage the run is in; `/moda-skill resume` continues an
   interrupted run. After you quit, `claude --resume <id>` (printed on exit) reopens the
   conversation.
-- The report's provenance section imports usage from the main session's transcript. Sub-agents
-  that Claude Code starts for diagrams or reviews are not in that transcript, so `/cost` shows
-  the full figure.
+- The report's provenance section imports usage from the session transcript and from the
+  transcripts of the sub-agents Claude Code started for diagrams and reviews. In the test run the
+  sub-agents used more than half of the tokens. `/cost` shows the client's own total and price.
 - The write audit at the end lists every change CloudTrail recorded for the profile's IAM
   principal during the run. Other work done with the same principal shows up there too; in the
   test run the changes it found came from a deployment running in another session. A profile used

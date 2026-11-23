@@ -129,8 +129,10 @@ The agent runs the five stages without further questions. The report is in
 
 - `$moda-skill status` shows the stage the run is in; `$moda-skill resume` continues an
   interrupted run. After you quit, `codex resume` lists the conversation to reopen.
-- The report's provenance section imports usage from Codex's session files, including the
-  sub-agents' files.
+- The report's provenance section imports usage from Codex's session file and from the session
+  files of the sub-agents it started, one record per model response. Most of the input tokens are
+  cache reads, the context Codex re-sends with every request; the provenance section shows that
+  share. Codex records no price.
 - The write audit at the end lists every change CloudTrail recorded for the profile's IAM
   principal during the run. Other work done with the same principal shows up there too; in the
   test run it found 108 changes, and the ones checked came from a deployment running in another
@@ -144,7 +146,7 @@ The agent runs the five stages without further questions. The report is in
 | | |
 |---|---|
 | Stage 1 to the last stage file | 46 minutes |
-| Usage from the session files | 63.6M input tokens (cache reads included), 264K output tokens, 443 requests, across the main session and 6 sub-agents |
+| Usage from the session files | 88.5M input tokens, of which 86.0M cache reads; 0.31M output tokens; 532 requests across the main session and 6 sub-agents (recounted per response; the run's own report said 63.6M because its importer counted only part of the session) |
 | Report | Final, 6 key issues, 5 specialist reviews |
 | Read-only guard | 9 of 9 checks behaved as expected (below) |
 

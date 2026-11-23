@@ -42,8 +42,8 @@ Reuse `01-setup/access-check.json`, `$RUN_DIR/scope.json` (take `output_language
 
    The agent declares `$MODEL_ID` and `$CLIENT` (claude-code, codex or kiro-cli) from its own session context. After each stage, or once at the end, append measured values with the importer for the running client, bounded to the run with `--since/--until`:
 
-   - Claude Code: `import-claude-transcript --transcript ~/.claude/projects/<workspace>/<session>.jsonl`
-   - Codex: `import-codex-rollout --rollout ~/.codex/sessions/YYYY/MM/DD/rollout-<id>.jsonl`
+   - Claude Code: `import-claude-transcript --transcript ~/.claude/projects/<workspace>/<session>.jsonl` (sub-agent transcripts under `<session>/subagents/` are included)
+   - Codex: `import-codex-rollout --rollout ~/.codex/sessions/YYYY/MM/DD/rollout-<id>.jsonl` (the sub-agent rollouts this session started are included)
    - Kiro CLI: `/stats save FILE`, then `import-kiro-stats --stats FILE`
 
    Importers read model names, timestamps and token counts only. Inference time comes from the client summary (Claude Code `/cost`, Codex `/status`, Kiro `/stats`) via `add --inference-seconds`, or stays null. Unknown values are reported as "not recorded"; never estimate them. Pass `--run-metadata "$RUN_DIR/run-metadata.json"` to `review.py` and `recommend.py`. See [run metadata](references/run-metadata.md).

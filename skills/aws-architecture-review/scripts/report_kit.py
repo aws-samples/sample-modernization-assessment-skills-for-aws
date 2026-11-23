@@ -461,6 +461,18 @@ def run_metadata_rows(meta):
             usage_row, ("Entries", f"{len(meta['entries'])} recorded segment(s){partial}")]
     if credits and totals["total_tokens"] is not None:
         rows.insert(4, ("Kiro credits", f"{sum(credits):.1f}"))
+    # Input tokens are mostly cache reads (the context re-sent with every request) and sub-agents are separate sessions;
+    # both are counted, and said so, because they are where the usage goes.
+    cache_reads = sum(int(e["breakdown"].get(k) or 0) for e in meta["entries"] for k in ("cache_read_input", "cached_input") if isinstance(e["breakdown"].get(k), (int, float)))
+    subagents = sum(int(e["breakdown"].get("subagents") or 0) for e in meta["entries"] if isinstance(e["breakdown"].get("subagents"), (int, float)))
+    sub_requests = sum(int(e["breakdown"].get("subagent_requests") or 0) for e in meta["entries"] if isinstance(e["breakdown"].get("subagent_requests"), (int, float)))
+    if totals["total_tokens"] is not None and (cache_reads or subagents):
+        detail = []
+        if cache_reads and totals["input_tokens"]:
+            detail.append(f"cache reads {fmt_int(cache_reads)} ({100 * cache_reads // max(1, totals['input_tokens'])}% of input: the context re-sent with each request)")
+        if subagents:
+            detail.append(f"{subagents} sub-agent session(s) with {fmt_int(sub_requests)} requests included")
+        rows.insert(len(rows) - 1, ("Token composition", " · ".join(detail)))
     tier = model_tier(models)
     if tier in {"reduced", "unsuitable"}:
         rows.append(("Model guidance", f"{models} is below the recommended tier for this assessment ({MODEL_RECOMMENDED}); "
