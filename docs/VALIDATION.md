@@ -258,4 +258,10 @@ number of sub-agent sessions counted. The Kiro CLI importer already read the `su
 folder; its total for the 632-credit run matched the client's own figure. Prices are not in any
 client record and are not estimated. New tests build synthetic session trees for both clients.
 
+A live Kiro CLI run of the branch (2026-11-24, shopnow, us-east-1, 85 minutes to the English report) showed a
+second gap: Kiro writes a turn's usage only when the turn ends, so the report rendered inside the long assessment
+turn recorded 17 of 436 credits, and `/moda-skill report` afterwards added the whole session as a second entry
+(446 credits over 428 requests shown, both double-counted). A re-import of the same session now replaces its
+entry; the corrected report shows 436.24 credits over 391 requests, the figure Kiro's own status line reports.
+
 **203 tests passed.**
