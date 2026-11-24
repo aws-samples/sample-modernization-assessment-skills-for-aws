@@ -127,10 +127,10 @@
     {
       "name": "aws-mcp-setup",
       "source": "skills/aws-mcp-setup",
-      "digest": "69d3311d64682f86da0d83c4f4c7f2fec34602cea0425968a60ef9b01e5b4e02",
+      "digest": "75765157a3bbfa4f7d5f80abbbc6f86cb69b8c604b541cbb65264287be89e8a4",
       "stamp": {
         "package": "moda-skills",
-        "sha256": "69d3311d64682f86da0d83c4f4c7f2fec34602cea0425968a60ef9b01e5b4e02"
+        "sha256": "75765157a3bbfa4f7d5f80abbbc6f86cb69b8c604b541cbb65264287be89e8a4"
       },
       "files": [
         {
@@ -150,8 +150,8 @@
         },
         {
           "path": "assets/glossary.ko.json",
-          "bytes": 14807,
-          "sha256": "874c404f59eb64eda414ccb03a319605c815c34800ab7f84d2174974d5f8a60b"
+          "bytes": 15253,
+          "sha256": "8d04f758162a7ad58abf74973c9c15d7bba96c1e8aaa5ae7e629754053e95599"
         },
         {
           "path": "references/compatibility.md",
@@ -274,10 +274,10 @@
     {
       "name": "aws-architecture-review",
       "source": "skills/aws-architecture-review",
-      "digest": "44e26aa0b1365828df5efaea83268713d2ae52ebfa4cff5ac7de6aa57e350642",
+      "digest": "79996d8919f921cb4248af5791597b63440972407fd267c3fea90b3318132734",
       "stamp": {
         "package": "moda-skills",
-        "sha256": "44e26aa0b1365828df5efaea83268713d2ae52ebfa4cff5ac7de6aa57e350642"
+        "sha256": "79996d8919f921cb4248af5791597b63440972407fd267c3fea90b3318132734"
       },
       "files": [
         {
@@ -332,8 +332,8 @@
         },
         {
           "path": "scripts/report_kit.py",
-          "bytes": 46271,
-          "sha256": "e0660681abb0bc481414b55e330059df81c253bd8ae374fbc5c998c481891349"
+          "bytes": 46615,
+          "sha256": "2b2f102130724892e5730a6a15c22adcdc0252ac4c6099ca42b1a097faa5061b"
         },
         {
           "path": "scripts/review.py",
@@ -350,16 +350,16 @@
     {
       "name": "aws-modernization-pathway",
       "source": "skills/aws-modernization-pathway",
-      "digest": "fc847667bab76e37af6a2b5e0146f3a9e5699d53f7e35cddff51b2721edc930b",
+      "digest": "dd61ed4a74cdbaed40f4ecccb511506adcb76bf334d95c8f20c8cd537ab8f63b",
       "stamp": {
         "package": "moda-skills",
-        "sha256": "fc847667bab76e37af6a2b5e0146f3a9e5699d53f7e35cddff51b2721edc930b"
+        "sha256": "dd61ed4a74cdbaed40f4ecccb511506adcb76bf334d95c8f20c8cd537ab8f63b"
       },
       "files": [
         {
           "path": "SKILL.md",
-          "bytes": 19996,
-          "sha256": "06c30dfcf351a2dee5f7bb00283ebe52040aca6ea407a06233489b01a85ec374"
+          "bytes": 20698,
+          "sha256": "561fa01925e5a899caaf7e429de16f659857053237cca5de6d2667fa30821aff"
         },
         {
           "path": "agents/openai.yaml",
@@ -448,18 +448,18 @@
         },
         {
           "path": "references/specialists.md",
-          "bytes": 10119,
-          "sha256": "5f8cd78faff72682e1ff7e025f3d62bb652e3c40acd25c80f425c6b60788836b"
+          "bytes": 10704,
+          "sha256": "cf4ffaa4d654cdad28cb02a7d4dd0daad79e1a37f7c085d2b186eb28ce9cfd0b"
         },
         {
           "path": "scripts/advice.py",
-          "bytes": 32162,
-          "sha256": "f643e84618a543f90e7df1fe51752bb45e7edde0b35ea42dc41d912d675eb9bc"
+          "bytes": 32675,
+          "sha256": "a4dbdb003ee3e908b6fc9d43bbfb5ff12495a80c647ba00b5bf29f7a0ce9f94c"
         },
         {
           "path": "scripts/assessment_report.py",
-          "bytes": 124692,
-          "sha256": "a6bf371cfb0175be0de4ceedb2e1676d1db0c211e8b71c2083e0e225169f34b1"
+          "bytes": 137471,
+          "sha256": "3a37e393a22886762300b312e04dd03a511cd543f3d3b7bdf6d65fd7f9724310"
         },
         {
           "path": "scripts/list_price.py",
@@ -478,8 +478,8 @@
         },
         {
           "path": "scripts/report_kit.py",
-          "bytes": 46271,
-          "sha256": "e0660681abb0bc481414b55e330059df81c253bd8ae374fbc5c998c481891349"
+          "bytes": 46615,
+          "sha256": "2b2f102130724892e5730a6a15c22adcdc0252ac4c6099ca42b1a097faa5061b"
         },
         {
           "path": "scripts/write_audit.py",

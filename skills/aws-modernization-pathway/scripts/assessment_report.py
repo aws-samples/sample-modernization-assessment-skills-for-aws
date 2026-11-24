@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
-"""Render one assessment report (assessment.html / assessment.md) from the stage 3-5 artifacts.
+"""Render the assessment report pair (assessment.html + details.html, with Markdown twins) from the stage 3-5 artifacts.
 
-Reader-first order: a one-page summary built from the sections below, key issues in plain language (each with verified
-AWS references), the AS-IS diagram (click to enlarge), account posture, qualitative pillar grades with the findings behind
-them and each pillar's open questions, a security chapter, modernization directions with the target architecture,
-reference material, terms, then collapsed appendices (evidence, method, numeric scores, run provenance). The IaC change
-list goes to iac-changes.json only, and the order of work is left to the meeting with the owner. Imported third-party
-scanner results appear as ordinary security items; the tool that produced them is recorded in assessment-summary.json,
-not in the customer-facing text.
+assessment.html has three sections, the ones readers asked for: (1) the current architecture (scope, the AS-IS
+diagram, what was collected), (2) the Well-Architected review (qualitative grades for the six pillars, key issues in
+plain language with verified AWS references, the failed and warned checks that drive each grade) and (3) the Specialist
+SA Agent recommendations, each in the same four fields: current state, proposal, quantitative evidence (figures computed
+from the evidence or read from the AWS Price List API, never estimated by the agent) and prerequisites, followed by the
+combined target architecture and the seven directions. details.html carries everything that supports those sections:
+the one-page summary, the where-to-start board, account posture, every finding by pillar with its open questions, the
+security table, reference material, terms, the evidence index and the run's method and provenance. Links between the two
+pages are resolved after rendering. The IaC change list goes to iac-changes.json only, and the order of work is left to
+the meeting with the owner. Imported third-party scanner results appear as ordinary security items; the tool that
+produced them is recorded in assessment-summary.json, not in the customer-facing text.
 
   python3 assessment_report.py --run-dir RUN_DIR --workload NAME [--key-issues key-issues.json] \\
       [--screener RUN_DIR/04-review/upstream/screener-findings.json] [--run-metadata RUN_DIR/run-metadata.json] \\
@@ -657,18 +661,13 @@ def ref_links(refs, finding_ids):
     return " ".join(out)
 
 
-def specialist_html(s, statuses, finding_ids, run):
+def specialist_html(s, statuses, finding_ids, run, by_id=None):
     sid = s["specialist"]
+    by_id = by_id or {}
     chips = "".join(kit.pathway_chip(statuses[p]) for p in s.get("pathways", []) if p in statuses)
     state = "".join(f'<li>{kit.esc(i["text"])} <span class="small">{ref_links(i.get("refs"), finding_ids)}</span></li>' for i in s.get("current_state") or [])
     later = "".join(f'<li>{kit.esc(i["text"])} <span class="small">{ref_links(i.get("refs"), finding_ids)}</span></li>' for i in s.get("not_now") or []) or '<li class="small">nothing set aside</li>'
-    recs = []
-    for n, r in enumerate(s.get("recommendations") or [], 1):
-        recs.append(f'<div class="rec"><h4>{n}. {kit.esc(r["title"])} <span class="chips">{issue_chips(r)}</span></h4>'
-                    f'<p><b>What changes</b> {kit.esc(r["change"])}</p><p><b>What it gives</b> {kit.esc(r["benefit"])}</p>{price_lines(r)}'
-                    + (f'<p class="small"><b>Before deciding</b> {kit.esc(join_sentences(r.get("before_deciding")))}</p>' if r.get("before_deciding") else "")
-                    + f'<p class="small"><b>Alternatives</b> {kit.esc(join_sentences(r.get("alternatives")))}</p>'
-                    f'<p class="small"><b>How to undo</b> {kit.esc(r["rollback"])}</p><div class="ref">Based on {ref_links(r.get("refs"), finding_ids)}</div></div>')
+    recs = [rec_fields_html(n, r, s, by_id, finding_ids) for n, r in enumerate(s.get("recommendations") or [], 1)]
     import advice  # noqa: E402  (same folder)
     handoffs = "".join(f'<li><b>{kit.esc(advice.SPECIALISTS.get(h["to"], {}).get("role", h["to"]))}</b> · {kit.esc(h["text"])}</li>' for h in s.get("handoffs") or [])
     diagram = s.get("diagram") or {}
@@ -697,18 +696,12 @@ def pathway_table(pathways, specialists):
             'it is missing. The order of work is left to the conversation with the workload owner.</p>')
 
 
-def specialist_markdown(s, statuses):
+def specialist_markdown(s, statuses, by_id=None):
+    by_id = by_id or {}
     lines = [f"### {s['role']} ({', '.join(f'{PATHWAYS[p]}: {kit.PATHWAY_STATUS[statuses[p]][0]}' for p in s.get('pathways', []) if p in statuses)})", "", s["summary"], "",
              "**What we see now**", ""] + [f"- {i['text']} `{', '.join(i.get('refs') or [])}`" for i in s.get("current_state") or []] + [""]
     for n, r in enumerate(s.get("recommendations") or [], 1):
-        tags = [EFFORT[r["effort"]][0], COST_DIRECTION[r["cost_direction"]][0]]
-        lines += [f"**{n}. {r['title']}** ({' · '.join(tags)})", "", f"- What changes: {r['change']}", f"- What it gives: {r['benefit']}"]
-        if r.get("list_prices"):
-            lines.append(f"- List prices: net {usd(net_list_price(r))}/month" + (" (an example before measurement)" if is_example(r) else " (AWS Price List API, On-Demand; not a bill forecast)"))
-            lines += [""] + price_table(r["list_prices"])
-        if r.get("before_deciding"):
-            lines.append(f"- Before deciding: {join_sentences(r['before_deciding'])}")
-        lines += [f"- Alternatives: {join_sentences(r.get('alternatives'))}", f"- How to undo: {r['rollback']}", f"- Based on `{', '.join(r.get('refs') or [])}`", ""]
+        lines += rec_fields_markdown(n, r, s, by_id)
     if s.get("not_now"):
         lines += ["**Not now**", ""] + [f"- {i['text']}" for i in s["not_now"]] + [""]
     if (s.get("diagram") or {}).get("svg"):
@@ -1282,12 +1275,9 @@ def zoom_figure(fig_id, svg, back, caption):
             f'<a class="zoom-close" href="#{kit.esc(back)}">Close</a><figcaption>{caption}</figcaption></figure>')
 
 
-def glance_rows(workload, issues, checks, inventory, scope, scope_ids, scope_context, specialists=None):
-    """The one-page summary as (label, html, markdown) rows, built only from what the report already shows further down:
-    what was assessed (and what the account bill covers), what to confirm first, what is in good shape, the key issues in
-    one line each with their declared size and list price, what can start this week and dated deadlines.
-    Example prices for sizes still to be measured are not repeated here; the line says the size follows measurement."""
-    rows = []
+def scope_sentence(workload, inventory, scope, scope_ids, scope_context):
+    """What was assessed, in one paragraph: workload, account, regions, stacks and resource count, the share of the
+    account bill its services could account for, and what the scope interview settled."""
     stacks = ((scope or {}).get("workload") or {}).get("stack_names") or []
     count = len(scope_ids) if scope_ids is not None else len([r for r in inventory.get("resources", []) if r.get("level") != "account"])
     where = ", ".join(inventory.get("regions") or [])
@@ -1303,7 +1293,16 @@ def glance_rows(workload, issues, checks, inventory, scope, scope_ids, scope_con
         text += (f" The account bill for {str(last.get('start', ''))[:7]} was ${last.get('total_usd', 0):,.0f} for every workload in the account"
                  + (f"; the services this workload uses came to at most ${used:,.0f} of it." if used else "."))
     known = scope_context_text(scope_context)
-    text += (" " + known) if known else ""
+    return text + ((" " + known) if known else "")
+
+
+def glance_rows(workload, issues, checks, inventory, scope, scope_ids, scope_context, specialists=None):
+    """The one-page summary as (label, html, markdown) rows, built only from what the report already shows further down:
+    what was assessed (and what the account bill covers), what to confirm first, what is in good shape, the key issues in
+    one line each with their declared size and list price, what can start this week and dated deadlines.
+    Example prices for sizes still to be measured are not repeated here; the line says the size follows measurement."""
+    rows = []
+    text = scope_sentence(workload, inventory, scope, scope_ids, scope_context)
     rows.append(("Scope", kit.esc(text), text))
     facts = environment_facts(inventory, scope_ids, scope_context)
     if facts:
@@ -1368,6 +1367,153 @@ def glance_markdown(rows):
     return ["## At a glance", ""] + [f"- **{label}** {text}" for label, _, text in rows] + [""]
 
 
+# ---------------------------------------------------------------------------
+# The three-section report (assessment.html) and its details page (details.html)
+# ---------------------------------------------------------------------------
+DETAILS_FILE = "details.html"
+REPORT_FILE = "assessment.html"
+
+
+def nav_html(items, other=None):
+    """The sticky table of contents: same-page anchors, then a link to the other page of the pair."""
+    links = "".join(f'<a href="#{kit.esc(a)}">{kit.esc(label)}</a>' for a, label in items)
+    if other:
+        href, label = other
+        links += f'<a href="{kit.esc(href)}" class="other">{kit.esc(label)} →</a>'
+    return f'<nav class="toc"><div class="wrap">{links}</div></nav>'
+
+
+def ids_in(html):
+    return set(re.findall(r'\bid="([^"]+)"', html))
+
+
+def cross_link(html, own_ids, other_file, other_ids):
+    """Point same-page links whose anchor lives on the other page at that page. A link to an id neither page has is left
+    alone (it is a defect the tests catch, not something to hide)."""
+    def fix(m):
+        target = m.group(1)
+        if target in own_ids or target not in other_ids:
+            return m.group(0)
+        return f'href="{other_file}#{target}"'
+    return re.sub(r'href="#([^"]+)"', fix, html)
+
+
+def pillar_drivers_html(checks, screener, grades, open_groups):
+    """Section 2's body: for each pillar, the failed and warned checks grouped by rule (one row per rule with the
+    resources it applies to), with the open-question count. Passed checks and the full cards stay on the details page."""
+    questions = Counter(members[0]["pillar"] for _, members in open_groups)
+    out = []
+    for pillar in PILLARS:
+        key, info = grades[pillar]
+        items = sorted([c for c in checks + screener if c["pillar"] == pillar and c["status"] in {"FAIL", "WARN"}],
+                       key=lambda c: (STATUS_ORDER[c["status"]], SEVERITY_ORDER.get(c.get("severity"), 9)))
+        passed = sum(1 for c in checks if c["pillar"] == pillar and c["status"] in {"PASS", "NOT_APPLICABLE"})
+        rows = []
+        for members in group_findings(items):
+            first = members[0]
+            targets = list(dict.fromkeys(target_of(m) for m in members))
+            res = ", ".join(f"<code>{kit.esc(t)}</code>" for t in targets[:2]) + (f' <span class="small">+{len(targets) - 2} more</span>' if len(targets) > 2 else "")
+            rows.append(f'<tr><td><a href="#{kit.esc(first["id"])}">{kit.esc(rule_label(first))}</a></td><td>{kit.status_chip(first["status"])}</td>'
+                        f'<td>{kit.chip(kit.SEVERITY[first.get("severity", "INFO")][0], kit.SEVERITY[first.get("severity", "INFO")][1])}</td>'
+                        f'<td>{len(members)}</td><td>{res}</td><td>{kit.esc(first["recommendation"])}</td></tr>')
+        table = ('<table><thead><tr><th>Check</th><th>Status</th><th>Severity</th><th>Resources</th><th>Where</th><th>Recommendation</th></tr></thead>'
+                 f'<tbody>{"".join(rows)}</tbody></table>') if rows else f'<p class="small">Nothing failed or warned in this pillar; {passed} check(s) passed.</p>'
+        tail = (f'<p class="small">{questions[pillar]} open question(s) the configuration cannot answer are listed <a href="#{anchor(pillar)}">with this pillar\'s findings</a>.</p>'
+                if questions.get(pillar) else "")
+        out.append(f'<details id="drivers-{anchor(pillar)}"{" open" if key in {"critical", "weak"} else ""}><summary>{kit.esc(pillar)} {kit.grade_chip(key)}'
+                   f'<span class="small">{kit.esc(kit.grade_counts_text(info))}</span></summary><div class="body"><p class="small">{kit.esc(kit.GRADES[key][3])}</p>{table}{tail}</div></details>')
+    return "".join(out)
+
+
+def pillar_drivers_markdown(checks, screener, grades):
+    lines = []
+    for pillar in PILLARS:
+        key, info = grades[pillar]
+        items = sorted([c for c in checks + screener if c["pillar"] == pillar and c["status"] in {"FAIL", "WARN"}],
+                       key=lambda c: (STATUS_ORDER[c["status"]], SEVERITY_ORDER.get(c.get("severity"), 9)))
+        lines += [f"### {pillar} - {kit.GRADES[key][0]} ({kit.grade_counts_text(info)})", ""]
+        groups = group_findings(items)
+        if not groups:
+            lines += ["Nothing failed or warned in this pillar.", ""]
+            continue
+        lines += ["| Check | Status | Severity | Resources | Recommendation |", "|---|---|---|---|---|"]
+        for members in groups:
+            first = members[0]
+            targets = list(dict.fromkeys(target_of(m) for m in members))
+            lines.append(f"| {rule_label(first)} `{first['id']}` | {first['status']} | {first.get('severity', '')} | {len(members)}: {', '.join(targets[:2])}{' +' + str(len(targets) - 2) if len(targets) > 2 else ''} | {first['recommendation'].replace('|', '/')} |")
+        lines.append("")
+    return lines
+
+
+def rec_current(rec, specialist, by_id):
+    """The first of a recommendation's four fields: what is there now. The specialist's own `current` sentence when it
+    wrote one; otherwise the observations of the findings it cites; otherwise its current-state items that share a
+    reference. Observations are evidence text, not model text."""
+    if str(rec.get("current") or "").strip():
+        return rec["current"]
+    seen = []
+    for ref in rec.get("refs") or []:
+        c = by_id.get(ref)
+        if c and c.get("observation") and c["observation"] not in seen:
+            seen.append(c["observation"])
+    if seen:
+        return " ".join(seen[:2])
+    refs = set(rec.get("refs") or [])
+    shared = [i["text"] for i in specialist.get("current_state") or [] if refs & set(i.get("refs") or [])]
+    return " ".join(shared[:2]) if shared else "See what the specialist sees now, above."
+
+
+def rec_evidence_rows(rec):
+    """(metric, value, source) rows for the third field. Computed figures attached by benefits.py (`evidence`) first, then
+    the list prices the specialist cited; the renderer adds nothing of its own."""
+    rows = [(str(e.get("metric", "")), str(e.get("value", "")), str(e.get("source", ""))) for e in rec.get("evidence") or [] if isinstance(e, dict)]
+    prices = rec.get("list_prices") or []
+    for p in prices:
+        rows.append((f"{p['sign']} {p['label']}", f"${p['monthly_usd']:,.0f}/month", f"{p['basis']}; AWS Price List API, On-Demand ({p['id']})"))
+    if len(prices) > 1:
+        rows.append(("Net list price", f"{usd(net_list_price(rec))}/month", "sum of the rows above; not a bill forecast"))
+    return rows
+
+
+def rec_fields_html(n, rec, specialist, by_id, finding_ids):
+    """One recommendation as the fixed four fields: current state, proposal, quantitative evidence, prerequisites."""
+    evidence = rec_evidence_rows(rec)
+    if evidence:
+        ev = ('<table class="inner"><thead><tr><th>Metric</th><th>Value</th><th>Source</th></tr></thead><tbody>'
+              + "".join(f'<tr><td>{kit.esc(m)}</td><td>{kit.esc(v)}</td><td class="small">{kit.esc(s)}</td></tr>' for m, v, s in evidence) + '</tbody></table>')
+        if is_example(rec):
+            ev += '<p class="small">An example at published On-Demand rates for one possible configuration; the size is decided after measurement, so the figure is not a saving to plan on.</p>'
+    else:
+        ev = '<p class="small">No figure was computed from the evidence for this change; the counts and dates in the findings it cites are the numbers available.</p>'
+    pre = (f'<p><b>Before deciding</b> {kit.esc(join_sentences(rec.get("before_deciding")))}</p>' if rec.get("before_deciding") else "")
+    pre += (f'<p class="small"><b>Alternatives</b> {kit.esc(join_sentences(rec.get("alternatives")))}</p>'
+            f'<p class="small"><b>How to undo</b> {kit.esc(rec["rollback"])}</p>')
+    return (f'<div class="rec"><h4>{n}. {kit.esc(rec["title"])} <span class="chips">{issue_chips(rec)}</span></h4><table class="fields">'
+            f'<tr><th>Current state</th><td>{kit.esc(rec_current(rec, specialist, by_id))}</td></tr>'
+            f'<tr><th>Proposal</th><td><p><b>What changes</b> {kit.esc(rec["change"])}</p><p><b>What it gives</b> {kit.esc(rec["benefit"])}</p></td></tr>'
+            f'<tr><th>Quantitative evidence</th><td>{ev}</td></tr>'
+            f'<tr><th>Prerequisites</th><td>{pre}</td></tr></table>'
+            f'<div class="ref">Based on {ref_links(rec.get("refs"), finding_ids)}</div></div>')
+
+
+def rec_fields_markdown(n, rec, specialist, by_id):
+    lines = [f"**{n}. {rec['title']}** ({EFFORT[rec['effort']][0]} · {COST_DIRECTION[rec['cost_direction']][0]})", "",
+             f"- Current state: {rec_current(rec, specialist, by_id)}", f"- Proposal: {rec['change']} What it gives: {rec['benefit']}"]
+    evidence = rec_evidence_rows(rec)
+    if evidence:
+        lines += ["- Quantitative evidence:", "", "  | Metric | Value | Source |", "  |---|---|---|"]
+        lines += [f"  | {m.replace('|', '/')} | {v} | {s.replace('|', '/')} |" for m, v, s in evidence]
+        if is_example(rec):
+            lines.append("  An example before measurement, not a saving to plan on.")
+        lines.append("")
+    else:
+        lines.append("- Quantitative evidence: no figure computed from the evidence for this change.")
+    if rec.get("before_deciding"):
+        lines.append(f"- Prerequisites: {join_sentences(rec['before_deciding'])}")
+    lines += [f"- Alternatives: {join_sentences(rec.get('alternatives'))}", f"- How to undo: {rec['rollback']}", f"- Based on `{', '.join(rec.get('refs') or [])}`", ""]
+    return lines
+
+
 def render(args):
     run = args.run_dir
     WALL_CLOCK["minutes"] = args.wall_clock_minutes
@@ -1419,14 +1565,14 @@ def render(args):
     anchors = {p: anchor(p) for p in PILLARS}
 
     hero = kit.hero("AWS modernization assessment", f"{args.workload}: current state and modernization directions",
-                    f"{len(checks) + len(screener)} automated checks organised by the six Well-Architected pillars (not an AWS Well-Architected Tool review), "
-                    f"{len(pathways)} modernization directions. Produced with AI assistance from read-only evidence; the key issues are worth confirming with the "
-                    f"assessing architect before decisions are made. Run details are in the appendix.",
+                    f"Three sections: the current architecture, a review of {len(checks) + len(screener)} automated checks organised by the six Well-Architected pillars "
+                    f"(not an AWS Well-Architected Tool review), and the recommendations of the Specialist SA Agents across {len(pathways)} modernization directions. "
+                    f"Produced with AI assistance from read-only evidence; the key issues are worth confirming with the assessing architect before decisions are made. "
+                    f"Every finding, the account posture, the evidence table and the run's provenance are on the details page.",
                     [f"account {inventory['account_id']}", ", ".join(inventory["regions"]), f"collected {str(manifest.get('completed_at', ''))[:16]}", status]
                     + ([f"environment: {scope_context['environment']} (scope interview)"] if scope_context.get("environment", "unknown") != "unknown" else []))
-    nav = kit.toc([("glance", "At a glance"), ("issues", "Key issues"), ("current", "Current architecture"), ("account", "Account posture"), ("grades", "Pillar grades"),
-                   ("findings", "Findings"), ("security", "Security"), ("directions", "Specialist SA Agents" if specialists else "Modernization directions"), ("next", "Reference material"), ("terms", "Terms"),
-                   ("evidence", "Evidence"), ("appendix", "Method and provenance")])
+    directions_label = "Specialist SA Agent recommendations" if specialists else "Modernization directions"
+    nav = nav_html([("current", "1 · Current architecture"), ("review", "2 · Well-Architected review"), ("directions", f"3 · {directions_label}")], (DETAILS_FILE, "Details and evidence"))
     status_counts.update(c["status"] for c in screener)
     everything = checks + screener
 
@@ -1454,48 +1600,75 @@ def render(args):
                         f'{"; stack resources " + str(len(cov.get("missing_stack_resources", []))) if cov.get("missing_stack_resources") else ""}. '
                         'Run diagram.py --audit-graph with --inventory and fix the drawing before delivery.</p></div>')
     collection = (f'<p class="small">Evidence: {manifest["coverage"].get("ok", 0)} successful read-only queries, collection status <b>{kit.esc(manifest["status"])}</b>, '
-                  f'{len(inventory["resources"])} resources in {", ".join(inventory["regions"])}. Host internals, database contents, traffic and cost were not collected.</p>')
+                  f'{len(inventory["resources"])} resources in {", ".join(inventory["regions"])}. Host internals, database contents, traffic and cost were not collected. '
+                  f'Account-level services and the query scope are <a href="#account">on the details page</a>.</p>')
     if specialists:
-        directions_html = (f'<section id="directions"><h2>Specialist SA Agent recommendations</h2><p class="lead">{len(specialists)} Specialist SA Agents '
+        directions_html = (f'<section id="directions"><h2>3 · Specialist SA Agent recommendations</h2><p class="lead">{len(specialists)} Specialist SA Agents '
                            f'({kit.esc(", ".join(sp["role"] for sp in specialists))}), AI agents that each take the role of an AWS specialist solutions architect, '
-                           f'reviewed this workload\'s evidence in their area. Each says what they see, '
-                           f'what they would change and why, what they would leave for now, and draws the change. The combined target architecture follows.</p>'
-                           + "".join(specialist_html(sp, statuses, finding_ids, run) for sp in specialists)
+                           f'reviewed this workload\'s evidence in their area. Each recommendation is written in the same four fields: the current state, the proposal, '
+                           f'the quantitative evidence (figures computed from the collected evidence or read from the AWS Price List API, never estimated by the agent), '
+                           f'and the prerequisites. The combined target architecture follows.</p>'
+                           + "".join(specialist_html(sp, statuses, finding_ids, run, by_id) for sp in specialists)
                            + f'<h3>Combined target architecture</h3>{to_be_block}<h3>Seven directions at a glance</h3>{pathway_table(pathways, specialists)}</section>')
     else:
-        directions_html = (f'<section id="directions"><h2>Modernization directions</h2><p class="lead">Seven directions were compared against the evidence. Each card states '
+        directions_html = (f'<section id="directions"><h2>3 · Modernization directions</h2><p class="lead">Seven directions were compared against the evidence. Each card states '
                            f'whether it is recommended, under what conditions, or why not.</p>{pathway_cards(pathways)}<h3>Proposed target architecture</h3>{to_be_block}</section>')
+    glance = glance_rows(args.workload, issues, checks, inventory, scope_doc, scope_ids, scope_context, specialists)
+    generated = datetime.now(timezone.utc).isoformat(timespec="minutes")
     body = f"""{hero}{nav}<div class="wrap">
-{glance_html(glance_rows(args.workload, issues, checks, inventory, scope_doc, scope_ids, scope_context, specialists))}
-<section id="issues"><h2>Key issues</h2><p class="lead">What is wrong, why it matters and what to do first, in plain language. Each issue links to the findings behind it.</p>
-<div class="kpis">{kpis}</div><p class="small">Counts grow with the number of resources checked; they are an index, not a verdict. Read the key issues below in order, then the lists after them that sort the issues by size and date. {kit.esc(CODES_SENTENCE)}</p>{environment_note(inventory, scope_ids, scope_context)}{live_signals_html(checks)}{issues_html(issues)}<p class="small">Priority order: <b>1 · Decide first</b> = settle in the first conversation; <b>2 · Plan next</b> = the next piece of planned work; <b>3 · Later</b> = after that. The order is a suggestion, not a deadline.</p>{quick_wins_html(issues, checks)}</section>
-<section id="current"><h2>Current architecture</h2>{as_is_block}{collection}</section>
+<section id="current"><h2>1 · Current architecture</h2><p class="lead">{kit.esc(scope_sentence(args.workload, inventory, scope_doc, scope_ids, scope_context))}</p>{environment_note(inventory, scope_ids, scope_context)}{as_is_block}{collection}</section>
+<section id="review"><h2>2 · Well-Architected review</h2><p class="lead">{kit.esc(worst_text)} Grades summarize the judged checks of each pillar: Fix first means a high-severity item exists, Needs work means failures or several warnings, Watch means minor warnings or open questions, Sound means every judged check passed. Click a tile to see what drives the grade.</p>
+<div class="kpis">{kpis}</div><p class="small">Counts grow with the number of resources checked; they are an index, not a verdict. {kit.esc(CODES_SENTENCE)}</p>
+{kit.grade_tiles(grades, {p: "drivers-" + anchors[p] for p in PILLARS}, rule_labels=rule_label)}<details><summary class="small">Grade rubric</summary><div class="body">{kit.grade_rubric_html()}</div></details>
+{live_signals_html(checks)}
+<h3 id="issues">Key issues</h3><p class="lead">What is wrong, why it matters and what to do first, in plain language. Each issue links to the findings behind it.</p>{issues_html(issues)}<p class="small">Priority order: <b>1 · Decide first</b> = settle in the first conversation; <b>2 · Plan next</b> = the next piece of planned work; <b>3 · Later</b> = after that. The order is a suggestion, not a deadline. The <a href="#board">where-to-start board</a> sorts the issues by size and date.</p>
+<h3>What drives each grade</h3><p class="small">Failed and warned checks per pillar, one row per rule with the resources it applies to. Passed checks, open questions and the full finding cards are <a href="#findings">on the details page</a>.</p>{pillar_drivers_html(checks, screener, grades, open_groups)}{strengths_html(checks)}</section>
+{directions_html}
+<footer>findings.json · scorecard.json · pathways.json · diagrams · {kit.esc(status)} · generated {generated} · <a href="{DETAILS_FILE}">details and evidence</a></footer></div>"""
+    details_nav = nav_html([("glance", "At a glance"), ("board", "Where to start"), ("account", "Account posture"), ("findings", "Findings"), ("security", "Security"),
+                            ("next", "Reference material"), ("terms", "Terms"), ("evidence", "Evidence"), ("appendix", "Method and provenance")], (REPORT_FILE, "Report"))
+    details_hero = kit.hero("AWS modernization assessment · details", f"{args.workload}: findings, evidence and provenance",
+                            "Everything the three-section report rests on: the summary table, the where-to-start board, account-level posture, every finding by pillar, "
+                            "the security table, reference material, terms, the evidence index and how the run was produced.",
+                            [f"account {inventory['account_id']}", ", ".join(inventory["regions"]), status])
+    details = f"""{details_hero}{details_nav}<div class="wrap">
+{glance_html(glance)}
+<section id="board"><h2>Where to start</h2><p class="lead">The key issues sorted by size and date: what can start this week, what needs an investment decision, what has a date.</p>{quick_wins_html(issues, checks)}</section>
 <section id="account"><h2>Account-level posture and query scope</h2>{account_posture_html(checks, manifest, inventory, scope_context, scope_ids)}</section>
-<section id="grades"><h2>Pillar grades</h2><p class="lead">{kit.esc(worst_text)} Grades summarize the judged checks of each pillar: Fix first means a high-severity item exists, Needs work means failures or several warnings, Watch means minor warnings or open questions, Sound means every judged check passed. Click a tile to see the findings.</p>
-{strengths_html(checks)}{kit.grade_tiles(grades, anchors, rule_labels=rule_label)}<details><summary class="small">Grade rubric</summary><div class="body">{kit.grade_rubric_html()}</div></details></section>
 <section id="findings"><h2>Findings by pillar</h2><p class="lead">Failures, warnings and open questions first; passed checks are folded away. Confidence tags separate configuration read from the API, declarations in templates or source, and conclusions that remain unverified.</p>{pillar_sections(checks, grades, screener, scope_context)}</section>
 <section id="security"><h2>Security recommendations</h2><p class="lead">Security failures and warnings, one row per check with the resources it applies to.</p>{security_chapter(checks, screener)}</section>
-{directions_html}
 <section id="next"><h2>Reference material</h2>{next_steps_html(pathways_doc.get("next_steps") or {}, args.language)}</section>
 <section id="terms"><h2>Terms used in this report</h2>@@TERMS@@</section>
 <section id="evidence"><h2>Evidence</h2>{evidence_html(evidence_rows)}</section>
 <section id="appendix"><h2>Method and provenance</h2>{method_appendix(scores, checks, pathways, pathways_doc["weights"])}{run_clock_html(inventory)}{write_audit_html(write_audit)}{usage_html(run_meta, inventory)}
 <details><summary>Scope and limitations</summary><div class="body"><ul><li>Services in scope: {kit.esc(", ".join(inventory["services"]))}.</li><li>Query results: <code>{kit.esc(json.dumps(manifest["coverage"]))}</code>.</li>
 <li>Configuration evidence does not establish traffic, application compatibility, recovery success, cost or business criticality; those need separate evidence.</li></ul></div></details></section>
-<footer>findings.json · scorecard.json · pathways.json · diagrams · {kit.esc(status)} · generated {datetime.now(timezone.utc).isoformat(timespec="minutes")}</footer></div>"""
-    body = body.replace("@@TERMS@@", terms_html(re.sub(r"<[^>]+>", " ", body)))
+<footer>findings.json · scorecard.json · pathways.json · diagrams · {kit.esc(status)} · generated {generated} · <a href="{REPORT_FILE}">report</a></footer></div>"""
+    details = details.replace("@@TERMS@@", terms_html(re.sub(r"<[^>]+>", " ", body + details)))
+    main_ids, detail_ids = ids_in(body), ids_in(details)
+    body = cross_link(body, main_ids, DETAILS_FILE, detail_ids)
+    details = cross_link(details, detail_ids, REPORT_FILE, main_ids)
     html_doc = kit.page(f"AWS modernization assessment - {args.workload}", body)
+    details_doc = kit.page(f"AWS modernization assessment - {args.workload} - details", details)
 
-    # Markdown twin
-    md = [f"# AWS modernization assessment - {args.workload}", "", f"- Account `{inventory['account_id']}` · {', '.join(inventory['regions'])} · collected {str(manifest.get('completed_at', ''))[:16]} · {status}",
-          f"- {len(checks) + len(screener)} checks · {status_counts['FAIL']} failed · {status_counts['WARN']} warnings · {len(open_groups)} open questions", ""]
-    md += glance_markdown(glance_rows(args.workload, issues, checks, inventory, scope_doc, scope_ids, scope_context, specialists))
-    md += ["## Key issues", ""]
+    # Markdown twins: assessment.md follows the three sections, details.md the details page.
+    head = [f"- Account `{inventory['account_id']}` · {', '.join(inventory['regions'])} · collected {str(manifest.get('completed_at', ''))[:16]} · {status}",
+            f"- {len(checks) + len(screener)} checks · {status_counts['FAIL']} failed · {status_counts['WARN']} warnings · {len(open_groups)} open questions", ""]
+    md = [f"# AWS modernization assessment - {args.workload}", ""] + head
+    md += ["## 1. Current architecture", "", scope_sentence(args.workload, inventory, scope_doc, scope_ids, scope_context), "",
+           f"Evidence: {manifest['coverage'].get('ok', 0)} successful read-only queries, collection status {manifest['status']}, {len(inventory['resources'])} resources. "
+           "Host internals, database contents, traffic and cost were not collected. Account-level posture: details.md.", ""]
+    md += ["## 2. Well-Architected review", "", worst_text, "", "| Pillar | Grade | Counts | Top drivers |", "|---|---|---|---|"]
+    for p in PILLARS:
+        k, info = grades[p]
+        md.append(f"| {p} | {kit.GRADES[k][0]} | {kit.grade_counts_text(info)} | {', '.join(c['rule_id'] for c in info['drivers'][:3]) or '-'} |")
+    md += ["", "Rubric: Fix first = a HIGH-severity FAIL; Needs work = any FAIL or 3+ WARN; Watch = 1-2 WARN or any open question (UNKNOWN); Sound = all judged checks PASS and no open question. Not an AWS Well-Architected Tool rating.", ""]
+    md += ["### Key issues", ""]
     if issues:
         for n, i in enumerate(issues, 1):
             tags = [URGENCY_LABEL[i["urgency"]]] + [EFFORT[i["effort"]][0] for _ in [0] if i.get("effort") in EFFORT] + \
                    [COST_DIRECTION[i["cost_direction"]][0] for _ in [0] if i.get("cost_direction") in COST_DIRECTION] + [OWNER[i["owner"]] for _ in [0] if i.get("owner") in OWNER]
-            md += [f"### {n}. {i['title']} ({' · '.join(tags)})", "", i["problem"], "", f"**Why it matters** {i['impact']}", "", f"**Suggestion** {i['action']}", ""]
+            md += [f"#### {n}. {i['title']} ({' · '.join(tags)})", "", i["problem"], "", f"**Why it matters** {i['impact']}", "", f"**Suggestion** {i['action']}", ""]
             if i.get("list_prices"):
                 lead = ("(an example for one possible configuration; the size is decided after measurement, so the figure is not a saving)" if is_example(i)
                         else "(AWS Price List API, On-Demand; not a bill forecast)")
@@ -1506,65 +1679,72 @@ def render(args):
             md += [f"Findings: `{', '.join(i['finding_ids'])}`", ""]
     else:
         md += ["Key issues were not authored for this run (key-issues.json missing).", ""]
+    md += ["### What drives each grade", ""] + pillar_drivers_markdown(checks, screener, grades)
+    if specialists:
+        md += ["## 3. Specialist SA Agent recommendations", ""]
+        for sp in specialists:
+            md += specialist_markdown(sp, statuses, by_id)
+        md += ["### Seven directions at a glance", ""]
+    else:
+        md += ["## 3. Modernization directions", ""]
+    md += ["| Direction | Status | Reason |", "|---|---|---|"]
+    for c in pathways:
+        md.append(f"| {PATHWAYS[c['pathway']]} | {kit.PATHWAY_STATUS[c['status']][0]} | {(c['rationale'] if c['status'] in {'candidate', 'conditional'} else c['problem']).replace('|', '/')} |")
+    md += ["", "Details, every finding, the evidence index and provenance: details.md.", ""]
+
+    dmd = [f"# AWS modernization assessment - {args.workload} - details", ""] + head
+    dmd += glance_markdown(glance)
     account_rows = [c for rule in ACCOUNT_RULES for c in checks if c["rule_id"] == rule]
     if account_rows:
-        md += ["## Account-level posture", "", "| Service | Where | Status | What we saw |", "|---|---|---|---|"]
-        md += [f"| {ACCOUNT_RULE_LABEL[c['rule_id']]} | {target_of(c)} | {c['status']} | {c['observation']} |" for c in account_rows]
+        dmd += ["## Account-level posture", "", "| Service | Where | Status | What we saw |", "|---|---|---|---|"]
+        dmd += [f"| {ACCOUNT_RULE_LABEL[c['rule_id']]} | {target_of(c)} | {c['status']} | {c['observation']} |" for c in account_rows]
         cov = manifest.get("service_coverage") or {}
         if cov:
             seen = [f"{k} ({v.get('discovered_resources', 0)})" for k, v in sorted(cov.items()) if v.get("status") == "not_collected"]
-            md += ["", f"Query scope: {len(cov)} services seen by discovery; added to the query scope automatically: {', '.join(manifest.get('auto_enabled_services') or []) or 'none'}; "
-                       f"seen but not collected: {', '.join(seen) or 'none'}.", ""]
-    md += ["## Pillar grades", "", "| Pillar | Grade | Counts | Top drivers |", "|---|---|---|---|"]
-    for p in PILLARS:
-        k, info = grades[p]
-        md.append(f"| {p} | {kit.GRADES[k][0]} | {kit.grade_counts_text(info)} | {', '.join(c['rule_id'] for c in info['drivers'][:3]) or '-'} |")
-    md += ["", "Rubric: Fix first = a HIGH-severity FAIL; Needs work = any FAIL or 3+ WARN; Watch = 1-2 WARN or any open question (UNKNOWN); Sound = all judged checks PASS and no open question. Not an AWS Well-Architected Tool rating.", "",
-           "## Security recommendations", "", "| Check | Severity | Resource | Recommendation |", "|---|---|---|---|"]
+            dmd += ["", f"Query scope: {len(cov)} services seen by discovery; added to the query scope automatically: {', '.join(manifest.get('auto_enabled_services') or []) or 'none'}; "
+                        f"seen but not collected: {', '.join(seen) or 'none'}.", ""]
+    dmd += ["## Security recommendations", "", "| Check | Severity | Resource | Recommendation |", "|---|---|---|---|"]
     security = sorted([c for c in checks + screener if c["pillar"] == "Security" and c["status"] in {"FAIL", "WARN"}], key=lambda c: (STATUS_ORDER[c["status"]], SEVERITY_ORDER.get(c.get("severity"), 9)))
     for members in group_findings(security):
         targets = [target_of(m) for m in members]
-        md.append(f"| {rule_label(members[0])} | {members[0]['severity']} | {', '.join(targets[:3])}{' +' + str(len(targets) - 3) if len(targets) > 3 else ''} | {members[0]['recommendation']} |")
-    if specialists:
-        md += ["", "## Specialist SA Agent recommendations", ""]
-        for sp in specialists:
-            md += specialist_markdown(sp, statuses)
-    md += ["", "## Modernization directions", "", "| Direction | Status | Reason |", "|---|---|---|"]
-    for c in pathways:
-        md.append(f"| {PATHWAYS[c['pathway']]} | {kit.PATHWAY_STATUS[c['status']][0]} | {(c['rationale'] if c['status'] in {'candidate', 'conditional'} else c['problem']).replace('|', '/')} |")
+        dmd.append(f"| {rule_label(members[0])} | {members[0]['severity']} | {', '.join(targets[:3])}{' +' + str(len(targets) - 3) if len(targets) > 3 else ''} | {members[0]['recommendation']} |")
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     import next_steps  # noqa: E402
-    md += [""] + next_steps.markdown(pathways_doc.get("next_steps") or {}, next_steps.labels(args.language).get("pathways", PATHWAYS), args.language)
-    md += ["## Findings by pillar", ""]
+    dmd += [""] + next_steps.markdown(pathways_doc.get("next_steps") or {}, next_steps.labels(args.language).get("pathways", PATHWAYS), args.language)
+    dmd += ["## Findings by pillar", ""]
     for p in PILLARS:
         items = sorted([c for c in checks + screener if c["pillar"] == p and c["status"] in {"FAIL", "WARN"}], key=lambda c: (STATUS_ORDER[c["status"]], SEVERITY_ORDER.get(c.get("severity"), 9)))
-        md += [f"### {p} - {kit.GRADES[grades[p][0]][0]}", ""]
+        dmd += [f"### {p} - {kit.GRADES[grades[p][0]][0]}", ""]
         for members in group_findings(items):
             c = members[0]
             label = CONFIDENCE_LABEL.get(c.get("confidence", "unverified"), c.get("confidence"))
             if len(members) == 1:
-                md.append(f"- **{c['id']} · {rule_label(c)} · {c['status']} · {c['severity']}** ({label}) `{target_of(c)}` - {c['observation']} → {c['recommendation']}")
+                dmd.append(f"- **{c['id']} · {rule_label(c)} · {c['status']} · {c['severity']}** ({label}) `{target_of(c)}` - {c['observation']} → {c['recommendation']}")
                 if c.get("evidence_ids"):
-                    md.append(f"  - Evidence `{', '.join(c['evidence_ids'])}`")
+                    dmd.append(f"  - Evidence `{', '.join(c['evidence_ids'])}`")
             else:
-                md.append(f"- **{rule_label(c)} · {c['status']} · {c['severity']} · {len(members)} resources** ({label}) → {c['recommendation']}")
-                md += [f"  - `{target_of(m)}` {m['observation']} `{m['id']}`" for m in members]
+                dmd.append(f"- **{rule_label(c)} · {c['status']} · {c['severity']} · {len(members)} resources** ({label}) → {c['recommendation']}")
+                dmd += [f"  - `{target_of(m)}` {m['observation']} `{m['id']}`" for m in members]
         questions = [text for text, members in open_groups if members[0]["pillar"] == p]
         if questions:
-            md += ["", "Open questions for this pillar:", ""] + [f"- {q}" for q in questions]
-        md.append("")
-    md += ["## Evidence", "", CODES_SENTENCE + " Raw responses stay in the run directory.", "",
-           "| ID | Call | Target / locator | Kind | Collected (UTC) | Used by |", "|---|---|---|---|---|---|"]
-    md += [f"| {r['id']} | `{r['what']}` | {r['target']} | {r['kind']} | {r['when']} | {', '.join(r['findings'][:6])}{' +' + str(len(r['findings']) - 6) if len(r['findings']) > 6 else ''} |" for r in evidence_rows]
-    md.append("")
-    md += usage_markdown(run_meta, inventory)
-    md += write_audit_markdown(write_audit)
+            dmd += ["", "Open questions for this pillar:", ""] + [f"- {q}" for q in questions]
+        dmd.append("")
+    dmd += ["## Evidence", "", CODES_SENTENCE + " Raw responses stay in the run directory.", "",
+            "| ID | Call | Target / locator | Kind | Collected (UTC) | Used by |", "|---|---|---|---|---|---|"]
+    dmd += [f"| {r['id']} | `{r['what']}` | {r['target']} | {r['kind']} | {r['when']} | {', '.join(r['findings'][:6])}{' +' + str(len(r['findings']) - 6) if len(r['findings']) > 6 else ''} |" for r in evidence_rows]
+    dmd.append("")
+    dmd += usage_markdown(run_meta, inventory)
+    dmd += write_audit_markdown(write_audit)
     out = args.output or run / "06-assessment"
     out.mkdir(parents=True, exist_ok=True)
-    (out / "assessment.html").write_text(plain_words(mask_people(html_doc)), encoding="utf-8")
+    (out / REPORT_FILE).write_text(plain_words(mask_people(html_doc)), encoding="utf-8")
+    (out / DETAILS_FILE).write_text(plain_words(mask_people(details_doc)), encoding="utf-8")
     (out / "assessment.md").write_text(plain_words(mask_people("\n".join(md))), encoding="utf-8")
+    (out / "details.md").write_text(plain_words(mask_people("\n".join(dmd))), encoding="utf-8")
     (out / "assessment-summary.json").write_text(json.dumps({
-        "schema_version": "1.0", "run_id": inventory["run_id"], "account_id": inventory["account_id"], "workload": args.workload, "status": status,
+        "schema_version": "1.1", "run_id": inventory["run_id"], "account_id": inventory["account_id"], "workload": args.workload, "status": status,
+        "files": {"report": REPORT_FILE, "details": DETAILS_FILE, "markdown": ["assessment.md", "details.md"]},
+        "sections": ["current", "review", "directions"],
         "grades": {p: {"grade": grades[p][0], **{k: v for k, v in grades[p][1].items() if k != "drivers"}, "drivers": [c["rule_id"] for c in grades[p][1]["drivers"]]} for p in PILLARS},
         "key_issues": issues, "iac_changes": changes, "diagram_coverage": (diagram_audit or {}).get("coverage", {}).get("status", "not_run"),
         "imported_findings": {"count": len(screener), "tool": "Service Screener" if upstream_manifest else None,

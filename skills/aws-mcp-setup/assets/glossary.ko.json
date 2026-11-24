@@ -266,7 +266,18 @@
     "Data Analytics Specialist SA Agent": "데이터 분석 Specialist SA Agent",
     "nothing set aside": "미뤄 둔 것 없음",
     "no change recommended for now": "지금은 바꿀 것 없음",
-    "initial render (the final drawing was not produced)": "초기 렌더링(최종 그림은 만들지 못함)"
+    "initial render (the final drawing was not produced)": "초기 렌더링(최종 그림은 만들지 못함)",
+    "Well-Architected review": "Well-Architected 6개 영역 리뷰",
+    "Details and evidence": "상세와 근거",
+    "Report": "보고서",
+    "Where to start": "어디서 시작할지",
+    "What drives each grade": "평가를 좌우한 점검",
+    "Current state": "현재 상태",
+    "Proposal": "제안",
+    "Quantitative evidence": "정량 근거",
+    "Metric": "항목",
+    "Value": "값",
+    "Net list price": "정가 합계"
   },
   "avoid": {
     "방언": "'MySQL 호환 SQL'처럼 의미를 풀어 쓴다",

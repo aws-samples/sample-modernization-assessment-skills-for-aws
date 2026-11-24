@@ -123,7 +123,8 @@ $moda-skill start profile assessment region us-east-1 workload shopnow lang ko
 ## 6. 실행 중과 실행 후
 
 이후에는 추가 질문 없이 다섯 단계가 진행됩니다. 보고서는
-`artifacts/<workload>/<run id>/06-assessment/assessment.html`에, 요청한 언어로 만든 보고서는
+`artifacts/<workload>/<run id>/06-assessment/assessment.html`(현재 아키텍처, Well-Architected 리뷰, Specialist SA Agent 제언의 3개 섹션; 모든 점검 결과와 근거는 같은
+폴더의 `details.html`)에, 요청한 언어로 만든 보고서는
 `06-assessment-<lang>/`에 생깁니다.
 
 - `$moda-skill status`로 진행 중인 단계를 확인하고, `$moda-skill resume`으로 중단된 실행을 이어갈 수

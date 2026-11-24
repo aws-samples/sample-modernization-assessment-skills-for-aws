@@ -58,6 +58,11 @@ customer, carries its size (`effort`: setting, days, weeks, quarter) and cost di
 `measure_first`), lists what must be true or confirmed first (`before_deciding`), gives at least one alternative (keeping
 and improving the current setup is an alternative), and says how to undo it. Name an AWS service only when it solves a
 problem in the evidence or a need stated in the scope; a service that would be nice to have is not a recommendation.
+The report shows every recommendation in the same four fields: **current state** (`current`, optional: one sentence in
+the words of the evidence; when absent the report prints the observations of the findings in `refs`), **proposal**
+(`change` and `benefit`), **quantitative evidence** (the `list_prices` you cite and the figures `benefits.py` computes
+from the collected evidence; never write `evidence` yourself) and **prerequisites** (`before_deciding`, `alternatives`,
+`rollback`).
 
 **Not now.** `not_now` lists what you considered and would not recommend for this workload today, with the reason and what
 would change your view. An empty recommendation list with a clear `not_now` is a valid review.
@@ -103,6 +108,7 @@ never change the account.
   "recommendations": [{
     "title": "Give the order database a failover target and a deletion guard",
     "pathway": "managed-database",
+    "current": "Cluster ... has one writer in us-east-1b, no reader, and DeletionProtection off.",
     "change": "Add an Aurora reader in us-east-1a to cluster ..., set DeletionProtection and DeletionPolicy: Snapshot in shopnow-data.",
     "benefit": "A writer or zone failure promotes the reader instead of stopping four services; a stack mistake keeps a snapshot.",
     "refs": ["f0064", "m0004"],

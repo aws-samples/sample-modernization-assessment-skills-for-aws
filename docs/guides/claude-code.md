@@ -101,7 +101,8 @@ account), host inspection, the environment and the support plan.
 ## 6. While it runs, and after
 
 The agent runs the five stages without further questions. The report is in
-`artifacts/<workload>/<run id>/06-assessment/assessment.html`, and a localized copy in
+`artifacts/<workload>/<run id>/06-assessment/assessment.html` (three sections: current architecture, Well-Architected review, Specialist SA Agent
+recommendations; every finding and the evidence are in `details.html` beside it), and a localized copy in
 `06-assessment-<lang>/` when you ask for another language.
 
 - `/moda-skill status` shows the stage the run is in; `/moda-skill resume` continues an

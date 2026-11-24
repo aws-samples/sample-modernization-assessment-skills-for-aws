@@ -229,7 +229,9 @@ def texts(advice):
     for i, item in enumerate(advice.get("current_state") or []):
         yield f"current_state[{i}]", item.get("text", "")
     for i, rec in enumerate(advice.get("recommendations") or []):
-        for key in ("title", "change", "benefit", "rollback"):
+        for key in ("title", "current", "change", "benefit", "rollback"):
+            if key == "current" and not rec.get(key):
+                continue  # optional: the report falls back to the cited findings' observations
             yield f"recommendations[{i}].{key}", rec.get(key, "")
         for key in ("before_deciding", "alternatives"):
             for j, value in enumerate(rec.get(key) or []):
@@ -311,6 +313,10 @@ def validate_advice(ctx, sid, advice, price_ids):
             errors.append(f"recommendations[{i}].alternatives needs at least one (keeping and improving the current setup counts)")
         if not isinstance(rec.get("before_deciding", []), list):
             errors.append(f"recommendations[{i}].before_deciding must be a list")
+        if rec.get("current") is not None and not isinstance(rec.get("current"), str):
+            errors.append(f"recommendations[{i}].current must be one sentence (a string) when given")
+        if "evidence" in rec:
+            errors.append(f"recommendations[{i}].evidence is written by benefits.py from the collected evidence, not by the review")
         for ref in rec.get("list_prices") or []:
             if not isinstance(ref, dict) or ref.get("sign") not in ("+", "-") or ref.get("id") not in price_ids:
                 errors.append(f"recommendations[{i}].list_prices: {ref!r} is not a price list_price.py returned")

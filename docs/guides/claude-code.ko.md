@@ -102,7 +102,8 @@ something."이나 에이전트가 따로 묻는 메시지에 이유를 직접 �
 ## 6. 실행 중과 실행 후
 
 이후에는 추가 질문 없이 다섯 단계가 진행됩니다. 보고서는
-`artifacts/<workload>/<run id>/06-assessment/assessment.html`에 생기고, 다른 언어를 요청했다면
+`artifacts/<workload>/<run id>/06-assessment/assessment.html`(현재 아키텍처, Well-Architected 리뷰, Specialist SA Agent 제언의 3개 섹션; 모든 점검 결과와 근거는 같은
+폴더의 `details.html`)에 생기고, 다른 언어를 요청했다면
 `06-assessment-<lang>/`에도 만들어집니다.
 
 - `/moda-skill status`로 진행 중인 단계를 확인하고, `/moda-skill resume`으로 중단된 실행을 이어갈 수
