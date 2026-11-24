@@ -68,16 +68,15 @@ The helper does not translate; the agent does, in parallel chunks, and the helpe
 
    ```bash
    node "$TOOLKIT_SKILL/scripts/render_artifact.mjs" "$LOCALIZED_RUN/assessment.html" "$LOCALIZATION_WORK/qa-assessment" --check
-   node "$TOOLKIT_SKILL/scripts/render_artifact.mjs" "$LOCALIZED_RUN/details.html" "$LOCALIZATION_WORK/qa-details" --check
    ```
 
-   `--check` renders the page at 1280 px and 390 px and records page overflow, elements
+   `--check` renders every page of the report at 1280 px and 390 px and records page overflow, elements
    wider than their container, clipped text, images and SVGs that did not render,
    same-page links without a target and English sentences left in a non-English page
    (`layout-check.json`). Exit code 0 is the pass; on failure it also writes `page.png`
    for the person, and you fix what the issue list names (an untranslated unit, a long
-   unbroken label) and run it again. Diagrams drawn by `diagram.py` are SVG and are
-   translated with the page; no raster to regenerate. Do not rerun an old English
+   unbroken label) and run it again. Diagrams drawn by `diagram.py` carry their render inputs;
+   `apply` translates their labels whole and redraws them, so boxes fit the translated text. Do not rerun an old English
    report-authoring script over localized output.
 6. After language review and the layout check pass, set localization.json status=complete
    and record language_review/visual_qa (the layout-check.json status). Deliver the localized bundle. Pending

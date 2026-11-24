@@ -91,7 +91,7 @@ details.kpi-list[open]{{grid-column:1 / -1}} details.kpi-list ul{{margin:0;paddi
 .evidence-table td:nth-child(1) code{{white-space:nowrap}} .evidence-table td:nth-child(8) code{{font-size:11px}}
 .evidence-table td{{font-size:12.5px;word-break:break-word}} .evidence-table code{{white-space:normal;word-break:break-word}}
 .kpi.fail{{border-top-color:#DD344C}} .kpi.warn{{border-top-color:#EC7211}} .kpi.pass{{border-top-color:#7AA116}} .kpi.unknown{{border-top-color:#7D8998}} .kpi.accent{{border-top-color:#FF9900}} .kpi.link{{border-top-color:{LINK}}}
-.grid{{display:grid;gap:16px}} .g2{{grid-template-columns:1.15fr 0.85fr}} .g3{{grid-template-columns:repeat(3,1fr)}}
+.grid{{display:grid;gap:16px}} .grid>*{{min-width:0}} .g2{{grid-template-columns:1.15fr 0.85fr}} .g3{{grid-template-columns:repeat(3,1fr)}}
 @media (max-width:900px){{.g2,.g3{{grid-template-columns:1fr}}}}
 nav.pages a{{display:inline-flex;gap:6px;align-items:center;font-size:12px;padding:7px 12px}} nav.pages .pn{{display:inline-block;min-width:18px;height:18px;line-height:18px;border-radius:9px;background:{PAPER2};color:{INK};text-align:center;font-size:10px}}
 nav.pager{{display:flex;justify-content:space-between;align-items:center;border-top:1px solid {RULE};margin:36px 0 0;padding:16px 0 8px;font-size:14px}}

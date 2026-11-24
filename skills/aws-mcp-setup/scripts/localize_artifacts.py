@@ -99,6 +99,8 @@ class ProseParser(HTMLParser):
         self.stack = []
         self.spans = []
         self.embedded = []
+        self.renders = []          # (a, b, base64 value) of data-render attributes: diagrams drawn by aws_diagram.py
+        self.diagram_levels = []   # stack depths at which such a drawing's <svg> opened; its text is redrawn, not edited
         self.feed(text)
 
     def current_offset(self):
@@ -115,6 +117,10 @@ class ProseParser(HTMLParser):
                 self.spans.append((a, b, "attribute"))
             if key in {"src", "href"} and value.startswith("data:image/svg+xml;base64,"):
                 self.embedded.append((a, b, value))
+            if key == "data-render" and value:
+                self.renders.append((a, b, value))
+        if tag == "svg" and 'data-renderer="aws_diagram"' in raw:
+            self.diagram_levels.append(len(self.stack))
         if tag not in {"img", "meta", "link", "br", "hr", "input", "col", "source", "wbr"}:
             self.stack.append(tag)
 
@@ -126,9 +132,10 @@ class ProseParser(HTMLParser):
         if tag in self.stack:
             index = len(self.stack) - 1 - self.stack[::-1].index(tag)
             del self.stack[index:]
+            self.diagram_levels = [d for d in self.diagram_levels if d < len(self.stack)]
 
     def prose(self, raw):
-        if any(tag in SKIP_TAGS for tag in self.stack):
+        if any(tag in SKIP_TAGS for tag in self.stack) or self.diagram_levels:
             return
         a = self.current_offset()
         if self.spans and self.spans[-1][1] == a and self.spans[-1][2] == "text":
@@ -224,6 +231,14 @@ def convert_text(text, suffix, visit, language=None, depth=0):
         edits.append((a + leading, b - trailing if trailing else b, target))
     if parser:
         import base64
+        for a, b, value in parser.renders:
+            inputs = json.loads(base64.b64decode(value).decode("utf-8"))
+            diagram = diagram_module()
+            for source in diagram.graph_texts(inputs["graph"]) + diagram.renderer_words() + [inputs.get("title") or "", inputs.get("note") or ""]:
+                if source.strip() and translatable(source.strip()):
+                    visit(source.strip())
+            if language:
+                edits.append(redraw_edit(text, b, inputs, visit, language, diagram))
         for a, b, value in parser.embedded:
             if depth >= 2:
                 raise ValueError("embedded SVG nesting exceeds the supported limit")
@@ -246,6 +261,37 @@ def convert_text(text, suffix, visit, language=None, depth=0):
             replacement = replacement[:-len(closing)] + f' lang="{language}"' + closing
             text = text[:match.start()] + replacement + text[match.end():]
     return text
+
+
+def diagram_module():
+    """aws_diagram.py of the aws-architecture-review skill installed beside this one."""
+    folder = Path(__file__).resolve().parents[2] / "aws-architecture-review" / "scripts"
+    if not (folder / "aws_diagram.py").is_file():
+        raise ValueError("the report holds diagrams drawn by aws_diagram.py; install aws-architecture-review beside this skill to redraw them")
+    if str(folder) not in sys.path:
+        sys.path.insert(0, str(folder))
+    import aws_diagram  # noqa: E402
+    return aws_diagram
+
+
+def redraw_edit(text, attr_end, inputs, visit, language, diagram):
+    """(start, end, new svg) replacing the drawing that follows a data-render attribute with one drawn from translated
+    labels, so wrapped lines and box sizes fit the new text."""
+    import tempfile
+    start = text.index("<svg", attr_end)
+    end = text.index("</svg>", start) + len("</svg>")
+    def say(value):
+        value = value or ""
+        out = visit(value.strip()) if value.strip() and translatable(value.strip()) else None
+        return value if out is None else out
+    graph = diagram.translated_graph(inputs["graph"], say)
+    words = {w: say(w) for w in diagram.renderer_words()}
+    with tempfile.TemporaryDirectory() as folder:
+        roots = diagram.icon_roots()
+        diagram.render(graph, Path(folder), inputs.get("name") or "diagram", say(inputs.get("title") or "") or None, say(inputs.get("note") or "") or None,
+                       roots[0] if roots else None, language, words)
+        svg = (Path(folder) / f"{inputs.get('name') or 'diagram'}.aws.svg").read_text(encoding="utf-8").strip()
+    return (start, end, svg)
 
 
 def artifact_kind(path):
@@ -422,14 +468,31 @@ def reuse(plan, previous):
     if previous.get("output_language") != plan.get("output_language"):
         raise ValueError("the earlier plan is for another language")
     carried = 0
+    by_shape = {}
+    for old in (previous.get("units") or {}).values():
+        if old.get("target") and not old.get("preserve"):
+            by_shape.setdefault(NUMBER.sub("#", old["source"]), old)
     for key, unit in plan["units"].items():
         old = (previous.get("units") or {}).get(key)
-        if unit.get("from_glossary") or not old or old.get("source") != unit["source"]:
+        if unit.get("from_glossary") or unit.get("target"):
             continue
-        if old.get("preserve") is True or old.get("target"):
+        if old and old.get("source") == unit["source"] and (old.get("preserve") is True or old.get("target")):
             unit["target"], unit["preserve"] = old.get("target"), old.get("preserve", False)
             carried += 1
+            continue
+        # Same text with other numbers (an elapsed time, a timestamp, a count after a re-render): the earlier translation
+        # with the new numbers put in, when the earlier target carried the earlier numbers in the same order.
+        shape = by_shape.get(NUMBER.sub("#", unit["source"]))
+        if shape:
+            olds, news = NUMBER.findall(shape["source"]), NUMBER.findall(unit["source"])
+            if len(olds) == len(news) and NUMBER.findall(shape["target"]) == olds:
+                parts = iter(news)
+                unit["target"], unit["preserve"] = NUMBER.sub(lambda m: next(parts), shape["target"]), False
+                carried += 1
     return carried
+
+
+NUMBER = re.compile(r"\d+(?:[.,:]\d+)*")
 
 
 NEEDS_WORDS = re.compile(r"[A-Za-z]{2,}")

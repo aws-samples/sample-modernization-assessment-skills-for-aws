@@ -72,8 +72,8 @@ artifacts/<workload>/<UTC run id>/
   03-as-is/        inventory.json, raw/, as-is-report.md   configuration evidence
   04-review/       findings.json, scorecard.json, review.html, diagrams/
   05-modernization/ specialists/<id>/ (advice, diagram), specialist-advice.json, pathways.json, diagrams/
-  06-assessment/   assessment.html, details.html, .md  the English draft: the three-section report and its details page
-  06-assessment-ko/ assessment.html, details.html       the report in the language you asked for (here Korean)
+  06-assessment/   assessment.html, assessment.md     the report in English (summary, AS-IS, pillars, modernization, appendix)
+  06-assessment-ko/ assessment.html                   the same report in Korean, when the run started with lang ko
 ```
 
 ![Pillar grades with driving checks](docs/img/en/report-grades.png)

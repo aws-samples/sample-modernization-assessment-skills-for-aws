@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
-"""Render the assessment report pair (assessment.html + details.html, with Markdown twins) from the stage 3-5 artifacts.
+"""Render the assessment report (assessment.html, with a Markdown twin) from the stage 3-5 artifacts.
 
-assessment.html has three sections, the ones readers asked for: (1) the current architecture (scope, the AS-IS
-diagram, what was collected), (2) the Well-Architected review (qualitative grades for the six pillars, key issues in
-plain language with verified AWS references, the failed and warned checks that drive each grade) and (3) the Specialist
-SA Agent recommendations, each in the same four fields: current state, proposal, quantitative evidence (figures computed
-from the evidence or read from the AWS Price List API, never estimated by the agent) and prerequisites, followed by the
-combined target architecture and the seven directions. details.html carries everything that supports those sections:
-the one-page summary, the where-to-start board, account posture, every finding by pillar with its open questions, the
-security table, reference material, terms, the evidence index and the run's method and provenance. Links between the two
-pages are resolved after rendering. The IaC change list goes to iac-changes.json only, and the order of work is left to
+One file with five pages, shown one at a time with CSS :target (no script; every page prints): 1 Executive summary (scope,
+count tiles, a radar of the six pillar scores, the key improvements, where to start, a size-by-cost matrix of every
+change), 2 AS-IS architecture (the AWS diagram and what the workload is made of), 3 recommendations by Well-Architected
+pillar (each pillar's grade, its key issues with the suggestion and the checks that drive the grade; security is one of
+the pillars), 4 Modernization recommendations (the Specialist SA Agents, each recommendation in four fields: current
+state, proposal, quantitative evidence, prerequisites) and the Appendix (evidence, method and provenance, all findings,
+account services, reference material, terms). Everything is English; a report in another language is translated from
+this one at the end (localize_artifacts.py). The IaC change list goes to iac-changes.json only, and the order of work is left to
 the meeting with the owner. Imported third-party scanner results appear as ordinary security items; the tool that
 produced them is recorded in assessment-summary.json, not in the customer-facing text.
 
@@ -687,7 +686,7 @@ def specialist_html(s, statuses, finding_ids, run, by_id=None):
     if diagram.get("svg") and svg_path.is_file():
         note = " · initial render (the final drawing was not produced)" if diagram.get("initial_render_only") else ""
         figure = zoom_figure(f"zoom-sp-{sid}", safe_svg(svg_path), f"sp-{sid}",
-                             f'{kit.esc(diagram.get("caption", ""))}{kit.esc(note)} · click the diagram to enlarge · {open_full(svg_path, run)}')
+                             f'{kit.esc(diagram.get("caption", ""))}{kit.esc(note)} · click the diagram to enlarge · {open_full(svg_path, run)}', svg_path)
     refs = "".join(f'<li><a href="{kit.esc(r["url"])}" target="_blank" rel="noopener">{kit.esc(r["title"])}</a></li>' for r in s.get("references") or [])
     return (f'<article class="specialist" id="sp-{kit.esc(sid)}"><h3>{kit.esc(s["role"])} <span class="chips">{chips}</span></h3>'
             f'<p class="lead">{kit.esc(s["summary"])}</p>'
@@ -1294,10 +1293,26 @@ CODES_SENTENCE = ("Reference codes: f0001 = a finding from an automated check (f
                   "policies, task definitions, source files); h0001 = host inspection; p001 = a published list price. The codes link to the item.")
 
 
-def zoom_figure(fig_id, svg, back, caption):
+def render_inputs(svg_path):
+    """base64 of <name>.render.json beside a drawing made by aws_diagram.py, or "" (a hand-made drawing)."""
+    if not svg_path:
+        return ""
+    path = Path(svg_path)
+    stem = path.name[:-len(".aws.svg")] if path.name.endswith(".aws.svg") else path.stem
+    inputs = path.with_name(f"{stem}.render.json")
+    if not inputs.is_file():
+        return ""
+    import base64
+    return base64.b64encode(inputs.read_bytes()).decode()
+
+
+def zoom_figure(fig_id, svg, back, caption, svg_path=None):
     """A diagram that opens full screen when clicked and closes with the button, with CSS :target only (the report carries
-    no script). The enlarged view is twice the page width and scrolls."""
-    return (f'<figure class="zoomable" id="{kit.esc(fig_id)}"><a class="zoom-open" href="#{kit.esc(fig_id)}" title="Click to enlarge">{svg}</a>'
+    no script). The enlarged view is twice the page width and scrolls. A drawing made by aws_diagram.py carries its render
+    inputs, so a translated report redraws it from translated labels."""
+    data = render_inputs(svg_path)
+    attr = f' data-render="{data}"' if data else ""
+    return (f'<figure class="zoomable" id="{kit.esc(fig_id)}"{attr}><a class="zoom-open" href="#{kit.esc(fig_id)}" title="Click to enlarge">{svg}</a>'
             f'<a class="zoom-close" href="#{kit.esc(back)}">Close</a><figcaption>{caption}</figcaption></figure>')
 
 
@@ -1394,7 +1409,7 @@ def glance_markdown(rows):
 
 
 # ---------------------------------------------------------------------------
-# The three-section report (assessment.html) and its details page (details.html)
+# Report files (details.html is the details page of an earlier version, removed when found)
 # ---------------------------------------------------------------------------
 DETAILS_FILE = "details.html"
 REPORT_FILE = "assessment.html"
@@ -1792,9 +1807,9 @@ def render(args):
             + kit.kpi(len(recommended), "recommended directions", "accent", [("#directions", f"{PATHWAYS[c['pathway']]} · {kit.PATHWAY_STATUS[c['status']][0]}") for c in recommended]))
     evidence_rows = evidence_index(manifest, checks, screener, specialists)
     worst_text = (f"Most urgent pillars: {', '.join(worst)}." if worst else "No pillar is graded critical or weak.")
-    to_be_block = (zoom_figure("zoom-to-be", to_be_svg, "directions", f'Proposed target architecture · retained, proposed and unresolved parts are distinguished in the legend · click the diagram to enlarge · {open_full(args.to_be_diagram, run)}') if to_be_svg
+    to_be_block = (zoom_figure("zoom-to-be", to_be_svg, "directions", f'Proposed target architecture · retained, proposed and unresolved parts are distinguished in the legend · click the diagram to enlarge · {open_full(args.to_be_diagram, run)}', args.to_be_diagram) if to_be_svg
                    else '<div class="callout"><p>The target-architecture diagram has not been produced yet.</p></div>') + to_be_changes_html(args.to_be_diagram)
-    as_is_block = (zoom_figure("zoom-as-is", as_is_svg, "p-asis", f'Current architecture from observed configuration · arrows are configured paths, not measured traffic · click the diagram to enlarge · {open_full(args.as_is_diagram, run)}') if as_is_svg
+    as_is_block = (zoom_figure("zoom-as-is", as_is_svg, "p-asis", f'Current architecture from observed configuration · arrows are configured paths, not measured traffic · click the diagram to enlarge · {open_full(args.as_is_diagram, run)}', args.as_is_diagram) if as_is_svg
                    else '<div class="callout"><p>The current-architecture diagram has not been produced yet; this report is a draft until it is.</p></div>')
     if as_is_svg and not diagram_ok:
         cov = (diagram_audit or {}).get("coverage") or {}

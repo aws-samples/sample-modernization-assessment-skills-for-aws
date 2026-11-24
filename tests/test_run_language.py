@@ -93,6 +93,44 @@ class RunLanguageTests(unittest.TestCase):
             self.assertEqual(out["output_language"], "ko")
             again = locale.prepare(root, {"output_language": "ko", "language_source": "explicit"})
             self.assertEqual(locale.reuse(again, plan), 3, "a re-render reuses earlier translations and preserved units")
+            # Only the numbers changed (an elapsed time after a re-render): the earlier translation with the new numbers.
+            shifted = {"output_language": "ko", "units": {"a": {"source": "Run wall-clock: 24 h 3 min from the start", "target": None, "preserve": False}}}
+            earlier = {"output_language": "ko", "units": {"b": {"source": "Run wall-clock: 23 h 39 min from the start", "target": "\uc2e4\ud589 \uc2dc\uac04 23\uc2dc\uac04 39\ubd84", "preserve": False}}}
+            self.assertEqual(locale.reuse(shifted, earlier), 1)
+            self.assertEqual(shifted["units"]["a"]["target"], "\uc2e4\ud589 \uc2dc\uac04 24\uc2dc\uac04 3\ubd84")
+
+    def test_a_translated_report_redraws_its_diagrams_from_translated_labels(self):
+        aws = load("aws_diagram_for_language", "skills/aws-architecture-review/scripts/aws_diagram.py")
+        graph = {"title": "Data tier", "groups": [{"id": "vpc", "label": "VPC shop", "kind": "vpc", "parent": None, "resource_ids": []}],
+                 "nodes": [{"id": "n1", "label": "Aurora writer orders", "detail": "the only instance", "service": "rds", "type": "rds.instance", "group": "vpc", "state": "retained", "resource_ids": []},
+                           {"id": "n2", "label": "Aurora reader", "detail": "in another zone", "service": "rds", "type": "rds.instance", "group": "vpc", "state": "proposed", "resource_ids": []}],
+                 "edges": [{"id": "e1", "source": "n1", "target": "n2", "label": "replication", "state": "proposed"}]}
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "d"
+            aws.render(graph, out, "diagram", "Data tier", "Arrows are configured paths.", None)
+            inputs = json.loads((out / "diagram.render.json").read_text())
+            self.assertEqual(inputs["graph"]["nodes"][1]["label"], "Aurora reader")
+            import base64
+            svg = (out / "diagram.aws.svg").read_text().strip()
+            page = Path(tmp) / "06-assessment"; page.mkdir()
+            (page / "assessment.html").write_text(f'<!doctype html><html lang="en"><body><p>Proposed reader.</p><figure data-render="{base64.b64encode((out / "diagram.render.json").read_bytes()).decode()}"><a>{svg}</a></figure></body></html>')
+            plan = locale.prepare(page, {"output_language": "ko", "language_source": "explicit"})
+            sources = {u["source"] for u in plan["units"].values()}
+            self.assertIn("Aurora reader", sources); self.assertIn("in another zone", sources); self.assertIn("Legend", sources)
+            self.assertNotIn("in another", sources, "labels are units whole, not as wrapped line fragments")
+            terms = sorted(((t, r) for t, r in plan["glossary"]["terms"].items() if " " in t), key=lambda tr: -len(tr[0]))
+            for u in plan["units"].values():
+                if not u.get("target"):
+                    text = u["source"]
+                    for term, rendering in terms:
+                        text = text.replace(term, rendering)
+                    u["target"] = "\ubc88\uc5ed " + text if locale.NEEDS_WORDS.search(u["source"]) else None
+                    u["preserve"] = u["target"] is None
+            locale.apply(plan, Path(tmp) / "06-assessment-ko")
+            html = (Path(tmp) / "06-assessment-ko/assessment.html").read_text()
+            self.assertIn("\ubc88\uc5ed Aurora reader", html, "the redrawn drawing carries the translated label")
+            self.assertIn('data-renderer="aws_diagram"', html)
+            self.assertNotIn(">Aurora reader<", html)
 
 
 if __name__ == "__main__":

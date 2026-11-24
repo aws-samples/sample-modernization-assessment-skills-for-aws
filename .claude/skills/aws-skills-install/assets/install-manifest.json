@@ -127,10 +127,10 @@
     {
       "name": "aws-mcp-setup",
       "source": "skills/aws-mcp-setup",
-      "digest": "9824ba803dc49eab7f04a17961e609d86f8234f07c6eeab5638e6bb64650b441",
+      "digest": "625dae26e524ee042ec94ca133ae81736558b18fa165d052c639dc91cff4b120",
       "stamp": {
         "package": "moda-skills",
-        "sha256": "9824ba803dc49eab7f04a17961e609d86f8234f07c6eeab5638e6bb64650b441"
+        "sha256": "625dae26e524ee042ec94ca133ae81736558b18fa165d052c639dc91cff4b120"
       },
       "files": [
         {
@@ -160,8 +160,8 @@
         },
         {
           "path": "references/output-language.md",
-          "bytes": 8670,
-          "sha256": "b4b4fcb93b1b80a80283fc405f3b2b7c30442aa4a95ea480b210a26e7b869173"
+          "bytes": 8613,
+          "sha256": "67a108f879b13142eb30386552b661311b11a0f1e9bb578f90c89856deb85973"
         },
         {
           "path": "references/run-metadata.md",
@@ -175,8 +175,8 @@
         },
         {
           "path": "scripts/localize_artifacts.py",
-          "bytes": 32370,
-          "sha256": "6fddeaf47f0d7fb9135ab133733da033d7d5e433da617641bd94be9cef035111"
+          "bytes": 36064,
+          "sha256": "8637bc5a1ef8825226e37e2e65c66f37b159ab5aec91e9217e8f261a78f8b441"
         },
         {
           "path": "scripts/render_artifact.mjs",
@@ -274,10 +274,10 @@
     {
       "name": "aws-architecture-review",
       "source": "skills/aws-architecture-review",
-      "digest": "e1ea68ff3ded160cf3a4d1859eece8dea0fac996c3ed55db0475426e25041430",
+      "digest": "502e8dcf86b90ab3ce2e49f8e64a5df9ea9269070e914e0c277e27b281f889c5",
       "stamp": {
         "package": "moda-skills",
-        "sha256": "e1ea68ff3ded160cf3a4d1859eece8dea0fac996c3ed55db0475426e25041430"
+        "sha256": "502e8dcf86b90ab3ce2e49f8e64a5df9ea9269070e914e0c277e27b281f889c5"
       },
       "files": [
         {
@@ -317,8 +317,8 @@
         },
         {
           "path": "scripts/aws_diagram.py",
-          "bytes": 51890,
-          "sha256": "4866722d95ac712ef9ea4265167d17cc351f5facca45194bd7e2fe99267ab364"
+          "bytes": 56530,
+          "sha256": "702444d353821cb7ab8fc3cacf83535f1cfaf6d36efe65ae689b6a63d3a98b0e"
         },
         {
           "path": "scripts/diagram.py",
@@ -337,8 +337,8 @@
         },
         {
           "path": "scripts/report_kit.py",
-          "bytes": 57771,
-          "sha256": "8e81295cc27070b05cd854523c378b77ee90d9cf86f7f2269ce155e5376226f7"
+          "bytes": 57794,
+          "sha256": "bfb0ba425b462efff38835693617794efa38e1375c79d126f8fa3f10450ffd22"
         },
         {
           "path": "scripts/review.py",
@@ -355,10 +355,10 @@
     {
       "name": "aws-modernization-pathway",
       "source": "skills/aws-modernization-pathway",
-      "digest": "f4504618fdd1dd305e96edb3250204c6c4b5503b150461cf7b4c4b0bf32a8e62",
+      "digest": "9d1d5304cb577d64795fcb318bdfdccca5e2d2a425a80335d0d5dfbb4773900e",
       "stamp": {
         "package": "moda-skills",
-        "sha256": "f4504618fdd1dd305e96edb3250204c6c4b5503b150461cf7b4c4b0bf32a8e62"
+        "sha256": "9d1d5304cb577d64795fcb318bdfdccca5e2d2a425a80335d0d5dfbb4773900e"
       },
       "files": [
         {
@@ -463,8 +463,8 @@
         },
         {
           "path": "scripts/assessment_report.py",
-          "bytes": 148244,
-          "sha256": "ef0adeb085a9389f7b77a690db4ccde2db82d952b4e4164c86fe0ce28a8a73a8"
+          "bytes": 148881,
+          "sha256": "13cb0408e056d8d869604ca482ddc3cef215398e1570fc78eefdcb0be82f0276"
         },
         {
           "path": "scripts/benefits.py",
@@ -488,8 +488,8 @@
         },
         {
           "path": "scripts/report_kit.py",
-          "bytes": 57771,
-          "sha256": "8e81295cc27070b05cd854523c378b77ee90d9cf86f7f2269ce155e5376226f7"
+          "bytes": 57794,
+          "sha256": "bfb0ba425b462efff38835693617794efa38e1375c79d126f8fa3f10450ffd22"
         },
         {
           "path": "scripts/write_audit.py",

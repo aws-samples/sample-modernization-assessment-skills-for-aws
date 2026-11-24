@@ -124,9 +124,9 @@ check the scope the agent reports before stage 3. With the change, the agent ask
 ## 6. While it runs, and after
 
 The agent runs the five stages without further questions. The report is in
-`artifacts/<workload>/<run id>/06-assessment/assessment.html` (three sections: current architecture, Well-Architected review, Specialist SA Agent
-recommendations; every finding and the evidence are in `details.html` beside it), and the localized copy in
-`06-assessment-<lang>/`.
+`artifacts/<workload>/<run id>/06-assessment/assessment.html` (executive summary with the key improvements, AS-IS architecture,
+recommendations by Well-Architected pillar and modernization recommendations, with the evidence in the appendix). The report
+is English unless you start with `lang ko`; then the Korean report is in `06-assessment-ko/assessment.html`.
 
 - `$moda-skill status` shows the stage the run is in; `$moda-skill resume` continues an
   interrupted run. After you quit, `codex resume` lists the conversation to reopen.

@@ -105,7 +105,9 @@ ICONS = {
     "elbv2.load-balancer": ("resource/Networking-Content-Delivery/Res_Elastic-Load-Balancing_Application-Load-Balancer_48.svg", "#8C4FFF", "ALB"),
     "elbv2.target-group": ("resource/General-Icons/Res_Servers_48_Light.svg", "#8C4FFF", "TG"),
     "elbv2": ("service/Networking-Content-Delivery/Arch_Elastic-Load-Balancing_48.svg", "#8C4FFF", "ELB"),
-    "rds.db-instance": ("resource/Databases/Res_Amazon-Aurora_Instance_48.svg", "#C925D1", "DB"),
+    "rds.db-instance": ("resource/Databases/Res_Amazon-Aurora-Instance_48.svg", "#C925D1", "DB"),
+    "rds.instance": ("resource/Databases/Res_Amazon-Aurora-Instance_48.svg", "#C925D1", "DB"),
+    "rds.cluster": ("service/Databases/Arch_Amazon-Aurora_48.svg", "#C925D1", "Aurora"),
     "rds.db-cluster": ("service/Databases/Arch_Amazon-Aurora_48.svg", "#C925D1", "Aurora"),
     "rds": ("service/Databases/Arch_Amazon-RDS_48.svg", "#C925D1", "RDS"),
     "elasticache.replication-group": ("service/Databases/Arch_Amazon-ElastiCache_48.svg", "#C925D1", "Cache"),
@@ -136,7 +138,28 @@ ICONS = {
     "acm.certificate": ("service/Security-Identity/Arch_AWS-Certificate-Manager_48.svg", "#DD344C", "ACM"),
     "wafv2.web-acl": ("service/Security-Identity/Arch_AWS-WAF_48.svg", "#DD344C", "WAF"),
     "cognito.user-pool": ("service/Security-Identity/Arch_Amazon-Cognito_48.svg", "#DD344C", "Cognito"),
-    "iam.role": ("resource/Security-Identity-Compliance/Res_AWS-Identity-Access-Management_Role_48.svg", "#DD344C", "Role"),
+    "iam.role": ("resource/Security-Identity/Res_AWS-Identity-Access-Management_Role_48.svg", "#DD344C", "Role"),
+    "iam": ("service/Security-Identity/Arch_AWS-Identity-and-Access-Management_48.svg", "#DD344C", "IAM"),
+    "secretsmanager": ("service/Security-Identity/Arch_AWS-Secrets-Manager_48.svg", "#DD344C", "Secret"),
+    "inspector": ("service/Security-Identity/Arch_Amazon-Inspector_48.svg", "#DD344C", "Insp"),
+    "codebuild": ("service/Developer-Tools/Arch_AWS-CodeBuild_48.svg", "#C925D1", "Build"),
+    "codecommit": ("service/Developer-Tools/Arch_AWS-CodeCommit_48.svg", "#C925D1", "Repo"),
+    "codepipeline": ("service/Developer-Tools/Arch_AWS-CodePipeline_48.svg", "#C925D1", "Pipe"),
+    "ecr": ("service/Containers/Arch_Amazon-Elastic-Container-Registry_48.svg", "#ED7100", "ECR"),
+    "events": ("service/Application-Integration/Arch_Amazon-EventBridge_48.svg", "#E7157B", "Events"),
+    "sns": ("service/Application-Integration/Arch_Amazon-Simple-Notification-Service_48.svg", "#E7157B", "SNS"),
+    "sqs": ("service/Application-Integration/Arch_Amazon-Simple-Queue-Service_48.svg", "#E7157B", "SQS"),
+    "cloudwatch": ("service/Management-Tools/Arch_Amazon-CloudWatch_48.svg", "#E7157B", "CW"),
+    "cloudwatch.logs": ("resource/Management-Governance/Res_Amazon-CloudWatch_Logs_48.svg", "#E7157B", "Logs"),
+    "logs": ("resource/Management-Governance/Res_Amazon-CloudWatch_Logs_48.svg", "#E7157B", "Logs"),
+    "athena": ("service/Analytics/Arch_Amazon-Athena_48.svg", "#8C4FFF", "Athena"),
+    "redshift": ("service/Analytics/Arch_Amazon-Redshift_48.svg", "#8C4FFF", "Redshift"),
+    "glue": ("service/Analytics/Arch_AWS-Glue_48.svg", "#8C4FFF", "Glue"),
+    "ssm": ("service/Management-Tools/Arch_AWS-Systems-Manager_48.svg", "#E7157B", "SSM"),
+    "client": ("resource/General-Icons/Res_Client_48_Light.svg", "#232F3E", "Client"),
+    "external.client": ("resource/General-Icons/Res_Client_48_Light.svg", "#232F3E", "Client"),
+    "general": ("resource/General-Icons/Res_Generic-Application_48_Light.svg", "#232F3E", "App"),
+    "unknown": ("resource/General-Icons/Res_Generic-Application_48_Light.svg", "#7D8998", "?"),
     "apigateway.rest-api": ("service/Networking-Content-Delivery/Arch_Amazon-API-Gateway_48.svg", "#8C4FFF", "API"),
     "apigatewayv2.api": ("service/Networking-Content-Delivery/Arch_Amazon-API-Gateway_48.svg", "#8C4FFF", "API"),
     "cloudfront.distribution": ("service/Networking-Content-Delivery/Arch_Amazon-CloudFront_48.svg", "#8C4FFF", "CDN"),
@@ -646,8 +669,46 @@ def group_depth(groups, gid):
     return depth
 
 
-def render(graph, output, name, title=None, note=None, icons=None, language="en"):
-    """Write <name>.aws.svg, <name>.aws.html and diagram-qa.json; return the QA record."""
+def renderer_words():
+    """The renderer's own English words (legend lines, state tags, the legend heading), for a drawing in another
+    language: the localizer translates these with the graph's labels and redraws."""
+    out = ["Legend", "Architecture", "Chip on a node: attached to the aggregate shown with that tag (security groups, route tables)",
+           "proposed", "changed", "removal candidate", "unconfirmed", "declared"]
+    out += [v[3] for v in STATES.values()] + [v[2] for v in EDGE_STATES.values()] + [v[3] for v in ZONES.values()]
+    return list(dict.fromkeys(out))
+
+
+def graph_texts(graph):
+    """Every label a reader sees in the drawing, whole (not wrapped into lines)."""
+    out = [graph.get("title") or "", graph.get("subtitle") or ""]
+    out += [g.get("label") or "" for g in graph.get("groups", [])]
+    out += [n.get(k) or "" for n in graph.get("nodes", []) for k in ("label", "detail")]
+    out += [e.get("label") or "" for e in graph.get("edges", [])]
+    return [t for t in dict.fromkeys(out) if t.strip()]
+
+
+def translated_graph(graph, translate):
+    g = json.loads(json.dumps(graph))
+    for key in ("title", "subtitle"):
+        if g.get(key):
+            g[key] = translate(g[key])
+    for item in g.get("groups", []):
+        if item.get("label"):
+            item["label"] = translate(item["label"])
+    for item in g.get("nodes", []):
+        for key in ("label", "detail"):
+            if item.get(key):
+                item[key] = translate(item[key])
+    for item in g.get("edges", []):
+        if item.get("label"):
+            item["label"] = translate(item["label"])
+    return g
+
+
+def render(graph, output, name, title=None, note=None, icons=None, language="en", words=None):
+    """Write <name>.aws.svg, <name>.aws.html, <name>.render.json and diagram-qa.json; return the QA record. `words` maps
+    the renderer's own English words (legend lines, state tags) to the drawing's language."""
+    say = (lambda text: (words or {}).get(text, text))
     output.mkdir(parents=True, exist_ok=True)
     groups = {g["id"]: g for g in graph.get("groups", [])}
     nodes_by_id = {n["id"]: n for n in graph["nodes"]}
@@ -746,7 +807,7 @@ def render(graph, output, name, title=None, note=None, icons=None, language="en"
         for line in detail:
             out.append(f'<text x="{tx:.1f}" y="{ty:.1f}" font-size="{DETAIL_SIZE}" fill="{MUTED}">{esc(line)}</text>'); ty += DETAIL_LH
         if state in {"proposed", "changed", "removal_candidate", "unresolved", "declared"}:
-            tag_text = {"proposed": "proposed", "changed": "changed", "removal_candidate": "removal candidate", "unresolved": "unconfirmed", "declared": "declared"}[state]
+            tag_text = say({"proposed": "proposed", "changed": "changed", "removal_candidate": "removal candidate", "unresolved": "unconfirmed", "declared": "declared"}[state])
             tw = text_width(tag_text, 8) + 10
             out.append(f'<rect x="{x + w - tw - 6:.1f}" y="{y - 7:.1f}" width="{tw:.1f}" height="14" rx="7" fill="{color}"/>'
                        f'<text x="{x + w - tw / 2 - 6:.1f}" y="{y + 3.3:.1f}" font-size="8" font-weight="700" fill="{PAPER}" text-anchor="middle">{esc(tag_text)}</text>')
@@ -776,7 +837,7 @@ def render(graph, output, name, title=None, note=None, icons=None, language="en"
         if kind not in [k for k, _ in kinds_seen]:
             kinds_seen.append((kind, style))
     y_cursor = legend_y
-    legend.append(f'<text x="{MARGIN}" y="{y_cursor:.1f}" font-size="10" font-weight="700" fill="{INK}">Legend</text>')
+    legend.append(f'<text x="{MARGIN}" y="{y_cursor:.1f}" font-size="10" font-weight="700" fill="{INK}">{esc(say("Legend"))}</text>')
     y_cursor += 14
     for kind, item, style in row_items:
         if kind == "node":
@@ -787,23 +848,23 @@ def render(graph, output, name, title=None, note=None, icons=None, language="en"
             color, dash, text = style
             dash_attr = f' stroke-dasharray="{dash}"' if dash else ""
             legend.append(f'<line x1="{lx}" y1="{y_cursor - 3:.1f}" x2="{lx + 22}" y2="{y_cursor - 3:.1f}" stroke="{color}" stroke-width="1.3"{dash_attr} marker-end="url(#arrow)"/>')
-        legend.append(f'<text x="{lx + 28}" y="{y_cursor:.1f}" font-size="9.5" fill="{MUTED}">{esc(text)}</text>')
+        legend.append(f'<text x="{lx + 28}" y="{y_cursor:.1f}" font-size="9.5" fill="{MUTED}">{esc(say(text))}</text>')
         y_cursor += 15
     for kind, (color, dash, badge, text) in kinds_seen:
         dash_attr = f' stroke-dasharray="{dash}"' if dash else ""
         legend.append(f'<rect x="{lx}" y="{y_cursor - 9:.1f}" width="22" height="12" fill="none" stroke="{color}" stroke-width="1.2"{dash_attr}/>')
-        legend.append(f'<text x="{lx + 28}" y="{y_cursor:.1f}" font-size="9.5" fill="{MUTED}">{esc(text)}</text>')
+        legend.append(f'<text x="{lx + 28}" y="{y_cursor:.1f}" font-size="9.5" fill="{MUTED}">{esc(say(text))}</text>')
         y_cursor += 15
     if badge_edges:
         legend.append(f'<rect x="{lx}" y="{y_cursor - 9:.1f}" width="22" height="11" rx="2" fill="{RED}" fill-opacity="0.12" stroke="{RED}" stroke-width="0.8"/>'
                       f'<text x="{lx + 11}" y="{y_cursor - 0.8:.1f}" font-size="7.5" font-weight="700" fill="{RED}" text-anchor="middle" font-family="{MONO}">SG</text>'
-                      f'<text x="{lx + 28}" y="{y_cursor:.1f}" font-size="9.5" fill="{MUTED}">Chip on a node: attached to the aggregate shown with that tag (security groups, route tables)</text>')
+                      f'<text x="{lx + 28}" y="{y_cursor:.1f}" font-size="9.5" fill="{MUTED}">{esc(say("Chip on a node: attached to the aggregate shown with that tag (security groups, route tables)"))}</text>')
         y_cursor += 15
     if note:
-        legend.append(f'<text x="{MARGIN}" y="{y_cursor + 4:.1f}" font-size="9.5" fill="{SOFT}">{esc(note)}</text>')
+        legend.append(f'<text x="{MARGIN}" y="{y_cursor + 4:.1f}" font-size="9.5" fill="{SOFT}">{esc(say(note))}</text>')
         y_cursor += 16
     height = y_cursor + MARGIN
-    heading = title or graph.get("title") or "Architecture"
+    heading = say(title or graph.get("title") or "Architecture")
     subtitle = graph.get("subtitle") or ""
     head = (f'<text x="{MARGIN}" y="30" font-size="18" font-weight="700" fill="{INK}">{esc(heading)}</text>'
             + (f'<text x="{MARGIN}" y="48" font-size="11" fill="{MUTED}">{esc(subtitle)}</text>' if subtitle else ""))
@@ -812,7 +873,7 @@ def render(graph, output, name, title=None, note=None, icons=None, language="en"
             f'<marker id="arrow-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="{ACCENT}"/></marker>'
             f'<marker id="arrow-soft" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="{SOFT}"/></marker>'
             '</defs>')
-    svg = (f'<svg xmlns="http://www.w3.org/2000/svg" width="{width:.0f}" height="{height:.0f}" viewBox="0 0 {width:.0f} {height:.0f}" role="img" lang="{esc(language)}" aria-labelledby="dg-title dg-desc">'
+    svg = (f'<svg xmlns="http://www.w3.org/2000/svg" width="{width:.0f}" height="{height:.0f}" viewBox="0 0 {width:.0f} {height:.0f}" role="img" lang="{esc(language)}" aria-labelledby="dg-title dg-desc" data-renderer="aws_diagram">'
            f'<title id="dg-title">{esc(heading)}</title><desc id="dg-desc">{esc(subtitle or note or heading)}</desc>{defs}'
            f'<rect width="100%" height="100%" fill="{PAPER}"/><g font-family="{SANS}">{head}{"".join(out)}{"".join(legend)}</g></svg>\n')
     # Geometry QA: labels fit by construction; nodes inside their group; no node overlaps; edges end at their nodes.
@@ -851,8 +912,12 @@ def render(graph, output, name, title=None, note=None, icons=None, language="en"
     if outside or overlaps or loose or missing_routes or straight:
         qa["status"] = "fail"
     qa["size"] = {"width": round(width), "height": round(height), "nodes": len(graph["nodes"]), "groups": len(groups), "edges": len(graph["edges"]), "badge_edges": len(badge_edges)}
-    qa["files"] = {"svg": f"{name}.aws.svg", "html": f"{name}.aws.html"}
+    qa["files"] = {"svg": f"{name}.aws.svg", "html": f"{name}.aws.html", "render": f"{name}.render.json"}
     (output / f"{name}.aws.svg").write_text(svg, encoding="utf-8")
+    # The exact inputs of this drawing, so a report in another language can redraw it from translated labels instead of
+    # translating wrapped line fragments (localize_artifacts.py apply does this).
+    (output / f"{name}.render.json").write_text(json.dumps({"schema_version": "1.0", "name": name, "title": heading, "note": note or "",
+                                                             "language": language, "graph": graph}, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     html = (f'<!doctype html><html lang="{esc(language)}"><head><meta charset="utf-8"><title>{esc(heading)}</title>'
             f'<style>body{{margin:0;background:#F2F3F3;font-family:{SANS}}} .wrap{{padding:24px;overflow:auto}} svg{{background:#fff;box-shadow:0 1px 4px rgba(35,47,62,.15);max-width:none}}</style>'
             f'</head><body><div class="wrap">{svg}</div></body></html>\n')

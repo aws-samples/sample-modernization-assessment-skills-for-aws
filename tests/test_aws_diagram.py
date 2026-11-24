@@ -98,6 +98,15 @@ class AwsDiagramTests(unittest.TestCase):
                                "--inventory", str(root / "inventory.json"), "--output", str(root / "audit"), capture_output=True, text=True)
             self.assertEqual(check.returncode, 0, check.stderr)
 
+    def test_every_icon_mapping_points_at_a_file_of_the_icon_set(self):
+        roots = aws.icon_roots()
+        if not roots:
+            self.skipTest("aws-diagram-design icons not installed beside the skill or in a client skills folder")
+        missing = {k: v[0] for k, v in aws.ICONS.items() if v[0] and not (roots[0] / v[0]).is_file()}
+        self.assertEqual(missing, {})
+        for service in ("codebuild", "secretsmanager", "sns", "logs", "iam", "cloudwatch"):
+            self.assertIsNotNone(aws.icon_for({"service": service})[0], service)
+
     def test_focused_to_be_graph_draws_states_without_an_inventory(self):
         """A specialist's drawing: retained, changed, proposed and removal-candidate nodes, a proposed edge, no inventory
         to cover. The drawing passes the id audit and tags every non-observed state."""

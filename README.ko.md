@@ -60,8 +60,8 @@ artifacts/<workload>/<UTC run id>/
   03-as-is/        inventory.json, raw/, as-is-report.md   구성 근거
   04-review/       findings.json, scorecard.json, review.html, diagrams/
   05-modernization/ specialists/<id>/ (제언, 다이어그램), specialist-advice.json, pathways.json, diagrams/
-  06-assessment/   assessment.html, details.html, .md  영어 원본: 3개 섹션 보고서와 상세 페이지
-  06-assessment-ko/ assessment.html, details.html       요청한 언어로 만든 보고서(이 예에서는 한국어)
+  06-assessment/   assessment.html, assessment.md     영어 보고서(핵심 요약, AS-IS, 영역별 제언, 현대화 제언, 부록)
+  06-assessment-ko/ assessment.html                   lang ko로 시작한 경우의 한국어 보고서
 ```
 
 ![영역별 등급과 등급을 결정한 점검 항목](docs/img/ko/report-grades.png)
