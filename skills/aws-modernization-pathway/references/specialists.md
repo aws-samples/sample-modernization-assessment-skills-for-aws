@@ -89,10 +89,9 @@ another domain, add a `handoffs` item (`{"to": "<id>", "text": "..."}`) instead 
 (`retained`, `changed`, `removal_candidate`, with the `resource_ids` or `stack_resources` of the current graph), what you
 propose (`proposed`, no resource IDs), and links you could not confirm (`unresolved`). Reuse the labels of
 `04-review/diagrams/diagram-graph.json` for existing components and keep only the groups (region, VPC, AZ, subnet) that
-explain your point. Write the graph, render D2 with `diagram.py --graph`, then redraw with the aws-diagram-design skill
-(official icons, AWS styling, a legend for the states, labels in the output language, graph IDs as `data-node-id`,
-`data-edge-id`, `data-group-id`). Look at the PNG before you finish. When the redraw is impossible, set `diagram.svg` to
-`diagram.d2.svg`; the report labels it as an initial render.
+explain your point. Write `diagram-graph.json`, then draw it with the command in the brief (`diagram.py --graph`): the
+renderer makes the AWS-styled `diagram.aws.svg` with official icons and checks its geometry; you do not redraw it and you
+do not need to look at a PNG. Exit code 0 is the check.
 
 **Read-only.** Read the files named in the brief. AWS calls are limited to describe/list/get and `pricing get-products`;
 never change the account.

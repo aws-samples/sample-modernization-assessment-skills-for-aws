@@ -1,56 +1,79 @@
-# Required two-stage diagram workflow
+# Diagram workflow
 
-For both current and proposed architecture: **render D2, inspect structure, redraw with aws-diagram-design, inspect final images**.
+For both the current and the proposed architecture: **build the graph, draw it with `diagram.py`, read the audit**. The
+drawing is made by code (`aws_diagram.py`): AWS zone containers with the official badges, nodes with the official
+service icons, orthogonal connectors, a title and a legend. No agent redraw, no screenshot inspection: the geometry is
+checked by the renderer and recorded in `diagram-qa.json`.
 
-## Evidence graph and initial D2
-
-```bash
-python3 "$REVIEW_SKILL/scripts/diagram.py" --inventory "$RUN_DIR/03-as-is-enriched/inventory.json" --output "$RUN_DIR/04-review/diagrams" --name as-is
-```
-
-The default graph has groups (region > VPC > Availability Zone > subnet, plus regional services) and places each in-scope resource by its recorded subnet, AZ or VPC. Security groups, route tables, target groups, log groups, alarms and rules are aggregate nodes that keep every ID; volumes join their instance. Architectural CloudFormation resources the inventory does not list (ElastiCache, ECR, pipelines, secrets, node groups...) become nodes with `stack_resources`. Start the workload graph from this one: relabel, regroup and add declared paths, but keep every resource ID and every subnet/AZ/VPC group. Pass an edited graph with `--graph FILE --inventory ...`; the helper stops when the graph leaves collected resources out.
-
-**Completeness is enforced.** Everything collected in scope must be drawn, as its own node or inside an aggregate or group. `diagram-audit.json` fails when any in-scope resource, subnet, AZ, VPC or architectural stack resource is missing, and the unified report stays a draft until it passes.
-
-Use the current-state workload map to show application roles, relevant ingress and
-listener rules, data dependencies, actual compute/database AZ placement, shared
-egress and boundaries. Show unused AZ capacity when it explains resilience risk.
-Separate unrelated tooling; keep shared dependencies. Use template/source labels
-for declared runtime names and versions. A connection declared in source is not
-observed traffic. Unverified links stay marked unresolved.
-
-Split overview and detail when needed. If workload relationships remain
-unavailable after enrichment, label the diagram as an inventory overview and name
-the missing evidence. Do not invent traffic arrows or make up topology to satisfy
-the diagram requirement.
-
-A graph contains title, nodes (id, label, service, state, resource_ids) and edges (id, source, target, label, state, evidence_ids where observed). Mark new proposed nodes and retained existing components explicitly. Source/target IDs must resolve. Do not present proposal components as observed resources.
-
-Require rendered status and exit code zero in d2-render.json; D2 may leave SVG files on failure. Render account information locally, never in public playgrounds.
-
-## Final AWS redraw
-
-Use the run's resolved output language for human-facing titles, labels, descriptions
-and legends. Preserve graph IDs, service identifiers, ports and numeric evidence.
-English initial D2 sources may remain canonical, but localized final SVG/HTML and
-regenerated PNGs must agree. Add appropriate CJK/RTL typography and repeat visual QA
-after localization. Follow the [language policy](../../aws-mcp-setup/references/output-language.md).
-
-Read the installed aws-diagram-design skill and its style guide, relevant architecture/current-state type, AWS-icon primitive, output specification and export reference. Preserve graph content and groups, but redesign the layout rather than recoloring D2 output.
-
-Use bundled official AWS icons with original proportions/colors, AWS white/squid-ink/orange styling and Ember or a disclosed fallback. Select a readable size and split overview/detail when needed. Describe aggregation/fidelity. Draw every group as a boundary (subnets inside AZ columns inside the VPC) and preserve graph IDs in the final SVG as data-group-id, data-node-id and data-edge-id attributes. Verify title/description, accessible SVG semantics, labels, orthogonal routes and legend.
-
-This assessment requires HTML/SVG/PNG exports:
+## Current state
 
 ```bash
-python3 "$DIAGRAM_SKILL/scripts/self_check.py" as-is.aws.html
-python3 "$DIAGRAM_SKILL/scripts/verify-geometry.py" as-is.aws.html
-python3 "$REVIEW_SKILL/scripts/diagram.py" --audit-graph diagram-graph.json --audit-svg as-is.aws.svg \
-    --inventory "$RUN_DIR/03-as-is-enriched/inventory.json" --output . --name as-is
+python3 "$REVIEW_SKILL/scripts/diagram.py" --inventory "$RUN_DIR/03-as-is-enriched/inventory.json" \
+    --output "$RUN_DIR/04-review/diagrams" --name as-is --title "<workload>: current architecture" --language "$LANG"
 ```
 
-ID correspondence does not prove semantics or visual quality. Open final renders and inspect clipping, overlap, icons, unsupported arrows and observed/proposed distinctions. Confirm that a reader can identify the workload's components, request/data paths where evidenced, failure boundaries and unresolved links. Check both the standalone diagram and its embedded report size. Record visual inspection separately in diagram-audit.json. Link D2 source, initial SVG, final HTML/SVG/PNG and QA. Missing tools or visual QA leave diagrams incomplete; source-only output is not a successful render.
+One command writes `diagram-graph.json`, `as-is.aws.svg`, `as-is.aws.html`, `diagram-qa.json` and `diagram-audit.json`
+(ids and coverage). Exit code 0 means drawn, audited and geometry-checked; the report is `Final` only on that audit.
 
-**Span groups.** A resource deployed in several subnets (one per AZ: ALBs, ECS services with `awsvpcConfiguration`, Lambda in a VPC, EKS clusters) is placed in a group of kind `subnet-span` named after those subnets, e.g. `Subnets shopnow-app-a · shopnow-app-b (us-east-1a, us-east-1b)`, with `subnet_ids` and `availability_zones` on the group. Draw it inside the VPC spanning the AZ columns at the row of those subnets, or as a band whose label names the subnets. Never label it as a VPC-level or subnet-less resource: it is inside those subnets, in every listed AZ.
+The default graph has groups (region > VPC > Availability Zone > subnet, plus regional services) and places each
+in-scope resource by its recorded subnet, AZ or VPC. Security groups, route tables, target groups, log groups, alarms and
+rules are aggregate nodes that keep every ID; volumes join their instance. Architectural CloudFormation resources the
+inventory does not list (ElastiCache, ECR, pipelines, secrets, node groups...) become nodes with `stack_resources`. Node
+labels name the type and the resource ("NAT gateway shopnow-nat-a", "ECS service order-api"); the detail line carries
+the class, version or placement the collector saw; edges come from the inventory's relationships.
 
-**Pods and other IP targets.** A target group of type `ip` that no ECS service owns becomes a node `Kubernetes pods behind <target group> × N` (or `IP targets of …`) placed in the subnets its target IPs fall into (kind `elbv2.ip-targets`, `target_group` on the node). Pods run on the EKS nodes in those same subnets: draw them inside or beside the node(s) of the matching AZ, under the EKS node group, never at VPC level. The ECS service node already stands for the tasks registered in its own target groups.
+**Edit the graph only when the drawing would otherwise mislead.** The default is complete and honest. Edit
+`diagram-graph.json` when roles, ports or declared paths matter for the review: relabel nodes with their role ("order API",
+"image bucket"), add the listener and target-group paths, add edges declared in templates or source as `state:
+"declared"`, mark links you could not confirm `unresolved`. Keep every resource ID and every subnet/AZ/VPC group, then
+redraw with `--graph FILE --inventory ...`; the helper stops when the graph leaves collected resources out. Write labels
+in the run's output language; the renderer's own text (title, legend) is localized with the report.
+
+**Completeness is enforced.** Everything collected in scope must be drawn, as its own node or inside an aggregate or
+group. `diagram-audit.json` fails when any in-scope resource, subnet, AZ, VPC or architectural stack resource is
+missing, and the unified report stays a draft until it passes.
+
+A connection declared in source is not observed traffic; unverified links stay `unresolved`. Do not invent traffic
+arrows or make up topology. If workload relationships remain unavailable after enrichment, say so in the title
+("inventory overview") and name the missing evidence.
+
+## How the drawing is made
+
+- Region: VPCs side by side, then the regional services, then loose nodes. VPC: Availability Zones as columns with
+  their subnets stacked (public first), then one band per group of resources deployed across several subnets, then
+  VPC-level components (gateways, endpoints, aggregates). Other groups: a grid.
+- Zones follow the official AWS convention (region and AZ dashed teal, VPC purple, private subnet teal, public subnet
+  green, badge top-left). Node states: `observed`/`retained` plain, `declared` dashed grey, `changed` orange, `proposed`
+  orange dashed, `removal_candidate` red dashed, `unresolved` grey dashed; every non-observed state carries a tag and the
+  legend explains it. Edge states: `observed_configuration`, `declared`, `proposed`, `unresolved`.
+- Attachments to aggregate nodes (security groups, route tables) are chips on the source node ("SG"), not lines; the
+  edge keeps its id on the chip.
+- Icons come from the aws-diagram-design companion skill (`assets/aws-icons`, found beside this skill or in the
+  client's skills folder; `--icons DIR` or `MODA_AWS_ICONS` to point elsewhere). Without it, nodes carry a coloured
+  service tag; `diagram-qa.json` records which.
+- `diagram-qa.json` checks: every node inside its group, no two nodes overlap, every connector ends at its nodes and
+  avoids nodes, every label fits (long labels are wrapped, then shortened with "…" and listed under `notes`). A failing
+  check fails the command; fix the graph (shorter labels, fewer nodes per group) rather than the drawing.
+- `--d2` additionally writes the D2 source and renders it with `d2` when installed, as a structural cross-check. It is
+  not needed for the deliverable.
+
+Look at the drawing when a reader will (open `as-is.aws.html`); do not spend model turns on screenshots when the QA
+passed. If something looks wrong, the fix is in the graph or in `aws_diagram.py`, not in a hand-edited SVG.
+
+## Proposed state
+
+Specialist SA Agents write their own focused graphs (`05-modernization/specialists/<id>/diagram-graph.json`, states
+`retained`/`changed`/`proposed`/`removal_candidate`/`unresolved`) and draw them with the same command
+(`--graph ... --name diagram`, no inventory: the audit checks ids only). The combined target architecture
+(`05-modernization/diagrams/runtime/to-be.aws.svg`) is drawn from the merged proposed graph the same way. Mark new
+proposed nodes and retained existing components explicitly; do not present proposal components as observed resources.
+
+**Span groups.** A resource deployed in several subnets (one per AZ: ALBs, ECS services with `awsvpcConfiguration`,
+Lambda in a VPC, EKS clusters) is placed in a group of kind `subnet-span` named after those subnets, with `subnet_ids`
+and `availability_zones` on the group. It is drawn as a band under the AZ columns. Never label it as a VPC-level or
+subnet-less resource: it is inside those subnets, in every listed AZ.
+
+**Pods and other IP targets.** A target group of type `ip` that no ECS service owns becomes a node `Kubernetes pods
+behind <target group> × N` (or `IP targets of …`) placed in the subnets its target IPs fall into (kind
+`elbv2.ip-targets`, `target_group` on the node). The ECS service node already stands for the tasks registered in its
+own target groups.

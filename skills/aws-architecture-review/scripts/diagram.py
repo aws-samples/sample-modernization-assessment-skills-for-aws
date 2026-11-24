@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the evidence graph for the current-state diagram, render it with D2, and audit the final drawing.
+"""Build the evidence graph for the current-state diagram, draw it in AWS style, and audit the drawing.
 
 The graph has groups (region > VPC > Availability Zone > subnet, plus a group for regional services) and
 nodes placed by their recorded subnet, AZ or VPC. Every in-scope inventory resource and every architectural
@@ -9,7 +9,13 @@ CloudFormation resource of the workload must belong to a node or group; aggregat
 - an in-scope resource, subnet, AZ or VPC is missing from the graph (coverage), or
 - the final SVG lacks a data-node-id / data-group-id / data-edge-id for any graph node, group or edge.
 
-  diagram.py --inventory SNAP/inventory.json [--scope SNAP/scope-resources.json] --output DIR      # build + D2
+The drawing (<name>.aws.svg / .aws.html) is made by aws_diagram.py from the graph: AWS zone containers with the
+official badges, nodes with the official service icons (from the aws-diagram-design companion skill when it is
+installed), orthogonal connectors, a title and a legend; its geometry checks are written to diagram-qa.json and the
+audit (ids and coverage) to diagram-audit.json in the same run. No agent redraw is needed. `--d2` additionally writes the
+D2 source and its render as a structural cross-check when d2 is installed.
+
+  diagram.py --inventory SNAP/inventory.json [--scope SNAP/scope-resources.json] --output DIR      # build + draw + audit
   diagram.py --graph graph.json [--inventory ... --scope ...] --output DIR                           # agent graph
   diagram.py --audit-graph graph.json --audit-svg final.svg --inventory ... [--scope ...] --output DIR
 """
@@ -26,6 +32,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from report_kit import scan_svg  # noqa: E402  (shared, standard library only)
+import aws_diagram  # noqa: E402  (same folder)
 
 # Account-wide settings and governance trails are not workload architecture.
 NOT_DRAWN = {"iam.account-summary", "s3.account-public-access-block", "cloudtrail.trail", "ssm.managed-instance",
@@ -42,6 +49,22 @@ ARCH_TYPES = {
     "AWS::MSK::Cluster", "AWS::Cognito::UserPool", "AWS::CloudWatch::Dashboard", "AWS::Bedrock::Agent",
     "AWS::Bedrock::KnowledgeBase", "AWS::AutoScaling::AutoScalingGroup",
 }
+# Default node labels by resource type (the agent's edited graph may say more: roles, ports, versions).
+TYPE_LABEL = {"ec2.instance": "EC2 instance", "ec2.nat-gateway": "NAT gateway", "ec2.internet-gateway": "Internet gateway", "ec2.vpc-endpoint": "VPC endpoint",
+              "ec2.vpn-gateway": "VPN gateway", "ec2.transit-gateway": "Transit gateway", "rds.instance": "RDS instance", "rds.cluster": "RDS cluster",
+              "elbv2.load-balancer": "Load balancer", "ecs.service": "ECS service", "ecs.cluster": "ECS cluster", "eks.cluster": "EKS cluster",
+              "lambda.function": "Lambda function", "s3.bucket": "S3 bucket", "sns.topic": "SNS topic", "sqs.queue": "SQS queue", "dynamodb.table": "DynamoDB table",
+              "elasticache.replication-group": "ElastiCache group", "elasticache.cluster": "ElastiCache cluster", "codepipeline.pipeline": "CodePipeline",
+              "codebuild.project": "CodeBuild project", "codecommit.repository": "CodeCommit repository", "efs.file-system": "EFS file system",
+              "opensearch.domain": "OpenSearch domain", "kinesis.stream": "Kinesis stream", "stepfunctions.state-machine": "Step Functions state machine",
+              "apigateway.rest-api": "API Gateway", "apigatewayv2.api": "API Gateway", "cloudfront.distribution": "CloudFront distribution",
+              "cognito.user-pool": "Cognito user pool", "kafka.cluster": "MSK cluster", "redshift.cluster": "Redshift cluster", "bedrock.agent": "Bedrock agent",
+              "bedrock.knowledge-base": "Bedrock knowledge base", "sagemaker.endpoint": "SageMaker endpoint", "cloudwatch.dashboard": "CloudWatch dashboard"}
+# Default edge labels for the inventory's relationship names.
+RELATION_LABEL = {"member": "cluster member", "member_of": "member of", "associated_with": "associated with", "registered_target": "registered target", "routes_to": "routes to",
+                  "configured_target": "configured target", "configured_dead_letter": "dead-letter queue",
+                  "attached_to": "attached to", "targets": "targets", "listens_on": "listener", "uses": "uses", "writes_to": "writes to", "reads_from": "reads from",
+                  "triggers": "triggers", "deploys_to": "deploys to", "publishes_to": "publishes to", "subscribes_to": "subscribes to", "logs_to": "logs to"}
 AGGREGATE = {"ec2.security-group": "Security groups", "ec2.route-table": "Route tables", "elbv2.target-group": "Target groups",
              "logs.group": "Log groups", "cloudwatch.alarm": "CloudWatch alarms", "events.rule": "EventBridge rules",
              "ec2.flow-log": "VPC flow logs", "ec2.elastic-ip": "Elastic IPs", "acm.certificate": "ACM certificates",
@@ -102,7 +125,9 @@ def graph_from_inventory(inventory, scope=None):
         parent = vpc if vpc in groups else group(vpc, f"VPC {vpc}", "vpc", f"region-{sub['region']}")
         az_id = group(f"az-{vpc}-{az}", f"AZ {az}", "az", parent)
         groups[az_id]["az"] = az
-        group(sub["native_id"], f"{name_tag(sub) or sub['native_id']} {a.get('CidrBlock', '')}".strip(), "subnet", az_id, [sub["id"]])
+        public = bool(a.get("MapPublicIpOnLaunch"))
+        gid = group(sub["native_id"], f"{'Public' if public else 'Private'} subnet {name_tag(sub) or sub['native_id']} {a.get('CidrBlock', '')}".strip(), "subnet", az_id, [sub["id"]])
+        groups[gid]["public"] = public
     services_group = {region: group(f"services-{region}", "Regional services", "services", f"region-{region}") for region in regions}
 
     def vpc_group(vpc, region):
@@ -180,7 +205,7 @@ def graph_from_inventory(inventory, scope=None):
         else:
             where = services_group.get(region, f"region-{region}")
         node_ids = [r["id"]] + attached.get(r["native_id"], [])
-        label = f"{kind.split('.')[0].upper()} {name_tag(r) or r['name']}"
+        label = f"{TYPE_LABEL.get(kind, kind.split('.')[0].upper())} {name_tag(r) or r['name']}"
         nodes.append({"id": f"n{len(nodes) + 1}", "label": label, "detail": detail, "service": kind.split(".")[0], "type": kind,
                       "region": region, "group": where, "state": "observed", "resource_ids": node_ids})
     for (kind, where), members in sorted(aggregates.items()):
@@ -246,14 +271,14 @@ def graph_from_inventory(inventory, scope=None):
         if source not in node_ids or target not in node_ids:
             continue
         key = (source, target, rel["relation"])
-        edge = edges.setdefault(key, {"id": f"edge{len(edges) + 1}", "source": source, "target": target, "label": rel["relation"],
+        edge = edges.setdefault(key, {"id": f"edge{len(edges) + 1}", "source": source, "target": target, "label": RELATION_LABEL.get(rel["relation"], rel["relation"].replace("_", " ")),
                                       "state": "observed_configuration", "evidence_ids": []})
         edge["evidence_ids"] = sorted(set(edge["evidence_ids"]) | set(rel["evidence_ids"]))
     for tg_id, node_id, evidence in pod_edges:
         source = index.get(tg_id)
         if source and source in node_ids:
             key = (source, node_id, "registered_target")
-            edges.setdefault(key, {"id": f"edge{len(edges) + 1}", "source": source, "target": node_id, "label": "registered_target",
+            edges.setdefault(key, {"id": f"edge{len(edges) + 1}", "source": source, "target": node_id, "label": "registered target",
                                    "state": "observed_configuration", "evidence_ids": sorted(set(evidence))})
     used = {n["group"] for n in nodes} | {g["parent"] for g in groups.values() if g["parent"]}
     group_list = [g for g in groups.values() if g["id"] in used or g["resource_ids"]]
@@ -427,7 +452,9 @@ def to_d2(graph):
     return "\n".join(lines) + "\n"
 
 
-def audit(graph, svg, inventory=None, scope=None):
+def audit(graph, svg, inventory=None, scope=None, require_coverage=True):
+    """Id correspondence between the graph and the final SVG, plus coverage of the inventory when one is given. Without an
+    inventory the audit fails unless `require_coverage` is False (a specialist's focused drawing has no inventory to cover)."""
     validate_graph(graph)
     elements = scan_svg(svg.read_text(encoding="utf-8"))
     expected = {"node": {n["id"] for n in graph["nodes"]}, "group": {g["id"] for g in graph.get("groups", [])},
@@ -446,7 +473,8 @@ def audit(graph, svg, inventory=None, scope=None):
             result["status"] = "fail"
     else:
         result["coverage"] = {"status": "not_checked", "reason": "pass --inventory (and --scope) to check that nothing collected is left out"}
-        result["status"] = "fail"
+        if require_coverage:
+            result["status"] = "fail"
     return result
 
 
@@ -461,6 +489,12 @@ def main():
     parser.add_argument("--audit-svg", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--name", default="as-is")
+    parser.add_argument("--title", help="title drawn on the AWS diagram; default: the graph's title or the name")
+    parser.add_argument("--note", default="Arrows are configured paths, not measured traffic.", help="one line under the legend")
+    parser.add_argument("--icons", type=Path, help="aws-icons folder of the aws-diagram-design skill; default: found beside this skill or in the client's skills folder")
+    parser.add_argument("--language", default="en")
+    parser.add_argument("--d2", action="store_true", help="also write the D2 source and render it when d2 is installed (structural cross-check)")
+    parser.add_argument("--no-draw", action="store_true", help="build and check the graph only")
     argv = sys.argv[1:]
     if "--inventory" in argv and not any(a in argv for a in ("--graph", "--audit-graph", "--from-inventory")):
         argv = ["--from-inventory"] + argv  # backward compatible: --inventory alone builds the graph
@@ -487,32 +521,51 @@ def main():
             graph = json.loads(args.graph.read_text(encoding="utf-8"))
         validate_graph(graph)
         check = coverage(graph, inventory, scope) if inventory is not None else {"status": "not_checked"}
-        source_text = to_d2(graph)
-        source_path = args.output / f"{args.name}.d2"
-        svg_path = args.output / f"{args.name}.d2.svg"
-        source_path.write_text(source_text, encoding="utf-8")
         (args.output / "diagram-graph.json").write_text(json.dumps(graph, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        if not shutil.which("d2"):
-            result = {"status": "not_rendered", "reason": "d2_missing", "source": source_path.name}
-        else:
-            # d2 from PATH (the same resolution which() just performed); both paths are files this run wrote under --output
-            process = subprocess.run(["d2", "--layout", "elk", str(source_path), str(svg_path)], capture_output=True, text=True, timeout=120)  # nosec B603 B607
-            result = {"status": "rendered" if process.returncode == 0 and svg_path.exists() else "failed",
+        result = {"coverage": check}
+        if args.d2:
+            source_text = to_d2(graph)
+            source_path = args.output / f"{args.name}.d2"
+            svg_path = args.output / f"{args.name}.d2.svg"
+            source_path.write_text(source_text, encoding="utf-8")
+            if not shutil.which("d2"):
+                d2 = {"status": "not_rendered", "reason": "d2_missing", "source": source_path.name}
+            else:
+                # d2 from PATH (the same resolution which() just performed); both paths are files this run wrote under --output
+                process = subprocess.run(["d2", "--layout", "elk", str(source_path), str(svg_path)], capture_output=True, text=True, timeout=120)  # nosec B603 B607
+                d2 = {"status": "rendered" if process.returncode == 0 and svg_path.exists() else "failed",
                       "exit_code": process.returncode, "source": source_path.name, "svg": svg_path.name,
                       "source_sha256": hashlib.sha256(source_text.encode()).hexdigest()}
-            if result["status"] == "rendered":
-                scan_svg(svg_path.read_text(encoding="utf-8"))
-                result["svg_sha256"] = hashlib.sha256(svg_path.read_bytes()).hexdigest()
-            else:
-                result["error"] = process.stderr[-2000:]
-        result["coverage"] = check
-        (args.output / "d2-render.json").write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        print(json.dumps({k: v for k, v in result.items() if k != "coverage"} | {"coverage": check["status"]}, ensure_ascii=False))
+                if d2["status"] == "rendered":
+                    scan_svg(svg_path.read_text(encoding="utf-8"))
+                    d2["svg_sha256"] = hashlib.sha256(svg_path.read_bytes()).hexdigest()
+                else:
+                    d2["error"] = process.stderr[-2000:]
+            d2["coverage"] = check
+            (args.output / "d2-render.json").write_text(json.dumps(d2, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            result["d2"] = d2["status"]
         if check["status"] == "fail":
             print("Graph leaves collected resources out: " + json.dumps({k: check[k] for k in check if k.startswith("missing") and check[k]})[:1500], file=sys.stderr)
+            result["status"] = "incomplete"
+            print(json.dumps(result | {"coverage": check["status"]}, ensure_ascii=False))
             return 1
-        return 0 if result["status"] == "rendered" else 1
-    except (ValueError, KeyError, OSError, subprocess.SubprocessError) as exc:
+        if args.no_draw:
+            result["status"] = "graph_only"
+            print(json.dumps(result | {"coverage": check["status"]}, ensure_ascii=False))
+            return 0
+        roots = aws_diagram.icon_roots(args.icons)
+        qa = aws_diagram.render(graph, args.output, args.name, args.title, args.note, roots[0] if roots else None, args.language)
+        svg_final = args.output / qa["files"]["svg"]
+        audit_result = audit(graph, svg_final, inventory, scope, require_coverage=inventory is not None)
+        audit_result["geometry"] = {"status": qa["status"], "file": "diagram-qa.json"}
+        audit_result["visual_inspection"] = "geometry checked by aws_diagram.py; look at the drawing when a reader will" if qa["status"] == "pass" else "required"
+        audit_result["svg_sha256"] = hashlib.sha256(svg_final.read_bytes()).hexdigest()
+        (args.output / "diagram-audit.json").write_text(json.dumps(audit_result, indent=2) + "\n", encoding="utf-8")
+        result.update({"status": "drawn" if qa["status"] == "pass" and audit_result["status"] == "pass" else "failed", "svg": qa["files"]["svg"], "html": qa["files"]["html"],
+                       "icons": qa["checks"]["icons"]["status"], "size": qa["size"], "audit": audit_result["status"], "geometry": qa["status"]})
+        print(json.dumps(result | {"coverage": check["status"]}, ensure_ascii=False))
+        return 0 if result["status"] == "drawn" else 1
+    except (ValueError, KeyError, OSError, RuntimeError, subprocess.SubprocessError) as exc:
         print(f"Diagram stopped: {exc}", file=sys.stderr)
         return 1
 

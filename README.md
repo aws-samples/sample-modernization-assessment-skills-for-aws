@@ -111,7 +111,7 @@ The report is written in the language of your request, and the English draft is 
 |---|---|---|
 | 0 | [moda-skill](skills/moda-skill/SKILL.template.md) + [aws-skills-install](skills/aws-skills-install/SKILL.md) | The `/moda-skill` entry point and its subcommands; installation into the client with hash checks; MCP configuration |
 | 1 | [aws-cli-setup](skills/aws-cli-setup/SKILL.md) | Verified account and access |
-| 2 | [aws-mcp-setup](skills/aws-mcp-setup/SKILL.md) | AWS Knowledge MCP, D2, rendering tools, run metadata |
+| 2 | [aws-mcp-setup](skills/aws-mcp-setup/SKILL.md) | AWS Knowledge MCP, companion skills, rendering tools, run metadata |
 | 3 | [aws-as-is-analysis](skills/aws-as-is-analysis/SKILL.md) | Discovery of every tagged service (Resource Groups Tagging API), inventory of the default and discovered services, account posture (Security Hub, GuardDuty, Config, Inspector, Access Analyzer, Compute Optimizer, Trusted Advisor, Health, Organizations, Cost Explorer spend by service), raw evidence, templates and source, optional SSH/SSM host inspection |
 | 4 | [aws-architecture-review](skills/aws-architecture-review/SKILL.md) | Findings for the six pillars, including lifecycle checks (engine, Kubernetes, runtime and OS support dates, previous-generation instance types, Classic Load Balancers, launch configurations, commercial licenses, stack drift) and edge checks (flow logs, CloudFront, ACM); grades; current-state diagram in AWS style |
 | 5 | [aws-modernization-pathway](skills/aws-modernization-pathway/SKILL.md) | Five Specialist SA Agent reviews with diagrams, the seven directions, fit for AI, observability and messaging services, the combined target diagram, and the unified report |
@@ -120,7 +120,8 @@ Each skill consists of a `SKILL.md` that the agent follows, helper scripts in `s
 reference documents in `references/`. Every stage checks that the account and run ID match the
 previous stage. Two companion skills, `aws-diagram-design` and `aws-bento-deck`, are downloaded
 at [pinned commits](skills/aws-mcp-setup/assets/dependencies.lock.json) together with their
-licenses.
+licenses. Architecture diagrams are drawn by code (`diagram.py`) from the collected configuration, with the
+official AWS icons from `aws-diagram-design`; the agent never redraws them.
 
 ![Agent reading the skill definitions before starting](docs/img/cloudshell-skill-invoked.png)
 
@@ -308,7 +309,7 @@ profile that refreshes its own credentials, see [docs/CLOUDSHELL.md](docs/CLOUDS
 
 The assessment was designed and tested with the newest frontier model, currently
 **Claude Opus 5.5** (`claude-opus-5.5`), at effort `high` or above. With Sonnet-class models the
-key issues and recommendations are noticeably shallower and diagrams need more retries.
+key issues and recommendations are noticeably shallower.
 Haiku-class models skip steps and are suitable only for checking that the tooling runs.
 `/moda-skill start` checks the session's model and effort first and stops with a short message
 when they are below the recommended level; `/moda-skill doctor` reports the same check. The

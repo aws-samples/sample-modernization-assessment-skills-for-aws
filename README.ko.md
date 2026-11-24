@@ -98,7 +98,7 @@ artifacts/<workload>/<UTC run id>/
 |---|---|---|
 | 0 | [moda-skill](skills/moda-skill/SKILL.template.md) + [aws-skills-install](skills/aws-skills-install/SKILL.md) | `/moda-skill` 진입점과 하위 명령, 해시 검증을 거친 클라이언트 설치, MCP 설정 |
 | 1 | [aws-cli-setup](skills/aws-cli-setup/SKILL.md) | 계정과 접근 권한 확인 |
-| 2 | [aws-mcp-setup](skills/aws-mcp-setup/SKILL.md) | AWS Knowledge MCP, D2, 렌더링 도구, 작성 정보 |
+| 2 | [aws-mcp-setup](skills/aws-mcp-setup/SKILL.md) | AWS Knowledge MCP, 함께 쓰는 스킬, 렌더링 도구, 작성 정보 |
 | 3 | [aws-as-is-analysis](skills/aws-as-is-analysis/SKILL.md) | 태그가 붙은 모든 서비스 탐색(Resource Groups Tagging API), 기본 서비스와 새로 발견한 서비스의 인벤토리, 계정 수준 현황(Security Hub, GuardDuty, Config, Inspector, Access Analyzer, Compute Optimizer, Trusted Advisor, Health, Organizations, 서비스별 Cost Explorer 비용), 원본 근거, 템플릿과 소스 코드, 선택 사항인 SSH/SSM 호스트 점검 |
 | 4 | [aws-architecture-review](skills/aws-architecture-review/SKILL.md) | 6개 영역 점검(엔진·Kubernetes·런타임·OS 지원 종료일, 이전 세대 인스턴스 유형, Classic Load Balancer, 시작 구성, 상용 라이선스, 스택 드리프트 같은 수명 주기 점검과 Flow Logs·CloudFront·ACM 같은 경계 구간 점검 포함), 등급, AWS 스타일의 현재 구성 다이어그램 |
 | 5 | [aws-modernization-pathway](skills/aws-modernization-pathway/SKILL.md) | 다섯 Specialist SA Agent의 검토와 다이어그램, 일곱 가지 현대화 방향, AI·관측성·메시징 서비스 적합성, 종합 목표 다이어그램, 통합 보고서 |
@@ -106,6 +106,8 @@ artifacts/<workload>/<UTC run id>/
 각 스킬은 에이전트가 따르는 `SKILL.md`, `scripts/` 아래의 헬퍼 스크립트, `references/` 아래의 참고 문서로 이루어져
 있습니다. 단계마다 계정과 실행 ID가 앞 단계와 같은지 확인합니다. 함께 쓰는 스킬인 `aws-diagram-design`과
 `aws-bento-deck`은 [고정한 커밋](skills/aws-mcp-setup/assets/dependencies.lock.json) 기준으로 라이선스와 함께 내려받습니다.
+아키텍처 다이어그램은 수집한 구성에서 코드(`diagram.py`)가 `aws-diagram-design`의 공식 AWS 아이콘으로 직접 그립니다.
+에이전트가 다시 그리지 않습니다.
 
 ![평가를 시작하기 전에 스킬 정의를 읽는 에이전트](docs/img/cloudshell-skill-invoked.png)
 
@@ -279,8 +281,7 @@ Codex에서는 `$` 접두사를 씁니다(`$moda-skill start ...`). "prepare mod
 ### 권장 모델
 
 이 평가는 최신 프런티어 모델인 **Claude Opus 5.5**(`claude-opus-5.5`)를 effort `high` 이상으로 사용하는 것을 기준으로
-설계하고 테스트했습니다. Sonnet 계열 모델을 쓰면 핵심 문제와 권고의 깊이가 눈에 띄게 얕아지고 다이어그램을 다시 그리는
-횟수가 늘어납니다. Haiku 계열 모델은 단계를 건너뛰는 경우가 있어 도구 동작을 확인하는 정도로만 쓰시길 권합니다.
+설계하고 테스트했습니다. Sonnet 계열 모델을 쓰면 핵심 문제와 권고의 깊이가 눈에 띄게 얕아집니다. Haiku 계열 모델은 단계를 건너뛰는 경우가 있어 도구 동작을 확인하는 정도로만 쓰시길 권합니다.
 `/moda-skill start`는 시작 전에 세션의 모델과 effort를 확인하고, 권장 수준보다 낮으면 짧게 안내한 뒤 멈춥니다.
 `/moda-skill doctor`에서도 같은 내용을 확인할 수 있습니다. 보고서의 작성 정보에는 사용한 모델이 기록되고, 권장 수준보다
 낮은 모델로 만든 보고서에는 그 사실이 표시됩니다. 모델은 `/model`(Kiro, Claude Code)이나 `-m`(Codex)으로 선택합니다.

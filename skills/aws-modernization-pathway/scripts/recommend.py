@@ -332,13 +332,13 @@ def reports(output, data, diagram, run_meta=None):
     for note in data.get("input_notes", []):
         lines += ["", note]
     lines += ["", "## Proposed architecture", ""]
-    image_markup = "<p>TO-BE: initial D2 render and final AWS-branded diagram required</p>"
+    image_markup = "<p>TO-BE: the proposed-architecture diagram is required</p>"
     if diagram:
         relative = Path(os.path.relpath(diagram, output)).as_posix()
         lines += [f"![TO-BE architecture with conditions and proposal states]({relative})"]
         image_markup = f'<img alt="TO-BE architecture with conditions and proposal states" src="{diagram_image(diagram)}">'
     else:
-        lines += ["Draft pending the initial D2 render and final aws-diagram-design redraw."]
+        lines += ["Draft pending the proposed-architecture diagram (diagram.py --graph)."]
     for c in candidates:
         lines += ["", f"## {PATHWAYS[c['pathway']]}", "", f"- Assessment/rationale: {c['status']} — {c['rationale']}",
                   f"- Current problem: {c['problem']}", f"- Target: {', '.join(c['resource_ids']) or 'Unverified'}",
@@ -444,7 +444,7 @@ def render_html(data, status, diagram, image_markup, run_meta=None):
     weights = [(short(c["pathway"]), c["known_weight_percent"]) for c in candidates]
     notes = "".join(f'<div class="callout"><p>{kit.esc(n)}</p></div>' for n in data.get("input_notes", []))
     diagram_block = (f'<figure>{image_markup}<figcaption>TO-BE architecture · retained, proposed and unresolved components are distinguished in the diagram legend</figcaption></figure>'
-                     if diagram else f'<div class="callout">{image_markup} <p>Complete the initial D2 render and the final aws-diagram-design redraw before delivery.</p></div>')
+                     if diagram else f'<div class="callout">{image_markup} <p>Draw the proposed architecture with diagram.py --graph before delivery.</p></div>')
     meta_chip = (f"model {run_meta['models_seen'][0]}" if run_meta and len(run_meta["models_seen"]) == 1 else ("model not recorded" if not run_meta else f"{len(run_meta['models_seen'])} models"))
     hero = kit.hero("AWS modernization pathways · 7 pathways · 12 AI options · 7 platform options", "AWS Modernization Pathway recommendations", status,
                     [f"account {data['account_id']}", f"workload {data['workload']}", f"generated {data['generated_at'][:16]}",

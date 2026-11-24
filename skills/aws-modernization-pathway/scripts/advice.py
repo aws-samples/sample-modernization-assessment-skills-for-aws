@@ -149,7 +149,6 @@ def brief_text(ctx, sid):
     domain_types = {r["id"] for r in resources}
     checks = [c for c in ctx.findings.get("checks", []) if c["status"] in {"FAIL", "WARN", "UNKNOWN"} and (pattern.search(c["rule_id"]) or c.get("resource_id") in domain_types)]
     review = SKILL_DIR.parent / "aws-architecture-review"
-    diagram_skill = SKILL_DIR.parent / "aws-diagram-design"
     rows = "\n".join(f"| `{r['id']}` | {r['type']} | {r.get('name') or r.get('native_id') or ''} |" for r in resources[:80])
     more = f"\n\n({len(resources) - 80} more in the inventory.)" if len(resources) > 80 else ""
     frows = "\n".join(f"| {c['id']} | {c['rule_id']} | {c['status']} | {c.get('severity')} | {str(c.get('observation', ''))[:160].replace('|', '/')} |" for c in checks)
@@ -188,14 +187,13 @@ You cover the pathways {pathways}. Read `{SKILL_DIR}/references/specialists.md` 
 1. `{folder}/advice.json` (schema in specialists.md).
 2. `{folder}/candidates.json`: a JSON array with exactly your pathway objects ({pathways}), in the scoring and output contract of
    `{SKILL_DIR}/references/scoring-and-output.md`, including the option list your pathway carries.
-3. `{folder}/diagram-graph.json`, then the initial render and the final drawing:
+3. `{folder}/diagram-graph.json`, then draw it (the renderer makes the AWS-styled SVG and checks its geometry; no redraw):
 
    ```bash
-   python3 "{review}/scripts/diagram.py" --graph "{folder}/diagram-graph.json" --output "{folder}" --name diagram
+   python3 "{review}/scripts/diagram.py" --graph "{folder}/diagram-graph.json" --output "{folder}" --name diagram --title "<your role>: <what the drawing shows>" --language {language}
    ```
 
-   Redraw with the aws-diagram-design skill (`{diagram_skill}`) as `{folder}/diagram.aws.html`, `.svg` and `.png`, keeping graph IDs as
-   `data-node-id`, `data-edge-id` and `data-group-id`; run its `self_check.py` and `verify-geometry.py`, and look at the PNG.
+   Exit code 0 means drawn; otherwise fix the graph (shorter labels, a dangling edge) and run it again.
 
 Prices: only from the read-only helper, into your own file so parallel reviewers do not collide:
 

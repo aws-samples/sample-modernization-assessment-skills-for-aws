@@ -513,7 +513,7 @@ def render_report(output, inventory, manifest, checks, scores, diagram=None, bas
         relative = os_relative(diagram, output)
         lines += [f"![AS-IS AWS architecture]({relative})"]
     else:
-        lines += ["Complete the initial D2 render and final aws-diagram-design redraw."]
+        lines += ["Draw the current-state diagram with diagram.py before delivery."]
     lines += ["", "## Findings requiring attention or evidence", ""]
     detailed = [c for c in checks if c["status"] not in {"PASS", "NOT_APPLICABLE"}]
     for pillar in PILLARS:
@@ -601,9 +601,9 @@ def render_html(inventory, manifest, checks, scores, status, diagram_markup, dia
     lowest = min(((p, v["score"]) for p, v in scores.items() if v["score"] is not None), key=lambda kv: kv[1], default=None)
     lowest_note = (f"<b>Lowest pillar:</b> {kit.esc(lowest[0])} at {kit.num(lowest[1])}. " if lowest else "<b>No pillar has a judged score yet.</b> ")
     basis_html = f'<div class="callout"><p>{kit.esc(basis_note)}</p></div>' if basis_note else ""
-    figure = (f'<figure>{diagram_markup}<figcaption>Final AWS-branded diagram · initial D2 render and visual QA recorded in diagrams/</figcaption></figure>'
+    figure = (f'<figure>{diagram_markup}<figcaption>AWS-styled diagram drawn from the collected configuration · geometry QA and audit recorded in diagrams/</figcaption></figure>'
               if diagram else f'<div class="callout"><p>{diagram_markup[3:-4] if diagram_markup.startswith("<p>") else kit.esc(diagram_markup)}'
-                              ' - complete the initial D2 render and the final aws-diagram-design redraw before delivery.</p></div>')
+                              ' - draw it with diagram.py before delivery.</p></div>')
     body = f"""{hero}{nav}<div class="wrap">
 <section id="glance"><h2>At a glance</h2><p class="lead">Scores use the local starter rules (PASS 1 · WARN 0.5 · FAIL 0, weighted average) and are not official AWS Well-Architected Tool scores or HRI/MRI ratings. UNKNOWN checks are excluded from scores and only lower evidence coverage.</p>
 <div class="kpis">{kpis}</div>

@@ -477,13 +477,13 @@ class DiagramPlacement(unittest.TestCase):
         self.assertEqual(span[0]["subnet_ids"], ["subnet-a", "subnet-b"])
         self.assertEqual(groups[span[0]["parent"]]["kind"], "vpc")
         by_label = {n["label"]: n for n in graph["nodes"]}
-        self.assertEqual(by_label["ELBV2 internal"]["group"], span[0]["id"])
-        self.assertEqual(by_label["ECS catalog"]["group"], span[0]["id"])
-        self.assertIn("subnets app-a, app-b", by_label["ECS catalog"]["detail"])
+        self.assertEqual(by_label["Load balancer internal"]["group"], span[0]["id"])
+        self.assertEqual(by_label["ECS service catalog"]["group"], span[0]["id"])
+        self.assertIn("subnets app-a, app-b", by_label["ECS service catalog"]["detail"])
         pods = by_label["Kubernetes pods behind k8s-shop-storefront × 2"]
         self.assertEqual((pods["group"], pods["state"], pods["type"]), (span[0]["id"], "observed", "elbv2.ip-targets"))
         self.assertIn("2/2 healthy", pods["detail"])
         self.assertFalse(any(n["label"].startswith("IP targets of shop-catalog") for n in graph["nodes"]), "ECS-owned target group is the service node")
-        self.assertTrue(any(e["target"] == pods["id"] and e["label"] == "registered_target" for e in graph["edges"]))
+        self.assertTrue(any(e["target"] == pods["id"] and e["label"] == "registered target" for e in graph["edges"]))
         # the subnet groups still own their subnets, so the audit does not see them as undrawn
         self.assertEqual(diagram.coverage(graph, inventory, None)["subnets_or_vpcs_not_drawn_as_groups"], [])

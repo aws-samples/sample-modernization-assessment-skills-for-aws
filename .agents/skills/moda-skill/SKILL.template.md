@@ -38,7 +38,7 @@ The run directory is `artifacts/<workload>/<UTC run id>/` under the current dire
 - When a stage helper exits non-zero, show its last error line, name the cause, apply the fix the stage skill gives, and retry once. Then report and stop.
 - Never write outside the project directory except where the stage skill names a path.
 - When you must stop for a decision only the person can make (a profile name, scope confirmation, an ambiguous account), run `python3 "{{SKILLS_DIR}}/moda-skill/scripts/hook.py" pause "<what you need>"` before asking; `start` and `resume` run `hook.py resume`. With hooks installed (`moda-skill config --hooks`), the stop gate otherwise asks you to continue an unfinished run, and the read-only guard blocks any `aws` call that is not describe/list/get. A blocked call is not an error to work around: use the metadata call, or report what you needed.
-- Diagram redraws (stages 4 and 5) and the five Specialist SA Agent reviews of stage 5 go to sub-agents while you write checks, key issues and the synthesis; verify their output yourself (the diagram audit, `advice.py validate`). Without a sub-agent tool, do the same work in sequence.
+- The five Specialist SA Agent reviews of stage 5 go to sub-agents while you write key issues and the synthesis; verify their output yourself (`advice.py validate`). Without a sub-agent tool, do the same work in sequence. Diagrams are drawn by `diagram.py`, not by an agent: run the command, read its exit code, do not redraw or screenshot.
 
 ## Help
 

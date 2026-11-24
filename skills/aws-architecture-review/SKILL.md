@@ -1,6 +1,6 @@
 ---
 name: aws-architecture-review
-description: Assess AWS current-state evidence across six Well-Architected pillars, produce findings and reports, and create D2-first AWS-branded architecture diagrams using a read-only Service Screener-inspired method.
+description: Assess AWS current-state evidence across six Well-Architected pillars, produce findings and reports, and draw AWS-branded architecture diagrams from the collected evidence with a read-only Service Screener-inspired method.
 ---
 
 # AWS architecture review
@@ -30,9 +30,14 @@ Keep this skill in English. Follow the shared [output-language policy](../aws-mc
    - When the fix is a template change, add `iac_changes`: `[{"stack", "logical_id", "property", "current", "proposed", "evidence_id", "note"}]`, where `evidence_id` is the stack's `get-template` record and `current` is the literal value in the template (`null` when the property is not set). The helper rejects changes that do not match the collected template.
    - UNKNOWN items are questions for the owner: put the question in `question`, phrased so the owner can answer it ("Does Redis hold sessions?"), not "verify X".
    Unknowns remain UNKNOWN after reasonable scoped discovery; source/template findings must not be phrased as verified runtime facts. Preserve the baseline and inspect `assessment-basis.json`.
-5. Follow the mandatory [two-stage diagram workflow](references/diagram-workflow.md): create and actually render D2, inspect structure, read/use aws-diagram-design to redraw with official icons and brand styling, preserve graph IDs, run structural/geometry checks and inspect rendered images.
+5. Draw the current-state diagram with one command, as the [diagram workflow](references/diagram-workflow.md) describes:
 
-   **Run it in parallel with step 4.** The diagram depends only on `diagram-graph.json` from the enriched snapshot, not on the manual checks, so once the baseline review and the D2 render exist, hand the AWS redraw to a sub-agent (Kiro `subagent`, Claude Code `Task`, Codex agent) with: the run directory, `diagram-graph.json`, the aws-diagram-design skill path, the output names (`as-is.aws.html/svg/png`) and the audit command below. Write `checks.manual.json` yourself while it works. Collect its result before step 6 and run the audit yourself; a sub-agent's claim of success is not the audit. Without a sub-agent tool, do the two steps in sequence.
+   ```bash
+   python3 "$SKILL_DIR/scripts/diagram.py"      --inventory "$RUN_DIR/03-as-is-enriched/inventory.json"      --output "$RUN_DIR/04-review/diagrams" --name as-is      --title "my-workload: current architecture" --language "$LANG"
+   ```
+
+   The helper builds the graph, draws `as-is.aws.svg` in AWS style (official zone containers and icons, orthogonal connectors, legend) and writes `diagram-qa.json` (geometry checks) and `diagram-audit.json` (ids and coverage). Exit code 0 is the gate; the report is `Final` only on that audit. Edit `diagram-graph.json` only when roles, ports or declared paths matter for the review (relabel, add `declared` edges, mark `unresolved` links), keep every resource ID and group, and redraw with `--graph`. No redraw by hand, no sub-agent, no screenshot round: open the HTML when a reader will.
+
 6. Include the final SVG:
 
    ```bash
