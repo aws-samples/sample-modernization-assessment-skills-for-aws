@@ -445,22 +445,21 @@ class UnifiedReportTests(unittest.TestCase):
             out = json.loads(run.stdout)
             self.assertEqual(out["report_status"], "Draft - diagrams pending")
             html = (root / "06-assessment/assessment.html").read_text()
-            details = (root / "06-assessment/details.html").read_text()
-            # The report has the three sections readers asked for; everything else is on the details page.
-            self.assertEqual(re.findall(r'<section id="([^"]+)"', html), ["current", "review", "directions"])
-            self.assertIn('id="issues"', html)
-            for anchor in ("glance", "board", "account", "findings", "security", "next", "terms", "evidence", "appendix"):
-                self.assertIn(f'id="{anchor}"', details)
-                self.assertNotIn(f'<section id="{anchor}"', html)
-            for gone in ("roadmap", "changes", "questions"):  # left to the meeting with the owner, or not every customer uses IaC
-                self.assertNotIn(f'id="{gone}"', html); self.assertNotIn(f'id="{gone}"', details)
-            self.assertIn("<h2>Reference material</h2>", details)
-            # Links between the two pages resolve: a finding id lives on the details page, the key issue on the report.
-            self.assertIn(f'href="details.html#{fail["id"]}"', html); self.assertIn(f'id="{fail["id"]}"', details)
-            self.assertIn('href="assessment.html#issue-1"', details)
-            for page in (html, details):  # no same-page link points at an anchor the page does not have
-                ids = set(re.findall(r'\bid="([^"]+)"', page))
-                self.assertEqual([h for h in re.findall(r'href="#([^"]+)"', page) if h not in ids], [])
+            self.assertFalse((root / "06-assessment/details.html").exists(), "one file; the appendix holds what the details page held")
+            # Four sections and an appendix, one shown at a time (CSS :target), each with previous/next links.
+            self.assertEqual(re.findall(r'<section class="page" id="([^"]+)"', html), ["p-summary", "p-asis", "p-pillars", "p-modern", "p-appendix"])
+            self.assertIn("section.page:has(:target)", html); self.assertEqual(html.count('<nav class="pager">'), 5)
+            for anchor in ("issue-1", "evidence", "appendix", "findings", "account", "next", "terms", "directions"):
+                self.assertIn(f'id="{anchor}"', html)
+            self.assertIn('data-chart="pillar-radar"', html); self.assertIn('data-chart="resource-mix"', html)
+            self.assertIn("Key improvements", html)
+            for gone in ("roadmap", "changes", "questions", "security", "glance", "board"):  # no security chapter: security is a pillar
+                self.assertNotIn(f'id="{gone}"', html)
+            self.assertNotIn("Security recommendations", html)
+            self.assertIn('id="wa-pillar-security"', html)
+            self.assertIn(f'href="#{fail["id"]}"', html); self.assertIn(f'id="{fail["id"]}"', html)
+            ids = set(re.findall(r'\bid="([^"]+)"', html))
+            self.assertEqual([h for h in re.findall(r'href="#([^"]+)"', html) if h not in ids], [], "every same-page link has a target")
             self.assertIn("Admin ports open to the internet", html)
             self.assertIn("1 · Decide first", html); self.assertNotIn("Act now", html)  # priority labels invite discussion
             self.assertIn("<b>Suggestion</b>", html); self.assertNotIn("<b>Next step</b>", html)
@@ -471,9 +470,9 @@ class UnifiedReportTests(unittest.TestCase):
             self.assertEqual(summary["grades"]["Security"]["grade"], "critical")
             self.assertEqual(summary["key_issues"][0]["finding_ids"], [fail["id"]])
             md = (root / "06-assessment/assessment.md").read_text()
-            self.assertIn("### Key issues", md)
+            self.assertIn("### Key improvements", md)
             self.assertIn("| Security | Fix first |", md)
-            self.assertIn("## Evidence", (root / "06-assessment/details.md").read_text())
+            self.assertIn("### A. Evidence", md)
             issues.write_text(json.dumps({"issues": [{"title": "x", "problem": "p", "impact": "i", "action": 'Spreading the database over two Availability Zones would keep it serving if one zone fails. If cost is the reason for a single instance, right-size it first with Compute Optimizer, then add the replica.', "urgency": "now", "finding_ids": ["f9999"]}]}))
             bad = run_python(str(REPORT), "--run-dir", str(root), "--workload", "fixture", "--key-issues", str(issues), "--output", str(root / "06-b"), capture_output=True, text=True)
             self.assertEqual(bad.returncode, 1)

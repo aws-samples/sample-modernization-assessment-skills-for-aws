@@ -400,6 +400,16 @@ def assessment_basis(inventory, baseline, checks):
     }
 
 
+def manual_language_errors(manual):
+    """Manual checks are written in English, like everything else in the canonical findings (translated at the end)."""
+    items = []
+    for m in manual:
+        for field in ("observation", "recommendation", "question", "assessment_reason"):
+            if m.get(field):
+                items.append((f"{m.get('id', '?')}.{field}", m[field]))
+    return report_kit.english_errors(items)
+
+
 def merge_manual(baseline, manual):
     """Baseline checks plus agent-authored checks. A manual check with the same rule and target replaces the
     baseline one (a changed status, severity, pillar or weight needs assessment_reason); `{"id": ..., "suppress":
@@ -647,7 +657,11 @@ def main():
         baseline = evaluate(inventory, manifest, calls, args.as_is, scoped)
         if args.manual:
             manual = json.loads(args.manual.read_text(encoding="utf-8"))
-            checks = merge_manual(baseline, manual["checks"] if isinstance(manual, dict) else manual)
+            manual = manual["checks"] if isinstance(manual, dict) else manual
+            language = manual_language_errors(manual)
+            if language:
+                raise ValueError(language[0] + f" ({len(language)} field(s))")
+            checks = merge_manual(baseline, manual)
         else:
             checks = json.loads(args.checks.read_text(encoding="utf-8")) if args.checks else baseline
         validate_iac_changes(checks, args.as_is, calls)

@@ -318,8 +318,10 @@ def brief_text(ctx, sid):
         scope_lines.append(f"- Notes from the scope interview: {cell(ctx.scope['notes'])}")
     return f"""# Brief: {spec['role']} for {workload}
 
-Run `{run}` · account {ctx.inventory.get('account_id')} · {', '.join(ctx.inventory.get('regions') or [])} · output language **{language}**
-(write every sentence, title, diagram label and caption in this language; service names, resource names and IDs stay as they are).
+Run `{run}` · account {ctx.inventory.get('account_id')} · {', '.join(ctx.inventory.get('regions') or [])} · report language **{language}**
+Write every sentence, title, diagram label and caption **in English**, whatever the report language: the finished report
+is translated in one pass at the end when the language is not English, so no part of it mixes languages. The validator
+refuses text in another language.
 
 You cover the pathways {pathways}. **This file is your whole input.** The shared rules, your domain guide, the scope, the
 resources of your domain with their configuration values, the findings that touch them, the current diagram's nodes and
@@ -548,6 +550,7 @@ def validate_advice(ctx, sid, advice, price_ids):
             errors.append(f"reference {ref!r} must be an https AWS documentation page with a title")
     errors += wording_errors(advice)
     errors += people_errors(advice, getattr(ctx, "user_names", set()))
+    errors += kit.english_errors(list(texts(advice)) + [("diagram.caption", (advice.get("diagram") or {}).get("caption", ""))])
     return errors
 
 
@@ -613,7 +616,22 @@ def validate_candidates(ctx, sid, fragment):
         recommend.rank(others + fragment, ctx.resource_ids, ctx.finding_ids)
     except (ValueError, KeyError, TypeError) as exc:
         return [f"candidates.json: {exc}"]
-    return []
+    return kit.english_errors(candidate_texts(fragment, "candidates.json"))
+
+
+def candidate_texts(candidates, where):
+    """(where, text) for every string in pathway objects (problem, rationale, alternatives, criteria rationales, options)."""
+    def walk(value, path):
+        if isinstance(value, str):
+            yield path, value
+        elif isinstance(value, dict):
+            for k, v in value.items():
+                yield from walk(v, f"{path}.{k}")
+        elif isinstance(value, list):
+            for i, v in enumerate(value):
+                yield from walk(v, f"{path}[{i}]")
+    for c in candidates if isinstance(candidates, list) else []:
+        yield from walk(c, f"{where}[{c.get('pathway', '?') if isinstance(c, dict) else '?'}]")
 
 
 def validate(ctx, sid):

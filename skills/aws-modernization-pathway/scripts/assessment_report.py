@@ -156,6 +156,10 @@ def load_key_issues(path, finding_ids, prices=None):
         refs = item.get("finding_ids") or []
         if not refs or any(r not in finding_ids for r in refs):
             raise ValueError(f"key issue {i} must cite existing finding IDs")
+        language = kit.english_errors([(f"key issue {i} {f}", item.get(f, "")) for f in ("title", "problem", "impact", "action")]
+                                      + [(f"key issue {i} first_step", (item.get("first_step") or {}).get("text", ""))])
+        if language:
+            raise ValueError(language[0])
         if item.get("urgency") not in {"now", "first-wave", "later"}:
             raise ValueError(f"key issue {i} urgency must be now, first-wave or later")
         if len(sentences(item["action"])) < 2:
@@ -1449,7 +1453,7 @@ def pillar_drivers_html(checks, screener, grades, open_groups):
 
 def pillar_drivers_markdown(checks, screener, grades):
     lines = []
-    for pillar in PILLARS:
+    for pillar in grades:
         key, info = grades[pillar]
         items = sorted([c for c in checks + screener if c["pillar"] == pillar and c["status"] in {"FAIL", "WARN"}],
                        key=lambda c: (STATUS_ORDER[c["status"]], SEVERITY_ORDER.get(c.get("severity"), 9)))
@@ -1539,6 +1543,183 @@ def rec_fields_markdown(n, rec, specialist, by_id):
     return lines
 
 
+# ---------------------------------------------------------------------------
+# The paged report: Executive summary, AS-IS architecture, Well-Architected pillars, Modernization, Appendix
+# ---------------------------------------------------------------------------
+PAGES = [("p-summary", "Executive summary"), ("p-asis", "AS-IS architecture"), ("p-pillars", "Well-Architected pillars"),
+         ("p-modern", "Modernization recommendations"), ("p-appendix", "Appendix")]
+SPECIALIST_MARK = {"containers": ("C", "#ED7100"), "database": ("D", "#C925D1"), "analytics": ("A", "#8C4FFF"), "genai": ("G", "#01A88D"), "devops": ("O", "#E7157B")}
+MATRIX_COLUMNS = [("setting", "Setting change"), ("days", "Days of work"), ("weeks", "Weeks of work"), ("quarter", "Architecture change")]
+MATRIX_ROWS = [("down", "Cost down"), ("neutral", "Cost neutral"), ("measure_first", "Measure first"), ("up", "Cost up")]
+
+
+def issue_pillar(issue, by_id):
+    """The pillar a key issue belongs to: the pillar most of its findings sit in (the first one on a tie)."""
+    pillars = [by_id[f]["pillar"] for f in issue.get("finding_ids") or [] if f in by_id]
+    if not pillars:
+        return None
+    counts = Counter(pillars)
+    return max(pillars, key=lambda p: (counts[p], -pillars.index(p)))
+
+
+def first_sentence(text, limit=220):
+    text = " ".join(str(text or "").split())
+    m = re.match(r"(.+?[.!?])(\s|$)", text)
+    out = m.group(1) if m else text
+    return out if len(out) <= limit else out[:limit - 1].rstrip() + "…"
+
+
+def issue_cards(numbered):
+    """Key-issue cards for (number, issue) pairs; the number is the issue's place in the whole list."""
+    out = []
+    for n, issue in numbered:
+        label, color = URGENCY[issue["urgency"]]
+        refs = " ".join(f'<a href="#{kit.esc(r)}">{kit.esc(r)}</a>' for r in issue["finding_ids"])
+        links = "".join(f'<li><a href="{kit.esc(r["url"])}" target="_blank" rel="noopener">{kit.esc(r["title"])}</a></li>' for r in issue.get("resolved_references", []))
+        out.append(f'<article class="issue" id="issue-{n}" style="border-left-color:{color}"><h3>{n}. {kit.esc(issue["title"])} <span class="chips">{kit.chip(label, color)}{issue_chips(issue)}</span></h3>'
+                   f'<p>{kit.esc(issue["problem"])}</p><p class="why"><b>Why it matters</b> {kit.esc(issue["impact"])}</p>'
+                   f'<p class="act"><b>Suggestion</b> {kit.esc(issue["action"])}</p>{price_lines(issue)}'
+                   + (f'<div class="small"><b>References</b><ul>{links}</ul></div>' if links else "") +
+                   f'<div class="ref">Findings {refs}</div></article>')
+    return "".join(out)
+
+
+def improvements_html(issues, by_id):
+    """The key improvements of the executive summary: each key issue in one line, its size, and where it is detailed."""
+    if not issues:
+        return ('<div class="callout"><p><b>Key issues were not authored for this run.</b> The grades and findings are complete, but the plain-language '
+                'summary requires the assessing agent to supply key-issues.json.</p></div>')
+    items = []
+    for n, i in enumerate(issues, 1):
+        label, color = URGENCY[i["urgency"]]
+        pillar = issue_pillar(i, by_id)
+        items.append(f'<li style="border-left-color:{color}"><b>{kit.esc(i["title"])}</b><span class="chips">{kit.chip(label, color)}{issue_chips(i)}</span>'
+                     f'<p class="small">{kit.esc(first_sentence(i["action"]))} <a href="#issue-{n}">{kit.esc(pillar or "Details")} →</a></p></li>')
+    return f'<ol class="improvements">{"".join(items)}</ol>'
+
+
+def matrix_points(issues, specialists):
+    points, legend_items = [], []
+    for n, i in enumerate(issues, 1):
+        if i.get("effort") in EFFORT and i.get("cost_direction") in COST_DIRECTION:
+            points.append((str(n), i["effort"], i["cost_direction"], kit.ACCENT, f"#issue-{n}"))
+    if points:
+        legend_items.append(("Key issue (number)", kit.ACCENT))
+    for sp in specialists or []:
+        mark, color = SPECIALIST_MARK.get(sp["specialist"], (sp["specialist"][:1].upper(), kit.MUTED))
+        recs = sp.get("recommendations") or []
+        for n, r in enumerate(recs, 1):
+            points.append((f"{mark}{n}", r.get("effort"), r.get("cost_direction"), color, f"#sp-{sp['specialist']}"))
+        if recs:
+            legend_items.append((f"{mark} = {sp['role']}", color))
+    return points, legend_items
+
+
+def matrix_html(issues, specialists):
+    points, legend_items = matrix_points(issues, specialists)
+    if not points:
+        return ""
+    return (f'<div class="chart-card"><h3>Where each change sits</h3><p class="small">Columns are the size of the work, rows the cost direction. '
+            f'The top-left cells (small and not raising cost) are where to start. Click a dot to open its detail.</p>'
+            f'{kit.priority_matrix(points, MATRIX_COLUMNS, MATRIX_ROWS, legend_items=legend_items)}</div>')
+
+
+def radar_html(scores, grades):
+    values = {p: (scores.get(p) or {}).get("score") for p in PILLARS}
+    colors = {p: kit.GRADES[grades[p][0]][1] for p in PILLARS}
+    rows = "".join(f'<tr><td><a href="#wa-{anchor(p)}"><b>{kit.esc(p)}</b></a></td><td>{kit.grade_chip(grades[p][0])}</td>'
+                   f'<td>{kit.segment_bar((scores.get(p) or {}).get("counts") or {})}</td><td class="small">{kit.esc(kit.grade_counts_text(grades[p][1]))}</td></tr>' for p in PILLARS)
+    return (f'<div class="grid g2"><div class="chart-card"><h3>Six pillars at a glance</h3><p class="small">Local score 0-100 per pillar (PASS 1, WARN 0.5, FAIL 0 over the judged checks); '
+            f'the point colour is the grade. An index for comparison, not an AWS Well-Architected Tool rating.</p>{kit.radar(values, colors=colors)}</div>'
+            f'<div class="chart-card"><h3>Grades</h3><table class="grade-list"><tbody>{rows}</tbody></table>'
+            f'{kit.legend([(kit.STATUS[k][0], kit.STATUS[k][1]) for k in kit.STATUS_ORDER])}</div></div>')
+
+
+def resource_mix_html(inventory, scope_ids):
+    resources = [r for r in inventory.get("resources", []) if r.get("level") != "account" and (scope_ids is None or r["id"] in scope_ids)]
+    if not resources:
+        return ""
+    counts = Counter(r["type"].split(".")[0].upper() if r["type"].split(".")[0] not in SERVICE_WORDS else SERVICE_WORDS[r["type"].split(".")[0]] for r in resources)
+    pairs = counts.most_common(8)
+    other = sum(counts.values()) - sum(v for _, v in pairs)
+    if other:
+        pairs.append(("Other", other))
+    return (f'<div class="chart-card"><h3>What the workload is made of</h3><p class="small">{len(resources)} resources in scope, by service.</p>'
+            f'{kit.count_bars(pairs, "resource-mix", "Resources by service", "Horizontal bars count the in-scope resources of each service.", focal=pairs[0][0] if pairs else None)}</div>')
+
+
+SERVICE_WORDS = {"ec2": "EC2 and VPC", "elbv2": "Load balancing", "ecs": "ECS", "eks": "EKS", "rds": "RDS and Aurora", "elasticache": "ElastiCache", "logs": "CloudWatch Logs",
+                 "cloudwatch": "CloudWatch", "s3": "S3", "lambda": "Lambda", "iam": "IAM", "secretsmanager": "Secrets Manager", "ecr": "ECR", "sns": "SNS", "sqs": "SQS",
+                 "events": "EventBridge", "codepipeline": "CodePipeline", "codebuild": "CodeBuild", "codecommit": "CodeCommit", "kms": "KMS", "dynamodb": "DynamoDB",
+                 "bedrock": "Bedrock", "autoscaling": "Auto Scaling", "cloudformation": "CloudFormation", "ssm": "Systems Manager", "acm": "ACM", "wafv2": "WAF"}
+
+
+def pillar_driver_table(pillar, checks, screener):
+    items = sorted([c for c in checks + screener if c["pillar"] == pillar and c["status"] in {"FAIL", "WARN"}],
+                   key=lambda c: (STATUS_ORDER[c["status"]], SEVERITY_ORDER.get(c.get("severity"), 9)))
+    rows = []
+    for members in group_findings(items):
+        first = members[0]
+        targets = list(dict.fromkeys(target_of(m) for m in members))
+        res = ", ".join(f"<code>{kit.esc(t)}</code>" for t in targets[:2]) + (f' <span class="small">+{len(targets) - 2} more</span>' if len(targets) > 2 else "")
+        sev = first.get("severity", "INFO")
+        rows.append(f'<tr><td><a href="#{kit.esc(first["id"])}">{kit.esc(rule_label(first))}</a></td><td>{kit.status_chip(first["status"])}</td>'
+                    f'<td>{kit.chip(kit.SEVERITY[sev][0], kit.SEVERITY[sev][1])}</td><td>{len(members)}</td><td>{res}</td><td>{kit.esc(first["recommendation"])}</td></tr>')
+    if not rows:
+        return ""
+    return ('<table><thead><tr><th>Check</th><th>Status</th><th>Severity</th><th>Resources</th><th>Where</th><th>Recommendation</th></tr></thead>'
+            f'<tbody>{"".join(rows)}</tbody></table>')
+
+
+def pillar_blocks_html(checks, screener, grades, scores, issues, by_id, open_groups):
+    """One block per pillar: grade and counts, the key issues that belong to it, the checks that drive the grade and
+    what is in good shape. Security is a pillar like the others; there is no separate security chapter."""
+    by_pillar = defaultdict(list)
+    for n, i in enumerate(issues, 1):
+        by_pillar[issue_pillar(i, by_id)].append((n, i))
+    questions = Counter(members[0]["pillar"] for _, members in open_groups)
+    out = []
+    for pillar in PILLARS:
+        key, info = grades[pillar]
+        mine = by_pillar.get(pillar, [])
+        table = pillar_driver_table(pillar, checks, screener)
+        passed = [c for c in checks if c["pillar"] == pillar and c["status"] == "PASS"]
+        good = Counter(rule_label(c) for c in passed).most_common(4)
+        body = f'<p class="small">{kit.esc(kit.GRADES[key][3])}</p>'
+        if mine:
+            body += f'<h4>Key issues in this pillar ({len(mine)})</h4>' + issue_cards(mine)
+        if table:
+            body += f'<h4>Checks that drive the grade</h4>{table}'
+        elif not mine:
+            body += f'<p>Nothing failed or warned in this pillar; {len(passed)} check(s) passed.</p>'
+        tail = []
+        if good:
+            tail.append("<b>In good shape</b> " + kit.esc(", ".join(f"{name} ({n})" for name, n in good)))
+        if questions.get(pillar):
+            tail.append(f'<b>Open questions</b> {questions[pillar]}, listed with <a href="#{anchor(pillar)}">this pillar\'s findings</a> in the appendix')
+        if tail:
+            body += '<p class="small">' + " · ".join(tail) + "</p>"
+        out.append(f'<article class="pillar" id="wa-{anchor(pillar)}" style="border-top:4px solid {kit.GRADES[key][1]}"><header><h3>{kit.esc(pillar)}</h3>{kit.grade_chip(key)}'
+                   f'{kit.segment_bar((scores.get(pillar) or {}).get("counts") or {})}<span class="small">{kit.esc(kit.grade_counts_text(info))}</span></header>{body}</article>')
+    return "".join(out)
+
+
+def specialist_overview_html(specialists, statuses):
+    if not specialists:
+        return ""
+    rows = []
+    for sp in specialists:
+        mark, color = SPECIALIST_MARK.get(sp["specialist"], ("?", kit.MUTED))
+        recs = sp.get("recommendations") or []
+        sizes = Counter(EFFORT.get(r.get("effort"), ("?",))[0] for r in recs)
+        chips = "".join(kit.pathway_chip(statuses[p]) for p in sp.get("pathways", []) if p in statuses)
+        first = kit.esc(recs[0]["title"]) if recs else '<span class="small">no change recommended for now</span>'
+        rows.append(f'<tr><td><span class="chip" style="background:{color};color:#fff">{mark}</span> <a href="#sp-{kit.esc(sp["specialist"])}"><b>{kit.esc(sp["role"])}</b></a></td>'
+                    f'<td>{chips}</td><td>{len(recs)}</td><td class="small">{kit.esc(", ".join(f"{k} {v}" for k, v in sizes.items()) or "-")}</td><td>{first}</td></tr>')
+    return ('<table><thead><tr><th>Specialist SA Agent</th><th>Directions</th><th>Recommendations</th><th>Size</th><th>First recommendation</th></tr></thead>'
+            f'<tbody>{"".join(rows)}</tbody></table>')
+
+
 def render(args):
     run = args.run_dir
     WALL_CLOCK["minutes"] = args.wall_clock_minutes
@@ -1591,23 +1772,20 @@ def render(args):
     anchors = {p: anchor(p) for p in PILLARS}
 
     hero = kit.hero("AWS modernization assessment", f"{args.workload}: current state and modernization directions",
-                    f"Three sections: the current architecture, a review of {len(checks) + len(screener)} automated checks organised by the six Well-Architected pillars "
-                    f"(not an AWS Well-Architected Tool review), and the recommendations of the Specialist SA Agents across {len(pathways)} modernization directions. "
-                    f"Produced with AI assistance from read-only evidence; the key issues are worth confirming with the assessing architect before decisions are made. "
-                    f"Every finding, the account posture, the evidence table and the run's provenance are on the details page.",
+                    f"An executive summary with the key improvements, the AS-IS architecture, recommendations for each of the six Well-Architected pillars "
+                    f"({len(checks) + len(screener)} automated checks; not an AWS Well-Architected Tool review) and the modernization recommendations of the "
+                    f"Specialist SA Agents. Produced with AI assistance from read-only evidence; worth confirming with the assessing architect before decisions are "
+                    f"made. Evidence, method and provenance are in the appendix.",
                     [f"account {inventory['account_id']}", ", ".join(inventory["regions"]), f"collected {str(manifest.get('completed_at', ''))[:16]}", status]
                     + ([f"environment: {scope_context['environment']} (scope interview)"] if scope_context.get("environment", "unknown") != "unknown" else []))
-    directions_label = "Specialist SA Agent recommendations" if specialists else "Modernization directions"
-    nav = nav_html([("current", "1 · Current architecture"), ("review", "2 · Well-Architected review"), ("directions", f"3 · {directions_label}")], (DETAILS_FILE, "Details and evidence"))
     status_counts.update(c["status"] for c in screener)
     everything = checks + screener
-
     open_groups = question_groups(checks, scope_context)
 
     def listing(status):
         return [(f"#{c['id']}", f"{c['id']} · {rule_label(c)} · {target_of(c)}") for c in sorted((x for x in everything if x["status"] == status),
                 key=lambda c: (SEVERITY_ORDER.get(c.get("severity"), 9), c["id"]))]
-    kpis = (kit.kpi(len(issues) or "-", "key issues", "fail" if issues else "unknown", [("#issues", i["title"]) for i in issues])
+    kpis = (kit.kpi(len(issues) or "-", "key issues", "fail" if issues else "unknown", [(f"#issue-{n}", i["title"]) for n, i in enumerate(issues, 1)])
             + kit.kpi(status_counts["FAIL"], "failed checks", "fail", listing("FAIL"))
             + kit.kpi(status_counts["WARN"], "warnings", "warn", listing("WARN"))
             + kit.kpi(len(open_groups), "open questions", "unknown", [(f"#q-{members[0]['id']}", f"{members[0]['id']} · {text}") for text, members in open_groups])
@@ -1616,7 +1794,7 @@ def render(args):
     worst_text = (f"Most urgent pillars: {', '.join(worst)}." if worst else "No pillar is graded critical or weak.")
     to_be_block = (zoom_figure("zoom-to-be", to_be_svg, "directions", f'Proposed target architecture · retained, proposed and unresolved parts are distinguished in the legend · click the diagram to enlarge · {open_full(args.to_be_diagram, run)}') if to_be_svg
                    else '<div class="callout"><p>The target-architecture diagram has not been produced yet.</p></div>') + to_be_changes_html(args.to_be_diagram)
-    as_is_block = (zoom_figure("zoom-as-is", as_is_svg, "current", f'Current architecture from observed configuration · arrows are configured paths, not measured traffic · click the diagram to enlarge · {open_full(args.as_is_diagram, run)}') if as_is_svg
+    as_is_block = (zoom_figure("zoom-as-is", as_is_svg, "p-asis", f'Current architecture from observed configuration · arrows are configured paths, not measured traffic · click the diagram to enlarge · {open_full(args.as_is_diagram, run)}') if as_is_svg
                    else '<div class="callout"><p>The current-architecture diagram has not been produced yet; this report is a draft until it is.</p></div>')
     if as_is_svg and not diagram_ok:
         cov = (diagram_audit or {}).get("coverage") or {}
@@ -1624,153 +1802,144 @@ def render(args):
         as_is_block += (f'<div class="callout"><p><b>The diagram does not yet show everything that was collected.</b> Missing: {kit.esc(missing)}'
                         f'{"; subnets/AZs not drawn as groups" if cov.get("subnets_or_vpcs_not_drawn_as_groups") or cov.get("missing_availability_zones") else ""}'
                         f'{"; stack resources " + str(len(cov.get("missing_stack_resources", []))) if cov.get("missing_stack_resources") else ""}. '
-                        'Run diagram.py --audit-graph with --inventory and fix the drawing before delivery.</p></div>')
+                        'Run diagram.py with --inventory and fix the graph before delivery.</p></div>')
     collection = (f'<p class="small">Evidence: {manifest["coverage"].get("ok", 0)} successful read-only queries, collection status <b>{kit.esc(manifest["status"])}</b>, '
                   f'{len(inventory["resources"])} resources in {", ".join(inventory["regions"])}. Host internals, database contents, traffic and cost were not collected. '
-                  f'Account-level services and the query scope are <a href="#account">on the details page</a>.</p>')
+                  f'Account-level services and the query scope are in <a href="#account">the appendix</a>.</p>')
+    scope_text = scope_sentence(args.workload, inventory, scope_doc, scope_ids, scope_context)
+    headline = []
+    for sp in specialists:
+        recs = sp.get("recommendations") or []
+        headline.append(f'<li><a href="#sp-{kit.esc(sp["specialist"])}"><b>{kit.esc(sp["role"])}</b></a> · {kit.esc(recs[0]["title"]) if recs else "no change recommended for now"}</li>')
+    pages = {}
+    pages["p-summary"] = (
+        f'<h2>1 · Executive summary</h2><p class="lead">{kit.esc(scope_text)}</p>{environment_note(inventory, scope_ids, scope_context)}'
+        f'<div class="kpis">{kpis}</div>{radar_html(scores, grades)}<p class="small">{kit.esc(worst_text)} Counts grow with the number of resources checked; they are an index, not a verdict.</p>'
+        f'<h3>Key improvements</h3><p class="lead">The changes worth deciding on first, in order. Each links to its full description under its pillar.</p>{improvements_html(issues, by_id)}'
+        f'{live_signals_html(checks)}<h3>Where to start</h3>{quick_wins_html(issues, checks)}{matrix_html(issues, specialists)}'
+        + (f'<h3>Modernization in one line per area</h3><ul class="plain">{"".join(headline)}</ul>' if headline else ""))
+    pages["p-asis"] = (
+        f'<h2>2 · AS-IS architecture</h2><p class="lead">{kit.esc(scope_text)}</p>{as_is_block}{collection}{resource_mix_html(inventory, scope_ids)}')
+    pages["p-pillars"] = (
+        f'<h2>3 · Recommendations by Well-Architected pillar</h2><p class="lead">{kit.esc(worst_text)} Each pillar shows its grade, the key issues that belong to it '
+        f'with the suggestion, and the failed and warned checks that drive the grade. Fix first = a high-severity item; Needs work = failures or several warnings; '
+        f'Watch = minor warnings or open questions; Sound = every judged check passed.</p>'
+        f'{kit.grade_tiles(grades, {p: "wa-" + anchors[p] for p in PILLARS}, rule_labels=rule_label)}'
+        f'<div class="chart-card"><h3>Judgements per pillar</h3>{kit.stacked_status(scores)}{kit.legend([(kit.STATUS[k][0], kit.STATUS[k][1]) for k in kit.STATUS_ORDER])}</div>'
+        f'{pillar_blocks_html(checks, screener, grades, scores, issues, by_id, open_groups)}'
+        f'<p class="small">Priority words on each issue: <b>1 · Decide first</b> = settle in the first conversation; <b>2 · Plan next</b> = the next piece of planned work; '
+        f'<b>3 · Later</b> = after that. A suggestion, not a deadline.</p>')
     if specialists:
-        directions_html = (f'<section id="directions"><h2>3 · Specialist SA Agent recommendations</h2><p class="lead">{len(specialists)} Specialist SA Agents '
-                           f'({kit.esc(", ".join(sp["role"] for sp in specialists))}), AI agents that each take the role of an AWS specialist solutions architect, '
-                           f'reviewed this workload\'s evidence in their area. Each recommendation is written in the same four fields: the current state, the proposal, '
-                           f'the quantitative evidence (counts, dates, pipeline history and the account bill computed from the collected evidence, list prices from the AWS Price List API, and the one figure only the owner can provide; nothing is estimated by the agent), '
-                           f'and the prerequisites. The combined target architecture follows.</p>'
-                           + "".join(specialist_html(sp, statuses, finding_ids, run, by_id) for sp in specialists)
-                           + f'<h3>Combined target architecture</h3>{to_be_block}<h3>Seven directions at a glance</h3>{pathway_table(pathways, specialists)}</section>')
+        pages["p-modern"] = (
+            f'<h2>4 · Modernization recommendations</h2><p class="lead">{len(specialists)} Specialist SA Agents, AI agents that each take the role of an AWS specialist '
+            f'solutions architect, reviewed the evidence in their area. Every recommendation has the same four fields: current state, proposal, quantitative evidence '
+            f'(counts, dates, pipeline history and the account bill computed from the evidence, list prices from the AWS Price List API, and the one figure only the owner '
+            f'can provide) and prerequisites.</p>{specialist_overview_html(specialists, statuses)}<div id="directions"></div>'
+            + "".join(specialist_html(sp, statuses, finding_ids, run, by_id) for sp in specialists)
+            + f'<h3>Combined target architecture</h3>{to_be_block}<h3>Seven directions</h3>{pathway_table(pathways, specialists)}')
     else:
-        directions_html = (f'<section id="directions"><h2>3 · Modernization directions</h2><p class="lead">Seven directions were compared against the evidence. Each card states '
-                           f'whether it is recommended, under what conditions, or why not.</p>{pathway_cards(pathways)}<h3>Proposed target architecture</h3>{to_be_block}</section>')
-    glance = glance_rows(args.workload, issues, checks, inventory, scope_doc, scope_ids, scope_context, specialists)
+        pages["p-modern"] = (f'<h2>4 · Modernization directions</h2><p class="lead">Seven directions were compared against the evidence. Each card states '
+                             f'whether it is recommended, under what conditions, or why not.</p><div id="directions"></div>{pathway_cards(pathways)}<h3>Proposed target architecture</h3>{to_be_block}')
+    pages["p-appendix"] = (
+        f'<h2>Appendix</h2><p class="lead">What the four sections rest on. Links from the sections above open the matching part here.</p>'
+        f'<h3 id="evidence"><span class="appendix-letter">A</span>Evidence</h3>{evidence_html(evidence_rows)}'
+        f'<h3 id="appendix"><span class="appendix-letter">B</span>Method and provenance</h3>{method_appendix(scores, checks, pathways, pathways_doc["weights"])}{run_clock_html(inventory)}{write_audit_html(write_audit)}{usage_html(run_meta, inventory)}'
+        f'<details><summary>Scope and limitations</summary><div class="body"><ul><li>Services in scope: {kit.esc(", ".join(inventory["services"]))}.</li><li>Query results: <code>{kit.esc(json.dumps(manifest["coverage"]))}</code>.</li>'
+        f'<li>Configuration evidence does not establish traffic, application compatibility, recovery success, cost or business criticality; those need separate evidence.</li></ul></div></details>'
+        f'<h3 id="findings"><span class="appendix-letter">C</span>All findings by pillar</h3><p class="small">Failures, warnings and open questions first; passed checks are folded away. {kit.esc(CODES_SENTENCE)}</p>{pillar_sections(checks, grades, screener, scope_context)}'
+        f'<h3 id="account"><span class="appendix-letter">D</span>Account-level services and query scope</h3>{account_posture_html(checks, manifest, inventory, scope_context, scope_ids)}'
+        f'<h3 id="next"><span class="appendix-letter">E</span>Reference material</h3>{next_steps_html(pathways_doc.get("next_steps") or {}, args.language)}'
+        f'<h3 id="terms"><span class="appendix-letter">F</span>Terms used in this report</h3>@@TERMS@@')
     generated = datetime.now(timezone.utc).isoformat(timespec="minutes")
-    body = f"""{hero}{nav}<div class="wrap">
-<section id="current"><h2>1 · Current architecture</h2><p class="lead">{kit.esc(scope_sentence(args.workload, inventory, scope_doc, scope_ids, scope_context))}</p>{environment_note(inventory, scope_ids, scope_context)}{as_is_block}{collection}</section>
-<section id="review"><h2>2 · Well-Architected review</h2><p class="lead">{kit.esc(worst_text)} Grades summarize the judged checks of each pillar: Fix first means a high-severity item exists, Needs work means failures or several warnings, Watch means minor warnings or open questions, Sound means every judged check passed. Click a tile to see what drives the grade.</p>
-<div class="kpis">{kpis}</div><p class="small">Counts grow with the number of resources checked; they are an index, not a verdict. {kit.esc(CODES_SENTENCE)}</p>
-{kit.grade_tiles(grades, {p: "drivers-" + anchors[p] for p in PILLARS}, rule_labels=rule_label)}<details><summary class="small">Grade rubric</summary><div class="body">{kit.grade_rubric_html()}</div></details>
-{live_signals_html(checks)}
-<h3 id="issues">Key issues</h3><p class="lead">What is wrong, why it matters and what to do first, in plain language. Each issue links to the findings behind it.</p>{issues_html(issues)}<p class="small">Priority order: <b>1 · Decide first</b> = settle in the first conversation; <b>2 · Plan next</b> = the next piece of planned work; <b>3 · Later</b> = after that. The order is a suggestion, not a deadline. The <a href="#board">where-to-start board</a> sorts the issues by size and date.</p>
-<h3>What drives each grade</h3><p class="small">Failed and warned checks per pillar, one row per rule with the resources it applies to. Passed checks, open questions and the full finding cards are <a href="#findings">on the details page</a>.</p>{pillar_drivers_html(checks, screener, grades, open_groups)}{strengths_html(checks)}</section>
-{directions_html}
-<footer>findings.json · scorecard.json · pathways.json · diagrams · {kit.esc(status)} · generated {generated} · <a href="{DETAILS_FILE}">details and evidence</a></footer></div>"""
-    details_nav = nav_html([("glance", "At a glance"), ("board", "Where to start"), ("account", "Account posture"), ("findings", "Findings"), ("security", "Security"),
-                            ("next", "Reference material"), ("terms", "Terms"), ("evidence", "Evidence"), ("appendix", "Method and provenance")], (REPORT_FILE, "Report"))
-    details_hero = kit.hero("AWS modernization assessment · details", f"{args.workload}: findings, evidence and provenance",
-                            "Everything the three-section report rests on: the summary table, the where-to-start board, account-level posture, every finding by pillar, "
-                            "the security table, reference material, terms, the evidence index and how the run was produced.",
-                            [f"account {inventory['account_id']}", ", ".join(inventory["regions"]), status])
-    details = f"""{details_hero}{details_nav}<div class="wrap">
-{glance_html(glance)}
-<section id="board"><h2>Where to start</h2><p class="lead">The key issues sorted by size and date: what can start this week, what needs an investment decision, what has a date.</p>{quick_wins_html(issues, checks)}</section>
-<section id="account"><h2>Account-level posture and query scope</h2>{account_posture_html(checks, manifest, inventory, scope_context, scope_ids)}</section>
-<section id="findings"><h2>Findings by pillar</h2><p class="lead">Failures, warnings and open questions first; passed checks are folded away. Confidence tags separate configuration read from the API, declarations in templates or source, and conclusions that remain unverified.</p>{pillar_sections(checks, grades, screener, scope_context)}</section>
-<section id="security"><h2>Security recommendations</h2><p class="lead">Security failures and warnings, one row per check with the resources it applies to.</p>{security_chapter(checks, screener)}</section>
-<section id="next"><h2>Reference material</h2>{next_steps_html(pathways_doc.get("next_steps") or {}, args.language)}</section>
-<section id="terms"><h2>Terms used in this report</h2>@@TERMS@@</section>
-<section id="evidence"><h2>Evidence</h2>{evidence_html(evidence_rows)}</section>
-<section id="appendix"><h2>Method and provenance</h2>{method_appendix(scores, checks, pathways, pathways_doc["weights"])}{run_clock_html(inventory)}{write_audit_html(write_audit)}{usage_html(run_meta, inventory)}
-<details><summary>Scope and limitations</summary><div class="body"><ul><li>Services in scope: {kit.esc(", ".join(inventory["services"]))}.</li><li>Query results: <code>{kit.esc(json.dumps(manifest["coverage"]))}</code>.</li>
-<li>Configuration evidence does not establish traffic, application compatibility, recovery success, cost or business criticality; those need separate evidence.</li></ul></div></details></section>
-<footer>findings.json · scorecard.json · pathways.json · diagrams · {kit.esc(status)} · generated {generated} · <a href="{REPORT_FILE}">report</a></footer></div>"""
-    details = details.replace("@@TERMS@@", terms_html(re.sub(r"<[^>]+>", " ", body + details)))
-    main_ids, detail_ids = ids_in(body), ids_in(details)
-    body = cross_link(body, main_ids, DETAILS_FILE, detail_ids)
-    details = cross_link(details, detail_ids, REPORT_FILE, main_ids)
-    html_doc = kit.page(f"AWS modernization assessment - {args.workload}", body)
-    details_doc = kit.page(f"AWS modernization assessment - {args.workload} - details", details)
+    sections = "".join(f'<section class="page" id="{pid}">{pages[pid]}{kit.pager(PAGES, k)}</section>' for k, (pid, _) in enumerate(PAGES))
+    body = (f'{hero}{kit.pages_nav(PAGES)}<div class="wrap">{sections}'
+            f'<footer>findings.json · scorecard.json · pathways.json · diagrams · {kit.esc(status)} · generated {generated}</footer></div>')
+    body = body.replace("@@TERMS@@", terms_html(re.sub(r"<[^>]+>", " ", body)))
+    html_doc = kit.page(f"AWS modernization assessment - {args.workload}", body, extra_css=kit.pages_css([pid for pid, _ in PAGES]))
 
-    # Markdown twins: assessment.md follows the three sections, details.md the details page.
+    # Markdown twin, in the same order.
     head = [f"- Account `{inventory['account_id']}` · {', '.join(inventory['regions'])} · collected {str(manifest.get('completed_at', ''))[:16]} · {status}",
             f"- {len(checks) + len(screener)} checks · {status_counts['FAIL']} failed · {status_counts['WARN']} warnings · {len(open_groups)} open questions", ""]
     md = [f"# AWS modernization assessment - {args.workload}", ""] + head
-    md += ["## 1. Current architecture", "", scope_sentence(args.workload, inventory, scope_doc, scope_ids, scope_context), "",
-           f"Evidence: {manifest['coverage'].get('ok', 0)} successful read-only queries, collection status {manifest['status']}, {len(inventory['resources'])} resources. "
-           "Host internals, database contents, traffic and cost were not collected. Account-level posture: details.md.", ""]
-    md += ["## 2. Well-Architected review", "", worst_text, "", "| Pillar | Grade | Counts | Top drivers |", "|---|---|---|---|"]
-    for p in PILLARS:
-        k, info = grades[p]
-        md.append(f"| {p} | {kit.GRADES[k][0]} | {kit.grade_counts_text(info)} | {', '.join(c['rule_id'] for c in info['drivers'][:3]) or '-'} |")
-    md += ["", "Rubric: Fix first = a HIGH-severity FAIL; Needs work = any FAIL or 3+ WARN; Watch = 1-2 WARN or any open question (UNKNOWN); Sound = all judged checks PASS and no open question. Not an AWS Well-Architected Tool rating.", ""]
-    md += ["### Key issues", ""]
+    md += ["## 1. Executive summary", "", scope_text, "", worst_text, "", "| Pillar | Grade | Score | Counts |", "|---|---|---:|---|"]
+    for p_ in PILLARS:
+        k, info = grades[p_]
+        sc = (scores.get(p_) or {}).get("score")
+        md.append(f"| {p_} | {kit.GRADES[k][0]} | {sc if sc is not None else '-'} | {kit.grade_counts_text(info)} |")
+    md += ["", "### Key improvements", ""]
     if issues:
         for n, i in enumerate(issues, 1):
             tags = [URGENCY_LABEL[i["urgency"]]] + [EFFORT[i["effort"]][0] for _ in [0] if i.get("effort") in EFFORT] + \
-                   [COST_DIRECTION[i["cost_direction"]][0] for _ in [0] if i.get("cost_direction") in COST_DIRECTION] + [OWNER[i["owner"]] for _ in [0] if i.get("owner") in OWNER]
-            md += [f"#### {n}. {i['title']} ({' · '.join(tags)})", "", i["problem"], "", f"**Why it matters** {i['impact']}", "", f"**Suggestion** {i['action']}", ""]
+                   [COST_DIRECTION[i["cost_direction"]][0] for _ in [0] if i.get("cost_direction") in COST_DIRECTION]
+            md.append(f"{n}. **{i['title']}** ({' · '.join(tags)}) {first_sentence(i['action'])}")
+    else:
+        md.append("Key issues were not authored for this run (key-issues.json missing).")
+    if specialists:
+        md += ["", "### Modernization in one line per area", ""] + [f"- **{sp['role']}** {(sp.get('recommendations') or [{'title': 'no change recommended for now'}])[0]['title']}" for sp in specialists]
+    md += ["", "## 2. AS-IS architecture", "", scope_text, "",
+           f"Evidence: {manifest['coverage'].get('ok', 0)} successful read-only queries, collection status {manifest['status']}, {len(inventory['resources'])} resources. "
+           "Host internals, database contents, traffic and cost were not collected.", ""]
+    md += ["## 3. Recommendations by Well-Architected pillar", ""]
+    by_pillar = defaultdict(list)
+    for n, i in enumerate(issues, 1):
+        by_pillar[issue_pillar(i, by_id)].append((n, i))
+    for p_ in PILLARS:
+        k, info = grades[p_]
+        md += [f"### {p_} - {kit.GRADES[k][0]} ({kit.grade_counts_text(info)})", ""]
+        for n, i in by_pillar.get(p_, []):
+            md += [f"#### {n}. {i['title']} ({URGENCY_LABEL[i['urgency']]})", "", i["problem"], "", f"**Why it matters** {i['impact']}", "", f"**Suggestion** {i['action']}", ""]
             if i.get("list_prices"):
-                lead = ("(an example for one possible configuration; the size is decided after measurement, so the figure is not a saving)" if is_example(i)
-                        else "(AWS Price List API, On-Demand; not a bill forecast)")
-                md += [f"**List prices** net {usd(net_list_price(i))}/month {lead}", ""]
+                md += [f"**List prices** net {usd(net_list_price(i))}/month " + ("(an example before measurement)" if is_example(i) else "(AWS Price List API, On-Demand; not a bill forecast)"), ""]
                 md += price_table(i["list_prices"])
             if i["resolved_references"]:
                 md += ["**References**", ""] + [f"- [{r['title']}]({r['url']})" for r in i["resolved_references"]] + [""]
             md += [f"Findings: `{', '.join(i['finding_ids'])}`", ""]
-    else:
-        md += ["Key issues were not authored for this run (key-issues.json missing).", ""]
-    md += ["### What drives each grade", ""] + pillar_drivers_markdown(checks, screener, grades)
+        rows = pillar_drivers_markdown(checks, screener, {p_: grades[p_]})[2:]
+        md += rows
     if specialists:
-        md += ["## 3. Specialist SA Agent recommendations", ""]
+        md += ["## 4. Modernization recommendations", ""]
         for sp in specialists:
             md += specialist_markdown(sp, statuses, by_id)
-        md += ["### Seven directions at a glance", ""]
+        md += ["### Seven directions", ""]
     else:
-        md += ["## 3. Modernization directions", ""]
+        md += ["## 4. Modernization directions", ""]
     md += ["| Direction | Status | Reason |", "|---|---|---|"]
     for c in pathways:
         md.append(f"| {PATHWAYS[c['pathway']]} | {kit.PATHWAY_STATUS[c['status']][0]} | {(c['rationale'] if c['status'] in {'candidate', 'conditional'} else c['problem']).replace('|', '/')} |")
-    md += ["", "Details, every finding, the evidence index and provenance: details.md.", ""]
-
-    dmd = [f"# AWS modernization assessment - {args.workload} - details", ""] + head
-    dmd += glance_markdown(glance)
-    account_rows = [c for rule in ACCOUNT_RULES for c in checks if c["rule_id"] == rule]
-    if account_rows:
-        dmd += ["## Account-level posture", "", "| Service | Where | Status | What we saw |", "|---|---|---|---|"]
-        dmd += [f"| {ACCOUNT_RULE_LABEL[c['rule_id']]} | {target_of(c)} | {c['status']} | {c['observation']} |" for c in account_rows]
-        cov = manifest.get("service_coverage") or {}
-        if cov:
-            seen = [f"{k} ({v.get('discovered_resources', 0)})" for k, v in sorted(cov.items()) if v.get("status") == "not_collected"]
-            dmd += ["", f"Query scope: {len(cov)} services seen by discovery; added to the query scope automatically: {', '.join(manifest.get('auto_enabled_services') or []) or 'none'}; "
-                        f"seen but not collected: {', '.join(seen) or 'none'}.", ""]
-    dmd += ["## Security recommendations", "", "| Check | Severity | Resource | Recommendation |", "|---|---|---|---|"]
-    security = sorted([c for c in checks + screener if c["pillar"] == "Security" and c["status"] in {"FAIL", "WARN"}], key=lambda c: (STATUS_ORDER[c["status"]], SEVERITY_ORDER.get(c.get("severity"), 9)))
-    for members in group_findings(security):
-        targets = [target_of(m) for m in members]
-        dmd.append(f"| {rule_label(members[0])} | {members[0]['severity']} | {', '.join(targets[:3])}{' +' + str(len(targets) - 3) if len(targets) > 3 else ''} | {members[0]['recommendation']} |")
-    sys.path.insert(0, str(Path(__file__).resolve().parent))
-    import next_steps  # noqa: E402
-    dmd += [""] + next_steps.markdown(pathways_doc.get("next_steps") or {}, next_steps.labels(args.language).get("pathways", PATHWAYS), args.language)
-    dmd += ["## Findings by pillar", ""]
-    for p in PILLARS:
-        items = sorted([c for c in checks + screener if c["pillar"] == p and c["status"] in {"FAIL", "WARN"}], key=lambda c: (STATUS_ORDER[c["status"]], SEVERITY_ORDER.get(c.get("severity"), 9)))
-        dmd += [f"### {p} - {kit.GRADES[grades[p][0]][0]}", ""]
+    md += ["", "## Appendix", "", "### A. Evidence", "", CODES_SENTENCE + " Raw responses stay in the run directory.", "",
+           "| ID | Call | Target / locator | Kind | Collected (UTC) | Used by |", "|---|---|---|---|---|---|"]
+    md += [f"| {r['id']} | `{r['what']}` | {r['target']} | {r['kind']} | {r['when']} | {', '.join(r['findings'][:6])}{' +' + str(len(r['findings']) - 6) if len(r['findings']) > 6 else ''} |" for r in evidence_rows]
+    md += ["", "### B. Method and provenance", ""] + usage_markdown(run_meta, inventory) + write_audit_markdown(write_audit)
+    md += ["### C. All findings by pillar", ""]
+    for p_ in PILLARS:
+        items = sorted([c for c in checks + screener if c["pillar"] == p_ and c["status"] in {"FAIL", "WARN"}], key=lambda c: (STATUS_ORDER[c["status"]], SEVERITY_ORDER.get(c.get("severity"), 9)))
+        md += [f"#### {p_}", ""]
         for members in group_findings(items):
             c = members[0]
             label = CONFIDENCE_LABEL.get(c.get("confidence", "unverified"), c.get("confidence"))
             if len(members) == 1:
-                dmd.append(f"- **{c['id']} · {rule_label(c)} · {c['status']} · {c['severity']}** ({label}) `{target_of(c)}` - {c['observation']} → {c['recommendation']}")
-                if c.get("evidence_ids"):
-                    dmd.append(f"  - Evidence `{', '.join(c['evidence_ids'])}`")
+                md.append(f"- **{c['id']} · {rule_label(c)} · {c['status']} · {c['severity']}** ({label}) `{target_of(c)}` - {c['observation']} → {c['recommendation']}")
             else:
-                dmd.append(f"- **{rule_label(c)} · {c['status']} · {c['severity']} · {len(members)} resources** ({label}) → {c['recommendation']}")
-                dmd += [f"  - `{target_of(m)}` {m['observation']} `{m['id']}`" for m in members]
-        questions = [text for text, members in open_groups if members[0]["pillar"] == p]
+                md.append(f"- **{rule_label(c)} · {c['status']} · {c['severity']} · {len(members)} resources** ({label}) → {c['recommendation']}")
+                md += [f"  - `{target_of(m)}` {m['observation']} `{m['id']}`" for m in members]
+        questions = [text for text, members in open_groups if members[0]["pillar"] == p_]
         if questions:
-            dmd += ["", "Open questions for this pillar:", ""] + [f"- {q}" for q in questions]
-        dmd.append("")
-    dmd += ["## Evidence", "", CODES_SENTENCE + " Raw responses stay in the run directory.", "",
-            "| ID | Call | Target / locator | Kind | Collected (UTC) | Used by |", "|---|---|---|---|---|---|"]
-    dmd += [f"| {r['id']} | `{r['what']}` | {r['target']} | {r['kind']} | {r['when']} | {', '.join(r['findings'][:6])}{' +' + str(len(r['findings']) - 6) if len(r['findings']) > 6 else ''} |" for r in evidence_rows]
-    dmd.append("")
-    dmd += usage_markdown(run_meta, inventory)
-    dmd += write_audit_markdown(write_audit)
+            md += ["", "Open questions:", ""] + [f"- {q}" for q in questions]
+        md.append("")
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import next_steps  # noqa: E402
+    md += ["### E. Reference material", ""] + next_steps.markdown(pathways_doc.get("next_steps") or {}, next_steps.labels(args.language).get("pathways", PATHWAYS), args.language)
     out = args.output or run / "06-assessment"
     out.mkdir(parents=True, exist_ok=True)
+    for stale in (DETAILS_FILE, "details.md"):  # the two-page layout of earlier versions
+        if (out / stale).is_file():
+            (out / stale).unlink()
     (out / REPORT_FILE).write_text(plain_words(mask_people(html_doc)), encoding="utf-8")
-    (out / DETAILS_FILE).write_text(plain_words(mask_people(details_doc)), encoding="utf-8")
     (out / "assessment.md").write_text(plain_words(mask_people("\n".join(md))), encoding="utf-8")
-    (out / "details.md").write_text(plain_words(mask_people("\n".join(dmd))), encoding="utf-8")
     (out / "assessment-summary.json").write_text(json.dumps({
-        "schema_version": "1.1", "run_id": inventory["run_id"], "account_id": inventory["account_id"], "workload": args.workload, "status": status,
-        "files": {"report": REPORT_FILE, "details": DETAILS_FILE, "markdown": ["assessment.md", "details.md"]},
-        "sections": ["current", "review", "directions"],
+        "schema_version": "1.2", "run_id": inventory["run_id"], "account_id": inventory["account_id"], "workload": args.workload, "status": status,
+        "language": "en", "files": {"report": REPORT_FILE, "markdown": "assessment.md"},
+        "sections": [pid for pid, _ in PAGES],
         "grades": {p: {"grade": grades[p][0], **{k: v for k, v in grades[p][1].items() if k != "drivers"}, "drivers": [c["rule_id"] for c in grades[p][1]["drivers"]]} for p in PILLARS},
         "key_issues": issues, "iac_changes": changes, "diagram_coverage": (diagram_audit or {}).get("coverage", {}).get("status", "not_run"),
         "imported_findings": {"count": len(screener), "tool": "Service Screener" if upstream_manifest else None,

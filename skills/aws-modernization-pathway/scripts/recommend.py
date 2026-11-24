@@ -497,6 +497,11 @@ def main():
             raise ValueError("unsupported or failed inventory")
         run_meta = report_kit.load_run_metadata(args.run_metadata)
         candidates = json.loads(args.candidates.read_text(encoding="utf-8")) if args.candidates else bootstrap()
+        if args.candidates:
+            import advice  # noqa: E402  (same folder)
+            language = report_kit.english_errors(advice.candidate_texts(candidates, args.candidates.name))
+            if language:
+                raise ValueError(language[0] + f" ({len(language)} field(s))")
         normalized = normalize_candidates(candidates)
         notes = (["Preserved the legacy six pathways and added Move to Modern DevOps as unassessed. The original input file was not modified."]
                  if len(normalized) != len(candidates) else [])

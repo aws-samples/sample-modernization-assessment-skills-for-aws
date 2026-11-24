@@ -577,9 +577,14 @@ def stop(event, project_root):
             status = json.loads(summary.read_text(encoding="utf-8")).get("status", "")
         except (OSError, ValueError):
             status = ""
-        if not str(status).startswith("Draft"):
+        language = info.get("language", "en")
+        if not str(status).startswith("Draft") and (language.split("-")[0] == "en" or info.get("deliverable")):
             return 0
-        reason = f"The report for {info['workload']}/{info['run_id']} is still '{status}'. Fix what the status names (diagram coverage or missing diagrams), re-run assessment_report.py, then finish."
+        if str(status).startswith("Draft"):
+            reason = f"The report for {info['workload']}/{info['run_id']} is still '{status}'. Fix what the status names (diagram coverage or missing diagrams), re-run assessment_report.py, then finish."
+        else:
+            reason = (f"The run language is {language}, but 06-assessment-{language}/assessment.html does not exist yet. Translate the finished English "
+                      f"report with the output-language workflow (localize_artifacts.py prepare, chunks, merge, check, apply), then finish.")
     else:
         if time.time() - newest_mtime(run) > RECENT_SECONDS:
             return 0

@@ -1,62 +1,60 @@
 # Output language and localization
 
 Skill definitions, references, canonical templates and code stay in English.
-Human-facing results follow the user's language. A request to write **skills**
-in English is not a request for English **reports**.
 
-## Detect once and reuse
+## One language per run
 
-The executing agent detects the natural language of the user's actual request,
-ignoring quoted source text, code, service names and English skill instructions.
-Honor an explicit output-language preference first; otherwise use the request's
-main language. Ask only when genuinely ambiguous. Do not infer language from
-AWS region, OS locale, account identity or code.
-If the request is only a skill name, code or a copied invocation template, reuse
-the latest clear user-language preference or conversation language. An English
-default_prompt is not an explicit request for English results.
+A run has one report language: **English unless the person gave `lang <tag>`** (for example `lang ko`, or `4 ko` in
+the scope interview). The language the person happens to write in does not change it, and neither do the AWS region,
+the OS locale or the account. `scope.json` records it as `output_language`; every stage reads it from there.
 
-Reuse the resolved language for setup summaries, current-state reports, findings
-explanations, recommendations, roadmaps, diagram labels and final summaries.
-Apply a later language change to presentation artifacts without changing evidence.
-For multiple requested languages, derive separate bundles from the same canonical source.
+Every artifact the agents write is **English**, whatever the report language: manual checks, key issues, Specialist SA
+Agent advice and candidates, list-price labels, diagram graph labels and captions. The validators refuse text in another
+language. For a report in English, `06-assessment/assessment.html` is the deliverable. For another language, the
+finished English report is translated once, at the end, into `06-assessment-<tag>/assessment.html`; that folder is the
+deliverable. Nothing is ever half translated: the English draft is all English and the localized copy is all in the
+target language, and the layout check flags English sentences left in it.
 
-The helper does not guess natural language or call a translation service. The
-agent supplies its detected BCP-47-style tag, such as ko, en, ja, zh-hant, de or fr.
-CLI precedence: explicit --language, agent-provided --request-language, inherited
-context, then English only as a standalone-CLI fallback.
+Record the decision for the helper:
 
 ```bash
 python3 "$TOOLKIT_SKILL/scripts/localize_artifacts.py" language \
-  --request-language ko --output "$RUN_DIR/output-language.json"
+  --language "<scope.json output_language>" --output "$RUN_DIR/output-language.json"
 ```
 
-Use --language for an explicit override and --context to reuse a decision.
-Store only the language tag/source, not the full request, which might contain credentials.
+## Translating the finished report (report language other than English)
 
-## Canonical drafts and final delivery
-
-Deterministic helpers retain canonical schemas and may generate English intermediate
-drafts. For a non-English request, those drafts are not the final deliverable.
-Write final narrative in the resolved language or use the complete workflow below.
+The helper does not translate; the agent does, in parallel chunks, and the helper checks every unit.
 
 1. Finish canonical reports and source HTML/SVG, preserving the original snapshot.
    Paths are fixed so every run looks the same: `CANONICAL_RUN="$RUN_DIR/06-assessment"`,
    `LOCALIZATION_WORK="$RUN_DIR/localization-work"`, `LOCALIZED_RUN="$RUN_DIR/06-assessment-<language>"`
    (for Korean `06-assessment-ko`). `apply` refuses any other output folder for `06-assessment`.
-2. Prepare a translation plan outside the source bundle:
+2. Prepare a translation plan outside the source bundle. `--reuse` carries the translations of an earlier plan of the
+   same language (a re-render of the same run) so only changed text is translated again; glossary terms are pre-filled:
 
    ```bash
    python3 "$TOOLKIT_SKILL/scripts/localize_artifacts.py" prepare \
      --source "$CANONICAL_RUN" --context "$RUN_DIR/output-language.json" \
-     --output "$LOCALIZATION_WORK/ko.plan.json"
+     --output "$LOCALIZATION_WORK/ko.plan.json" [--reuse "$LOCALIZATION_WORK/ko.plan.previous.json"]
    ```
 
-3. The agent translates every unit's source into target. Set preserve=true only
-   for intentionally unchanged product names, identifiers, timestamps or technical
-   notation, or text already reviewed in the target language. Do not preserve English
-   narrative to bypass translation. Targets are
-   plain single-line text; the helper preserves structural markup. Missing units
-   or changed protected identifiers, enum literals, numbers or URLs are errors.
+3. Split what is left into chunks with a brief and the glossary, translate the chunks in parallel, merge, and list every
+   unit the checker would refuse:
+
+   ```bash
+   python3 "$TOOLKIT_SKILL/scripts/localize_artifacts.py" chunks --plan "$LOCALIZATION_WORK/ko.plan.json" --folder "$LOCALIZATION_WORK/chunks"
+   # one sub-agent per chunk-NN.src.json (Kiro subagent, Claude Code Task, Codex agent), all at once, with this prompt:
+   #   Read $LOCALIZATION_WORK/chunks/BRIEF.md and follow it. Translate chunk-NN.src.json into chunk-NN.ko.json.
+   #   Run the validation line from the brief and reply with its output only.
+   python3 "$TOOLKIT_SKILL/scripts/localize_artifacts.py" merge --plan "$LOCALIZATION_WORK/ko.plan.json" --folder "$LOCALIZATION_WORK/chunks"
+   python3 "$TOOLKIT_SKILL/scripts/localize_artifacts.py" check --plan "$LOCALIZATION_WORK/ko.plan.json"
+   ```
+
+   `chunks` keeps units without words (numbers, IDs) as they are and sends the rest. `merge` marks a target equal to its
+   source as preserved. `check` exits 3 with every remaining problem and its reason (a changed number or ID, a glossary
+   phrase to avoid, an English label left in place); fix those targets in the plan and run `check` again until it
+   passes. Without a sub-agent tool, translate the chunks yourself one after another.
 4. Apply into a fresh directory outside the canonical source:
 
    ```bash

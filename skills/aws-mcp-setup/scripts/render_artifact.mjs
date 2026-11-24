@@ -99,6 +99,8 @@ try {
   }
   const screenshots = [];
   if (CHECK && !options.includes("--bento")) {
+    // A paged report shows one section at a time; measure every page, as print does.
+    await page.addStyleTag({ content: "section.page{display:block !important}" });
     const lang = await page.evaluate(() => document.documentElement.lang || "");
     const widths = [1280, 390];
     const results = [];

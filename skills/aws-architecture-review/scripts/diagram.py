@@ -31,7 +31,7 @@ import subprocess
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from report_kit import scan_svg  # noqa: E402  (shared, standard library only)
+from report_kit import scan_svg, english_errors  # noqa: E402  (shared, standard library only)
 import aws_diagram  # noqa: E402  (same folder)
 
 # Account-wide settings and governance trails are not workload architecture.
@@ -398,6 +398,13 @@ def validate_graph(graph):
     for edge in graph["edges"]:
         if edge["source"] not in ids or edge["target"] not in ids:
             raise ValueError("dangling graph edge")
+    texts = [("title", graph.get("title", "")), ("subtitle", graph.get("subtitle", ""))]
+    texts += [(f"group {g['id']} label", g.get("label", "")) for g in groups.values()]
+    texts += [(f"node {n['id']} {k}", n.get(k, "")) for n in graph["nodes"] for k in ("label", "detail")]
+    texts += [(f"edge {e['id']} label", e.get("label", "")) for e in graph["edges"]]
+    language = english_errors(texts)
+    if language:
+        raise ValueError(language[0] + f" ({len(language)} label(s); the report's diagrams are translated with the report)")
 
 
 def coverage(graph, inventory, scope):

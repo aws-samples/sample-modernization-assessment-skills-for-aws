@@ -79,11 +79,13 @@ pathway `not_assessed`, and write what it would take to decide: the prerequisite
 decide it, in `before_deciding` or `not_now`. You may say what the data or services already in scope would make possible,
 as something to explore with the owner, never as a promised benefit.
 
+**Language.** Write everything in English (advice, candidates, list-price labels, diagram labels and captions), whatever the report language; the finished report is translated once at the end. The validator refuses text in another language.
+
 **Numbers and wording.** No amounts in the text: cite `list_prices` ids from `list_price.py` (your own file, with your
 `--id-prefix`); a price for a size still to be measured is an example (`cost_direction: measure_first`). No delivery
 durations or dates you did not read in the evidence (the effort word is the size). No effect percentages without a
 measurement. No superlatives or promotional words. Suggest rather than order: "would", "could", "worth considering";
-in Korean the endings "~하는 것을 권합니다", "~할 수 있습니다", never "~하십시오/~하세요". The validator refuses these.
+The validator refuses these.
 
 **Stay in your lane.** One change has one owner. Ownership when domains meet: where a component runs and scales (EC2, ECS,
 EKS, Lambda, the chatbot host) belongs to `containers`; data stores, their availability, backups, credentials and

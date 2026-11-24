@@ -36,7 +36,9 @@ Ask only what the request did not already answer. Defaults in brackets.
 3. **Host inspection** - only when SSM-online instances exist in the chosen scope: "N instances are
    reachable through SSM. Inspect running processes and services on them? This is the one write
    the assessment can make (SSM Run Command)." [no]
-4. **Report language** - [the language the user wrote in]
+4. **Report language** - [English]. The report is in one language from start to finish. Only an explicit `lang <tag>` in the
+   prompt (for example `lang ko`) or the reply `4 ko` changes it; the language the person writes in does not. Every
+   artifact is written in English and, for another language, the finished report is translated once at the end.
 5. **Context the report should not have to ask about** - three short facts the account team usually
    already knows, each with an "unknown" default so `confirm` still works:
    - environment: production (serves customers) / non-production [unknown]
@@ -73,7 +75,7 @@ Found resources in us-east-1 (62) and ap-northeast-2 (3). GuardDuty queries were
                            b) tag Environment=prod (12) · Project=shop (8)
                            c) whole account          [default: a]
 3. Host inspection (SSM)   3 instances online        [default: no]
-4. Report language         [default: Korean]
+4. Report language         [default: English; lang ko for Korean]
 5. Context                 environment prod/non-prod · operator internal/provider · support plan · compliance   [default: unknown]
 
 Reply "confirm" to proceed with the defaults, or give the numbers you want to change
@@ -89,7 +91,7 @@ Reading the reply:
 | `2 c` or `2 account` | whole account |
 | `2 b Environment=prod` | tag filter |
 | `3 yes` / `3 i-0abc..., i-0def...` | host inspection on (all SSM-online instances in scope, or the listed ones) |
-| `4 en` | report language |
+| `4 ko` / `lang ko` | report language Korean (default English) |
 | `defaults` / `기본값으로` (anywhere, including the original prompt) | skip the interview; `confirmed_by: defaults` |
 
 If the user's original prompt already named a region, stack, tag, workload name or language, do

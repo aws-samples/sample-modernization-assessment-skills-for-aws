@@ -133,7 +133,7 @@ def main():
     w.add_argument("--exclude-stack", action="append")
     w.add_argument("--services", help=f"comma-separated (default: {DEFAULT_SERVICES})")
     w.add_argument("--inspect-instance", action="append", help="i-... repeatable; enables host inspection")
-    w.add_argument("--language", required=True)
+    w.add_argument("--language", default="en", help="report language; English unless the person gave lang <tag> (for example lang ko)")
     auth = w.add_mutually_exclusive_group(required=True)
     auth.add_argument("--profile")
     auth.add_argument("--environment", action="store_true")

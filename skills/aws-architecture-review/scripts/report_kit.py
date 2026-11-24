@@ -33,6 +33,29 @@ PATHWAY_STATUS = {"candidate": ("Candidate", "#7AA116"), "conditional": ("Condit
                   "not_recommended": ("Not recommended", "#687078"), "not_assessed": ("Not assessed", "#8D99A8")}
 
 
+# Canonical artifacts are English; a report in another language is translated from them in one pass at the end
+# (localize_artifacts.py), so no report mixes languages. Resource names may contain any script, so a short run of
+# other letters is tolerated; prose in another language is not.
+NON_LATIN_LETTER = re.compile(r"[\u0370-\u03ff\u0400-\u04ff\u0590-\u06ff\u0e00-\u0e7f\u1100-\u11ff\u3040-\u30ff\u3130-\u318f\u3400-\u9fff\uac00-\ud7af\uf900-\ufaff]")
+
+
+def non_english_prose(value):
+    """True when `value` reads as text written in another language rather than English with a foreign name in it:
+    more than four letters of a non-Latin script that make up over a fifth of the letters."""
+    text = str(value or "")
+    other = len(NON_LATIN_LETTER.findall(text))
+    if other <= 4:
+        return False
+    letters = sum(1 for ch in text if ch.isalpha())
+    return other / max(letters, 1) > 0.2
+
+
+def english_errors(items):
+    """(where, text) pairs -> error strings for the ones that are not English."""
+    return [f"{where} is not in English; canonical artifacts are written in English and translated at the end when the run language is not English"
+            for where, text in items if non_english_prose(text)]
+
+
 def esc(value):
     return html.escape(str(value), quote=True)
 
@@ -70,6 +93,14 @@ details.kpi-list[open]{{grid-column:1 / -1}} details.kpi-list ul{{margin:0;paddi
 .kpi.fail{{border-top-color:#DD344C}} .kpi.warn{{border-top-color:#EC7211}} .kpi.pass{{border-top-color:#7AA116}} .kpi.unknown{{border-top-color:#7D8998}} .kpi.accent{{border-top-color:#FF9900}} .kpi.link{{border-top-color:{LINK}}}
 .grid{{display:grid;gap:16px}} .g2{{grid-template-columns:1.15fr 0.85fr}} .g3{{grid-template-columns:repeat(3,1fr)}}
 @media (max-width:900px){{.g2,.g3{{grid-template-columns:1fr}}}}
+nav.pages a{{display:inline-flex;gap:6px;align-items:center;font-size:12px;padding:7px 12px}} nav.pages .pn{{display:inline-block;min-width:18px;height:18px;line-height:18px;border-radius:9px;background:{PAPER2};color:{INK};text-align:center;font-size:10px}}
+nav.pager{{display:flex;justify-content:space-between;align-items:center;border-top:1px solid {RULE};margin:36px 0 0;padding:16px 0 8px;font-size:14px}}
+.segbar{{display:inline-flex;width:160px;border-radius:5px;overflow:hidden;background:{PAPER2};vertical-align:middle}} .segbar i{{display:block;height:100%}}
+ol.improvements{{margin:8px 0 0;padding:0;list-style:none;counter-reset:imp}} ol.improvements li{{counter-increment:imp;border:1px solid {RULE};border-left:4px solid {ACCENT};border-radius:6px;padding:10px 14px 10px 48px;margin:8px 0;position:relative;background:#fff}} ol.improvements li::before{{content:counter(imp);position:absolute;left:14px;top:10px;width:24px;height:24px;border-radius:12px;background:{ACCENT};color:#fff;font-weight:700;font-size:13px;text-align:center;line-height:24px}} ol.improvements li p{{margin:3px 0 0}} ol.improvements .chips{{display:inline-flex;gap:6px;flex-wrap:wrap;margin-left:6px;vertical-align:middle}}
+.pillar{{border:1px solid {RULE};border-radius:6px;padding:14px 18px;margin:16px 0;background:#fff}} .pillar>header{{display:flex;flex-wrap:wrap;gap:10px;align-items:center}} .pillar>header h3{{margin:0;font-size:17px}}
+.chart-card{{border:1px solid {RULE};border-radius:6px;padding:14px 16px;background:#fff;margin:14px 0}} .chart-card h3{{margin:0 0 6px;font-size:15px}} .chart-card svg{{width:100%;max-width:760px;height:auto;display:block;margin:0 auto}} .chart-card svg[data-chart=pillar-radar]{{max-width:400px}}
+table.grade-list td{{padding:7px 8px;vertical-align:middle}} table.grade-list .segbar{{width:120px}}
+.appendix-letter{{font-family:{MONO};color:{ACCENT};margin-right:6px}}
 @media (max-width:700px){{table{{display:block;max-width:100%;overflow-x:auto}} table.fields th{{width:auto;white-space:normal}} .wrap{{padding-left:16px;padding-right:16px}}}}
 .card{{border:1px solid {RULE};border-radius:6px;padding:18px 20px;background:#fff}} .card h3{{margin:0 0 6px;font-size:15px}} .card h4{{margin:0 0 8px;font-size:15px}} .card.consider p{{margin:6px 0;font-size:13px}} .card.consider p b{{color:{MUTED};font-weight:600;margin-right:4px}}
 .card .sub{{font-family:{MONO};font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:{MUTED};margin:0 0 12px}} .card svg{{width:100%;height:auto;display:block}}
@@ -334,10 +365,127 @@ def hero(eyebrow, title, lead, meta):
             f'<p>{esc(lead)}</p></div><div class="meta">{chips}</div></div></div>')
 
 
-def page(title, body, lang="en"):
+def page(title, body, lang="en", extra_css=""):
     return (f'<!doctype html><html lang="{lang}"><head><meta charset="utf-8">'
             f'<meta name="viewport" content="width=device-width,initial-scale=1"><title>{esc(title)}</title>'
-            f"<style>{css()}</style></head><body>{body}</body></html>\n")
+            f"<style>{css()}{extra_css}</style></head><body>{body}</body></html>\n")
+
+
+# ---------------------------------------------------------------------------
+# Paged report: one section visible at a time, chosen with CSS :target only (no script). A link to any element inside a
+# page shows that page; with no fragment the first page shows. Printing shows every page.
+# ---------------------------------------------------------------------------
+def pages_css(page_ids):
+    first = page_ids[0]
+    any_target = ", ".join(f"#{p}:target, #{p} :target" for p in page_ids)
+    rules = [f"section.page{{display:none}} section.page:target, section.page:has(:target){{display:block}}",
+             f"body:not(:has({any_target})) #{first}{{display:block}}",
+             f"body:not(:has({any_target})) nav.pages a[href=\"#{first}\"]{{background:{INK};color:#fff}}",
+             "@media print{section.page{display:block !important} nav.pages,nav.pager{display:none}}"]
+    for p in page_ids:
+        rules.append(f"body:has(#{p}:target, #{p} :target) nav.pages a[href=\"#{p}\"]{{background:{INK};color:#fff}}")
+    return "\n".join(rules)
+
+
+def pages_nav(items):
+    """The sticky page menu: (page id, label) pairs, numbered."""
+    links = "".join(f'<a href="#{esc(pid)}"><span class="pn">{n}</span>{esc(label)}</a>' for n, (pid, label) in enumerate(items, 1))
+    return f'<nav class="toc pages"><div class="wrap">{links}</div></nav>'
+
+
+def pager(items, index):
+    """Previous / next links at the bottom of page `index`."""
+    prev_link = f'<a href="#{esc(items[index - 1][0])}">&larr; {esc(items[index - 1][1])}</a>' if index > 0 else "<span></span>"
+    next_link = f'<a href="#{esc(items[index + 1][0])}">{esc(items[index + 1][1])} &rarr;</a>' if index + 1 < len(items) else "<span></span>"
+    return f'<nav class="pager">{prev_link}<span class="small">{index + 1} / {len(items)}</span>{next_link}</nav>'
+
+
+# ---------------------------------------------------------------------------
+# Summary charts
+# ---------------------------------------------------------------------------
+def radar(values, slug="pillar-radar", title="Pillar scores", colors=None, size=420):
+    """Polygon of 0-100 values on one axis per category (the six pillars). `colors` maps a category to its point colour
+    (the grade colour); a category without a value sits at the centre with a hollow point."""
+    names = list(values)
+    n = len(names)
+    cx, cy, r = size / 2, size / 2 + 4, size / 2 - 92
+    out = [svg_open(size, size + 8, slug, title, f"Radar chart of {n} categories on a 0 to 100 scale; the outer ring is 100.")]
+    def point(i, v):
+        angle = -math.pi / 2 + 2 * math.pi * i / n
+        return cx + r * v / 100 * math.cos(angle), cy + r * v / 100 * math.sin(angle)
+    for ring in (25, 50, 75, 100):
+        pts = " ".join(f"{x:.1f},{y:.1f}" for x, y in (point(i, ring) for i in range(n)))
+        out.append(f'<polygon points="{pts}" fill="none" stroke="{RULE}" stroke-width="1"/>')
+        # ring values between the first two axes, clear of the axis labels and their values
+        angle = -math.pi / 2 + math.pi / n
+        out.append(text(f"{cx + r * ring / 100 * math.cos(angle) + 3:.1f}", f"{cy + r * ring / 100 * math.sin(angle):.1f}", str(ring), 9, SOFT, mono=True))
+    for i, name in enumerate(names):
+        x, y = point(i, 100)
+        out.append(f'<line x1="{cx:.1f}" y1="{cy:.1f}" x2="{x:.1f}" y2="{y:.1f}" stroke="{RULE}" stroke-width="1"/>')
+        lx, ly = point(i, 118)
+        anchor = "middle" if abs(lx - cx) < 8 else ("start" if lx > cx else "end")
+        words = name.split(" ")
+        lines = [" ".join(words[:2]), " ".join(words[2:])] if len(words) > 2 else ([" ".join(words)] if len(name) < 16 else words)
+        for k, line in enumerate(l for l in lines if l):
+            out.append(text(f"{lx:.1f}", f"{ly + 4 + k * 13 - (len(lines) - 1) * 6:.1f}", line, 11.5, INK, 600, anchor=anchor))
+        v = values[name]
+        if v is not None:
+            vx, vy = point(i, 118)
+            out.append(text(f"{vx:.1f}", f"{vy + 4 + len([l for l in lines if l]) * 13 - (len(lines) - 1) * 6 + 2:.1f}", num(v), 10, MUTED, mono=True, anchor=anchor))
+    pts = [point(i, values[nm] or 0) for i, nm in enumerate(names)]
+    out.append(f'<polygon points="{" ".join(f"{x:.1f},{y:.1f}" for x, y in pts)}" fill="rgba(255,153,0,0.16)" stroke="{ACCENT}" stroke-width="2"/>')
+    for (x, y), nm in zip(pts, names):
+        color = (colors or {}).get(nm, ACCENT)
+        if values[nm] is None:
+            out.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="4" fill="#fff" stroke="{SOFT}" stroke-width="1.5"/>')
+        else:
+            out.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="5" fill="{color}" stroke="#fff" stroke-width="1.5"/>')
+    out.append("</svg>")
+    return "".join(out)
+
+
+def priority_matrix(points, columns, rows, slug="priority-matrix", title="Size and cost of each recommendation", legend_items=None, width=640):
+    """A grid of `columns` (left to right, smallest first) by `rows` (top to bottom, cheapest first); each point is a
+    numbered dot (label, column key, row key, colour, href). Several points in one cell are laid out side by side."""
+    left, top, cell_w = 120, 34, (width - 130) / len(columns)
+    cell_h = 62
+    height = top + cell_h * len(rows) + 14
+    out = [svg_open(width, height, slug, title, "Grid of recommendations by size of work (columns) and cost direction (rows); each dot is one item.")]
+    for j, (key, label) in enumerate(columns):
+        out.append(text(f"{left + cell_w * (j + 0.5):.1f}", 20, label, 11, MUTED, 600, anchor="middle"))
+    for i, (key, label) in enumerate(rows):
+        y = top + i * cell_h
+        out.append(text(left - 10, f"{y + cell_h / 2 + 4:.1f}", label, 11, MUTED, 600, anchor="end"))
+        for j in range(len(columns)):
+            shade = "rgba(122,161,22,0.08)" if (i + j) <= 1 else ("rgba(221,52,76,0.06)" if (i + j) >= len(rows) + len(columns) - 3 else PAPER2)
+            out.append(f'<rect x="{left + j * cell_w + 2:.1f}" y="{y + 2}" width="{cell_w - 4:.1f}" height="{cell_h - 4}" rx="4" fill="{shade}"/>')
+    cells = {}
+    for p in points:
+        cells.setdefault((p[1], p[2]), []).append(p)
+    col_index = {k: j for j, (k, _) in enumerate(columns)}
+    row_index = {k: i for i, (k, _) in enumerate(rows)}
+    for (ck, rk), items in cells.items():
+        if ck not in col_index or rk not in row_index:
+            continue
+        x0, y0 = left + col_index[ck] * cell_w, top + row_index[rk] * cell_h
+        per_row = max(1, int((cell_w - 12) // 26))
+        for k, (label, _, _, color, href) in enumerate(items):
+            cx = x0 + 18 + (k % per_row) * 26
+            cy = y0 + 18 + (k // per_row) * 24
+            dot = (f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="11" fill="{color}"/>'
+                   + text(f"{cx:.1f}", f"{cy + 4:.1f}", label, 10, "#fff", 700, mono=True, anchor="middle"))
+            out.append(f'<a href="{esc(href)}">{dot}</a>' if href else dot)
+    out.append("</svg>")
+    return "".join(out) + (legend(legend_items) if legend_items else "")
+
+
+def segment_bar(counts, order=None, height=10):
+    """A thin inline bar of status counts (HTML, not SVG) for a heading line."""
+    order = order or STATUS_ORDER
+    total = sum(counts.get(s, 0) for s in order) or 1
+    parts = "".join(f'<i style="width:{100 * counts.get(s, 0) / total:.2f}%;background:{STATUS[s][1]}" title="{esc(STATUS[s][0])} {counts.get(s, 0)}"></i>'
+                    for s in order if counts.get(s))
+    return f'<span class="segbar" style="height:{height}px">{parts}</span>'
 
 
 # ---------------------------------------------------------------------------
