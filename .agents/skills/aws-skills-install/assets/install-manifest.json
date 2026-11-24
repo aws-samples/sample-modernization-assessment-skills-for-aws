@@ -355,16 +355,16 @@
     {
       "name": "aws-modernization-pathway",
       "source": "skills/aws-modernization-pathway",
-      "digest": "b685d49c85e25bcd5081a507318650e88b05c45a012ebc684e86e19f4117f37b",
+      "digest": "f07876c979ed9af88ebf765e951e95f8000db162de8de2aa6f2378f48062989f",
       "stamp": {
         "package": "moda-skills",
-        "sha256": "b685d49c85e25bcd5081a507318650e88b05c45a012ebc684e86e19f4117f37b"
+        "sha256": "f07876c979ed9af88ebf765e951e95f8000db162de8de2aa6f2378f48062989f"
       },
       "files": [
         {
           "path": "SKILL.md",
-          "bytes": 20891,
-          "sha256": "edc764394084326fa6309ffd9adc639474dea71b0415dd1941ca111eeecd5cea"
+          "bytes": 21104,
+          "sha256": "4086086694daa1e6f3b19f1657e7ab219364967498ca35e07152aaddeda97b82"
         },
         {
           "path": "agents/openai.yaml",
@@ -453,13 +453,13 @@
         },
         {
           "path": "references/specialists.md",
-          "bytes": 10584,
-          "sha256": "a0c491b59a42d98bbdf5cefb760f63019d2de6c0b466bc666e6768ee61f82dac"
+          "bytes": 11157,
+          "sha256": "571f86bef8a1c443fabee2f4bac99eab36eccf7d74f216710b4b03d39cb22402"
         },
         {
           "path": "scripts/advice.py",
-          "bytes": 32569,
-          "sha256": "8f2306fd84ff53e2f21d686bf6325231b1bcef8720a5008489d772e5f69a05bf"
+          "bytes": 48572,
+          "sha256": "f5315e39e14cee8426a189c00fd40f6dbf93a9c30efe7c6eb40b61789b09a943"
         },
         {
           "path": "scripts/assessment_report.py",

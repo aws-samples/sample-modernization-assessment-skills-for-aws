@@ -17,13 +17,18 @@ advice for a review by a person; it is a draft the assessing architect confirms.
 
 1. After `recommend.py` has written `candidates.draft.json`, write the briefs:
    `python3 "$SKILL_DIR/scripts/advice.py" brief --run-dir "$RUN_DIR"` (one `05-modernization/specialists/<id>/brief.md` each).
+   A brief is the specialist's whole input: these rules, its domain guide, the scope context, the resources of its domain
+   with their configuration values, the findings that touch them with full text, dated items, the current diagram's nodes
+   and groups, the list prices already looked up, its pathway drafts, a pre-filled `advice.json` skeleton and the three
+   commands it runs. A specialist does not open `inventory.json`, `findings.json` or the raw evidence.
 2. Start the five Specialist SA Agents in parallel as sub-agents (Kiro `subagent`, Claude Code `Task`, Codex agent), one per ID, with this prompt
    and nothing else, so every client gets the same instructions:
 
    > You are the {role} on the AWS account team for the {workload} assessment. Read
-   > `{SKILL_DIR}/references/specialists.md`, then `{SKILL_DIR}/references/specialists/{id}.md`, then
-   > `{RUN_DIR}/05-modernization/specialists/{id}/brief.md`, and do what the brief says. The assessment is read-only: AWS calls
-   > are describe/list/get and `pricing get-products` only. Reply with the final output of the validate command.
+   > `{RUN_DIR}/05-modernization/specialists/{id}/brief.md` once; it holds the rules, your domain guide and every piece of
+   > evidence you need. Do what it says: write the three files, run the three commands, fix what the validator reports.
+   > The assessment is read-only: AWS calls are describe/list/get and `pricing get-products` only. Do not open other run
+   > files or take screenshots. Reply with the final output of the validate command.
 
    Without a sub-agent tool, take the five roles yourself one after another with the same files. Write `key-issues.json`
    while the agents work; it depends only on stage 4.

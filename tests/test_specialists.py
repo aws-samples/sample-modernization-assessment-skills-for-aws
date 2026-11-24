@@ -81,11 +81,27 @@ class SpecialistReviewTests(unittest.TestCase):
     def test_briefs_name_the_role_domain_resources_and_commands(self):
         with tempfile.TemporaryDirectory() as tmp:
             run = build_run(Path(tmp))
+            inventory = json.loads((run / "03-as-is-enriched/inventory.json").read_text())
+            inventory["resources"][0]["attributes"] = {"Engine": "aurora-postgresql", "EngineVersion": "16.4", "MultiAZ": False, "BackupRetentionPeriod": 1, "DeletionProtection": False,
+                                                       "DBClusterMembers": [{"DBInstanceIdentifier": "w", "IsClusterWriter": True}], "StorageEncrypted": True, "DBClusterArn": "arn:x"}
+            (run / "03-as-is-enriched/inventory.json").write_text(json.dumps(inventory))
+            (run / "04-review/diagrams").mkdir()
+            (run / "04-review/diagrams/diagram-graph.json").write_text(json.dumps({"groups": [{"id": "vpc", "kind": "vpc", "label": "VPC", "parent": None}],
+                                                                                  "nodes": [{"id": "n1", "label": "Aurora cluster orders-db", "type": "rds.cluster", "group": "vpc", "resource_ids": [CLUSTER]}], "edges": []}))
+            (run / "05-modernization/candidates.draft.json").write_text(json.dumps([{"pathway": "managed-database", "status": "not_assessed"}, {"pathway": "container", "status": "not_assessed"}]))
             result = advice.brief(advice.Context(run), list(advice.ORDER))
             self.assertEqual([b["specialist"] for b in result], ["containers", "database", "analytics", "genai", "devops"])
             text = (run / "05-modernization/specialists/database/brief.md").read_text()
             self.assertIn("Database Specialist SA Agent", text); self.assertIn(CLUSTER, text); self.assertNotIn(TASK, text)
             self.assertIn("--id-prefix db-", text); self.assertIn("advice.py\" validate", text); self.assertIn("f0001", text)
+            # The dossier is the whole input: configuration values, full finding text, diagram nodes, prices, drafts, rules, domain guide, skeleton.
+            for expected in ("engine=aurora-postgresql 16.4", "writers=1", "readers=0", "backup_retention_days=1", "| f0001 | AURORA_SINGLE_INSTANCE | FAIL | HIGH |", "add a reader",
+                             "| n1 | Aurora cluster orders-db |", "| p001 | reader |", '"pathway": "managed-database"', "This file is your whole input",
+                             "# Shared rules for every Specialist SA Agent", "# Your domain guide", "## What to look at",
+                             '"specialist": "database"', "diagram.py\" --graph"):
+                self.assertIn(expected, text, expected)
+            self.assertNotIn('"pathway": "container"', text, "only the specialist's own pathway drafts")
+            self.assertNotIn("aws-diagram-design", text, "no redraw step")
             self.assertIn(TASK, (run / "05-modernization/specialists/containers/brief.md").read_text())
 
     def test_validate_accepts_grounded_advice_and_refuses_brochure_wording(self):
