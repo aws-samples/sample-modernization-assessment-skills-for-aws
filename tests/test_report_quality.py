@@ -410,6 +410,16 @@ class RunMetadataImport(unittest.TestCase):
             self.assertEqual(meta["totals"]["requests"], 4)
             self.assertIsNone(meta["totals"]["total_tokens"], "Kiro V3 records no tokens; never estimated")
             self.assertIn(("Kiro credits", "2.2"), kit.run_metadata_rows(meta))
+            # Kiro records a turn's usage only when the turn ends. The import made before the long turn ended under-counts;
+            # importing the same session again replaces that entry instead of adding to it (the live run double-counted).
+            lines.append({"timestamp": "2026-11-09T09:00:00Z", "payload": {"type": "usage_summary", "elapsedTime": 3600000, "requestIds": [f"r{i}" for i in range(300)], "promptTurnSummaries": [{"usage": 400.0}]}})
+            (sess / "messages.jsonl").write_text("\n".join(json.dumps(x) for x in lines))
+            with unittest.mock.patch.object(rm.Path, "home", return_value=home):
+                rm.cmd_import_kiro_session(argparse.Namespace(file=str(file), project_root=str(project), label="assessment", since=None, until=None, last=1))
+            meta = kit.load_run_metadata(file)
+            self.assertEqual(len(meta["entries"]), 1, "the same session is one entry")
+            self.assertEqual(meta["totals"]["requests"], 304)
+            self.assertIn(("Kiro credits", "402.2"), kit.run_metadata_rows(meta))
 
 
 class ModelGuidance(unittest.TestCase):

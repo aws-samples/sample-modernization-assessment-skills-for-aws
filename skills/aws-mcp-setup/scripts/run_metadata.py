@@ -170,6 +170,9 @@ def cmd_import_kiro_session(args):
                  "input_tokens": None, "output_tokens": None, "requests": summary["requests"],
                  "breakdown": {"credits": summary["credits"], "turns": summary["turns"], "models": summary["models"],
                                "note": "elapsed time is turn wall-clock as reported by Kiro (model plus tool time); Kiro CLI V3 does not record token counts"}}
+        # Kiro writes a turn's usage only when the turn ends, so an import made while the long assessment turn was still
+        # running under-counts. A later import of the same session replaces that entry instead of adding to it.
+        data["entries"] = [e for e in data["entries"] if e.get("source") != entry["source"]]
         data["entries"].append(entry)
         added.append({"session": folder.name, **summary})
     if not added:
@@ -248,7 +251,9 @@ def cmd_import_claude_transcript(args):
         raise ValueError("no assistant usage records in range")
     data = load(args.file)
     model = args.model or (next(iter(models)) if len(models) == 1 else None)
-    data["entries"].append({"label": args.label, "model_id": model, "source": f"claude-code transcript ({Path(args.transcript).name})",
+    source = f"claude-code transcript ({Path(args.transcript).name})"
+    data["entries"] = [e for e in data["entries"] if e.get("source") != source]  # a re-import of the same session replaces, not adds
+    data["entries"].append({"label": args.label, "model_id": model, "source": source,
                             "recorded_at": now(), "inference_seconds": None,
                             "input_tokens": totals["input_tokens"] + totals["cache_creation_input_tokens"] + totals["cache_read_input_tokens"],
                             "output_tokens": totals["output_tokens"], "requests": requests,
@@ -379,7 +384,9 @@ def cmd_import_codex_rollout(args):
         raise ValueError("no token usage records in range")
     data = load(args.file)
     model = args.model or (next(iter(models)) if len(models) == 1 else None)
-    data["entries"].append({"label": args.label, "model_id": model, "source": f"codex rollout ({main_path.name})",
+    source = f"codex rollout ({main_path.name})"
+    data["entries"] = [e for e in data["entries"] if e.get("source") != source]  # a re-import of the same session replaces, not adds
+    data["entries"].append({"label": args.label, "model_id": model, "source": source,
                             "recorded_at": now(), "inference_seconds": None,
                             "input_tokens": totals["input_tokens"], "output_tokens": totals["output_tokens"], "requests": requests,
                             "breakdown": {"cached_input": totals["cached_input_tokens"], "cache_write_input": totals["cache_write_input_tokens"],

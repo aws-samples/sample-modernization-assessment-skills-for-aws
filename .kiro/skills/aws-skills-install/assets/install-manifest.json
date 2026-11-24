@@ -127,10 +127,10 @@
     {
       "name": "aws-mcp-setup",
       "source": "skills/aws-mcp-setup",
-      "digest": "677fdb41c5e1c800efa0c1eb5a79864efebb648d41a4d973887b8c73c7c386a8",
+      "digest": "69d3311d64682f86da0d83c4f4c7f2fec34602cea0425968a60ef9b01e5b4e02",
       "stamp": {
         "package": "moda-skills",
-        "sha256": "677fdb41c5e1c800efa0c1eb5a79864efebb648d41a4d973887b8c73c7c386a8"
+        "sha256": "69d3311d64682f86da0d83c4f4c7f2fec34602cea0425968a60ef9b01e5b4e02"
       },
       "files": [
         {
@@ -185,8 +185,8 @@
         },
         {
           "path": "scripts/run_metadata.py",
-          "bytes": 24610,
-          "sha256": "c7b02c4ffc8d10cb1bf0b84507dc9eeedf852514d0a7442c62609a96d71c248f"
+          "bytes": 25244,
+          "sha256": "a4b0c7d632c59514ef198dca338a9b8dc7e1375c507bad666fa7a952f44e36ec"
         },
         {
           "path": "scripts/setup_toolkit.py",
