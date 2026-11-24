@@ -34,7 +34,7 @@ NODE_W = 232           # node box width; the text column is NODE_W - ICON_X - IC
 NODE_PAD = 10
 ICON = 32
 LABEL_SIZE, DETAIL_SIZE, LABEL_LH, DETAIL_LH = 11.5, 9.5, 14, 12
-MAX_LABEL_LINES, MAX_DETAIL_LINES = 3, 3
+MAX_LABEL_LINES, MAX_DETAIL_LINES = 3, 4
 GROUP_LABEL_SIZE, GROUP_HEAD = 12, 20
 TITLE_H = 64
 MARGIN = 24
@@ -336,7 +336,8 @@ def node_lines(node, width):
 
 
 BADGE_ROW = 18
-GAP = 28           # between siblings; leaves a corridor for connectors
+GAP = 40           # between siblings; leaves a corridor for two or three connectors
+MAX_ROW_W = 1800   # a row of groups wraps beyond this width, so a drawing stays readable at page width
 PAD = 16           # inside a group, left/right/bottom
 HEAD = 30          # inside a group, top (badge + label)
 
@@ -363,6 +364,19 @@ def grid(items, columns):
     pos, x, y, row_h, width = {}, 0, 0, 0, 0
     for i, (iid, w, h) in enumerate(items):
         if i and i % columns == 0:
+            x, y, row_h = 0, y + row_h + GAP, 0
+        pos[iid] = (x, y)
+        x += w + GAP
+        row_h = max(row_h, h)
+        width = max(width, x - GAP)
+    return pos, width, (y + row_h) if items else 0
+
+
+def rows(items, max_width=MAX_ROW_W):
+    """Place (id, w, h) items left to right, starting a new row when the next one would pass `max_width`."""
+    pos, x, y, row_h, width = {}, 0, 0, 0, 0
+    for iid, w, h in items:
+        if x and x + w > max_width:
             x, y, row_h = 0, y + row_h + GAP, 0
         pos[iid] = (x, y)
         x += w + GAP
@@ -432,11 +446,8 @@ class Layout:
         services = [c for c in kids if (self.groups[c].get("kind") or "") == "services"]
         rest = [c for c in kids if c not in vpcs and c not in services]
         order = vpcs + services + rest
-        x, h, w = 0, 0, 0
-        for cid in order:
-            cw, ch = self.size[cid]
-            self.rel[cid] = (x, 0); x += cw + GAP; h = max(h, ch)
-        w = x - GAP if order else 0
+        pos, w, h = rows([(cid, *self.size[cid]) for cid in order], max(MAX_ROW_W, max([self.size[c][0] for c in order] or [0])))
+        self.rel.update(pos)
         if self.members[gid]:
             items = [(nid, *self.size[nid]) for nid in self.members[gid]]
             pos, pw, ph = grid(items, 1 if order else columns_for(len(items), "other"))
@@ -451,11 +462,9 @@ class Layout:
         azs = sorted([c for c in kids if (self.groups[c].get("kind") or "") == "az"], key=lambda c: str(self.groups[c].get("az") or self.groups[c].get("label")))
         spans = [c for c in kids if (self.groups[c].get("kind") or "") == "subnet-span"]
         others = [c for c in kids if c not in azs and c not in spans]
-        x, row_h = 0, 0
-        for cid in azs + others:
-            cw, ch = self.size[cid]
-            self.rel[cid] = (x, 0); x += cw + GAP; row_h = max(row_h, ch)
-        width = max(x - GAP, 0)
+        top = [(cid, *self.size[cid]) for cid in azs + others]
+        pos, width, row_h = rows(top, max(MAX_ROW_W, sum(self.size[c][0] + GAP for c in azs)))  # the AZ columns stay side by side
+        self.rel.update(pos)
         y = row_h + (GAP if row_h else 0)
         for cid in spans:
             cw, ch = self.size[cid]
@@ -490,11 +499,23 @@ class Layout:
         for nid in self.loose:
             self.measure_node(nid)
         items = [(gid, *self.size[gid]) for gid in self.roots] + [(nid, *self.size[nid]) for nid in self.loose]
-        pos, w, h = grid(items, max(1, len(self.roots)) if self.roots else columns_for(len(items), "other"))
+        pos, w, h = rows(items, max(MAX_ROW_W, max([i[1] for i in items] or [0]))) if self.roots else grid(items, columns_for(len(items), "other"))
         self.rel.update(pos)
         for iid in [i for i, _, _ in items]:
             self.place(iid, 0, 0)
         return self.boxes
+
+
+def group_headers(graph, boxes):
+    """The title band of each group (badge and label), which connectors and edge labels keep clear of."""
+    out = []
+    for g in graph.get("groups", []):
+        if g["id"] not in boxes:
+            continue
+        x, y, w, h = boxes[g["id"]]
+        width = min(w, 34 + text_width(str(g.get("label") or ""), GROUP_LABEL_SIZE) + 10)
+        out.append((x, y, width, 24))
+    return out
 
 
 def route_edges(graph, boxes, badge_ids, cell=8):
@@ -524,6 +545,23 @@ def route_edges(graph, boxes, badge_ids, cell=8):
             for cy in range(c0[1], c1[1] + 1):
                 blocked.add((cx, cy))
     used = {}
+    toll = {}  # cells that cost extra: group borders (a connector should not run along one) and group titles (crossed only when there is no other way)
+    for g in graph.get("groups", []):
+        if g["id"] not in boxes:
+            continue
+        x, y, w, h = boxes[g["id"]]
+        c0, c1 = to_cell(x, y), to_cell(x + w, y + h)
+        for cx in range(c0[0], c1[0] + 1):
+            for cy in (c0[1], c1[1]):
+                toll[(cx, cy)] = max(toll.get((cx, cy), 0), 4)
+        for cy in range(c0[1], c1[1] + 1):
+            for cx in (c0[0], c1[0]):
+                toll[(cx, cy)] = max(toll.get((cx, cy), 0), 4)
+    for x, y, w, h in group_headers(graph, boxes):
+        c0, c1 = to_cell(x, y), to_cell(x + w, y + h)
+        for cx in range(c0[0], c1[0] + 1):
+            for cy in range(c0[1], c1[1] + 1):
+                toll[(cx, cy)] = 400
     plan = {}
     for e in graph["edges"]:
         if e["id"] in badge_ids or e["source"] not in boxes or e["target"] not in boxes:
@@ -582,7 +620,7 @@ def route_edges(graph, boxes, badge_ids, cell=8):
                 nc = (c[0] + nd[0], c[1] + nd[1])
                 if not (0 <= nc[0] < cols and 0 <= nc[1] < rows) or (nc in blocked and nc != goal):
                     continue
-                cost = g + 1 + (5 if nd != d else 0) + used.get(nc, 0)
+                cost = g + 1 + (5 if nd != d else 0) + used.get(nc, 0) + toll.get(nc, 0)
                 if (nc, nd) not in best:
                     heapq.heappush(heap, (cost + abs(nc[0] - goal[0]) + abs(nc[1] - goal[1]), cost, nc, nd, (c, d)))
         return None
@@ -606,9 +644,11 @@ def route_edges(graph, boxes, badge_ids, cell=8):
             tail = [(last[0], b[1]), b] if t_side in {"left", "right"} else [(b[0], last[1]), b]
             pts = head + mid + tail
             for c in cells:
-                used[c] = used.get(c, 0) + 3
+                used[c] = used.get(c, 0) + 10
+                for nx, ny in ((c[0] + 1, c[1]), (c[0] - 1, c[1]), (c[0], c[1] + 1), (c[0], c[1] - 1)):
+                    used[(nx, ny)] = used.get((nx, ny), 0) + 2  # keeps parallel connectors a cell apart
         pts = simplify(pts)
-        routes[e["id"]] = (pts, label_point(pts, node_boxes))
+        routes[e["id"]] = (pts, None)
     routes["__fallback__"] = fallback
     return routes
 
@@ -638,6 +678,83 @@ def label_point(pts, obstacles=()):
             return (mid[0], mid[1] - 4) if abs(a[0] - b[0]) >= abs(a[1] - b[1]) else (mid[0] + 4, mid[1])
     a, b = segments[0]
     return ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2 - 4)
+
+
+LABEL_W = 200       # an edge label wraps at this width, two lines at most
+LABEL_LH_EDGE = 11
+
+
+def boxes_meet(a, b, pad=0):
+    return a[0] - pad < b[0] + b[2] and b[0] - pad < a[0] + a[2] and a[1] - pad < b[1] + b[3] and b[1] - pad < a[1] + a[3]
+
+
+def segment_hits(box, a, b):
+    """True when the orthogonal segment a-b passes through `box`."""
+    x, y, w, h = box
+    if abs(a[1] - b[1]) < 0.5:
+        return y <= a[1] <= y + h and min(a[0], b[0]) <= x + w and max(a[0], b[0]) >= x
+    return x <= a[0] <= x + w and min(a[1], b[1]) <= y + h and max(a[1], b[1]) >= y
+
+
+def place_labels(graph, routes, boxes, badge_ids, headers, extent):
+    """A position for every edge label that covers no node, no group title and no other label, preferring spots no
+    other connector crosses. A label that fits nowhere becomes a numbered marker on its connector, explained under the
+    legend. Returns ({edge id: placement}, [(number, text)])."""
+    node_boxes = [boxes[n["id"]] for n in graph["nodes"] if n["id"] in boxes]
+    segments = {eid: list(zip(pts, pts[1:])) for eid, (pts, _) in routes.items()}
+    placed, keyed, out = [], [], {}
+    x0, y0, x1, y1 = extent
+    def free(box):
+        if box[0] < x0 or box[1] < y0 or box[0] + box[2] > x1 or box[1] + box[3] > y1:
+            return False
+        return not any(boxes_meet(box, b, 3) for b in node_boxes) and not any(boxes_meet(box, h, 1) for h in headers) and not any(boxes_meet(box, b, 2) for b in placed)
+    def crossings(box, eid):
+        return sum(1 for other, segs in segments.items() if other != eid for a, b in segs if segment_hits(box, a, b))
+    edges = [e for e in graph["edges"] if e["id"] in routes and e["id"] not in badge_ids and " ".join(str(e.get("label") or "").split())]
+    for e in sorted(edges, key=lambda e: -len(str(e.get("label")))):
+        text = " ".join(str(e["label"]).split())
+        lines, cut = wrap(text, DETAIL_SIZE, LABEL_W, 2)
+        w = max(text_width(l, DETAIL_SIZE) for l in lines) + 8
+        h = len(lines) * LABEL_LH_EDGE + 4
+        best = None
+        segs = sorted(segments[e["id"]], key=lambda ab: -(abs(ab[0][0] - ab[1][0]) + abs(ab[0][1] - ab[1][1])))
+        for a, b in segs if not cut else []:
+            horizontal = abs(a[1] - b[1]) < 0.5
+            for frac in (0.5, 0.35, 0.65, 0.2, 0.8):
+                px, py = a[0] + (b[0] - a[0]) * frac, a[1] + (b[1] - a[1]) * frac
+                spots = ([(px - w / 2, py - h - 2), (px - w / 2, py + 2)] if horizontal else [(px + 4, py - h / 2), (px - 4 - w, py - h / 2)])
+                for bx, by in spots:
+                    box = (bx, by, w, h)
+                    if free(box):
+                        score = crossings(box, e["id"])
+                        if best is None or score < best[0]:
+                            best = (score, box)
+                if best and best[0] == 0:
+                    break
+            if best and best[0] == 0:
+                break
+        if best:
+            placed.append(best[1])
+            out[e["id"]] = {"lines": lines, "box": best[1]}
+            continue
+        # A numbered marker on the connector; the text goes under the legend.
+        number = len(keyed) + 1
+        spot = None
+        for a, b in segs:
+            for frac in (0.5, 0.3, 0.7, 0.15, 0.85):
+                cx, cy = a[0] + (b[0] - a[0]) * frac, a[1] + (b[1] - a[1]) * frac
+                box = (cx - 8, cy - 8, 16, 16)
+                if free(box):
+                    spot = (cx, cy); break
+            if spot:
+                break
+        if spot is None:
+            a, b = segs[0]
+            spot = ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
+        placed.append((spot[0] - 8, spot[1] - 8, 16, 16))
+        keyed.append((number, text))
+        out[e["id"]] = {"marker": number, "center": spot}
+    return out, keyed
 
 
 def points_to_path(pts):
@@ -672,7 +789,7 @@ def group_depth(groups, gid):
 def renderer_words():
     """The renderer's own English words (legend lines, state tags, the legend heading), for a drawing in another
     language: the localizer translates these with the graph's labels and redraws."""
-    out = ["Legend", "Architecture", "Chip on a node: attached to the aggregate shown with that tag (security groups, route tables)",
+    out = ["Legend", "Connections", "Architecture", "Chip on a node: attached to the aggregate shown with that tag (security groups, route tables)",
            "proposed", "changed", "removal candidate", "unconfirmed", "declared"]
     out += [v[3] for v in STATES.values()] + [v[2] for v in EDGE_STATES.values()] + [v[3] for v in ZONES.values()]
     return list(dict.fromkeys(out))
@@ -723,6 +840,8 @@ def render(graph, output, name, title=None, note=None, icons=None, language="en"
         raise RuntimeError(f"no geometry for {', '.join(missing[:8])}")
     min_x = min(b[0] for b in boxes.values()); min_y = min(b[1] for b in boxes.values())
     max_x = max(b[0] + b[2] for b in boxes.values()); max_y = max(b[1] + b[3] for b in boxes.values())
+    headers = group_headers(graph, boxes)
+    labels, keyed = place_labels(graph, routes, boxes, badge_ids, headers, (min_x, min_y, max_x, max_y))
     dx, dy = MARGIN - min_x, TITLE_H + MARGIN - min_y
     width = max_x - min_x + 2 * MARGIN
     icon_set = IconSet(icons)
@@ -760,19 +879,29 @@ def render(graph, output, name, title=None, note=None, icons=None, language="en"
             continue
         if e["id"] not in routes:
             missing_routes.append(e["id"]); continue
-        pts, (lx, ly) = routes[e["id"]]
+        pts, _ = routes[e["id"]]
         state = e.get("state") or "observed_configuration"
         color, dash, _ = EDGE_STATES.get(state, EDGE_STATES["observed_configuration"])
         edge_states.add(state if state in EDGE_STATES else "observed_configuration")
         dash_attr = f' stroke-dasharray="{dash}"' if dash else ""
         marker = "arrow-accent" if color == ACCENT else "arrow-soft" if color == SOFT else "arrow"
-        out.append(f'<g data-edge-id="{esc(e["id"])}"><path d="{points_to_path(pts)}" stroke="{color}" stroke-width="1.3"{dash_attr} marker-end="url(#{marker})"/>')
         label = " ".join(str(e.get("label") or "").split())
-        if label:
-            short, _ = wrap(label, DETAIL_SIZE, 170, 1)
-            out.append(f'<text x="{lx:.1f}" y="{ly:.1f}" font-size="{DETAIL_SIZE}" fill="{MUTED}" text-anchor="middle" paint-order="stroke" stroke="{PAPER}" stroke-width="3" stroke-linejoin="round">{esc(short[0])}</text>')
-        out.append("</g>")
+        out.append(f'<g data-edge-id="{esc(e["id"])}"><title>{esc(label)}</title><path d="{points_to_path(pts)}" stroke="{color}" stroke-width="1.3"{dash_attr} marker-end="url(#{marker})"/></g>')
     out.append("</g>")
+    # Edge labels above everything: a white plate under the text, or a numbered marker explained under the legend.
+    label_layer = [f'<g transform="translate({dx:.1f},{dy:.1f})">']
+    for eid, spot in labels.items():
+        if "lines" in spot:
+            bx, by, bw, bh = spot["box"]
+            label_layer.append(f'<g data-label-for="{esc(eid)}"><rect x="{bx:.1f}" y="{by:.1f}" width="{bw:.1f}" height="{bh:.1f}" rx="3" fill="{PAPER}" fill-opacity="0.92"/>')
+            for k, line in enumerate(spot["lines"]):
+                label_layer.append(f'<text x="{bx + bw / 2:.1f}" y="{by + 11 + k * LABEL_LH_EDGE:.1f}" font-size="{DETAIL_SIZE}" fill="{MUTED}" text-anchor="middle">{esc(line)}</text>')
+            label_layer.append("</g>")
+        else:
+            cx, cy = spot["center"]
+            label_layer.append(f'<g data-label-for="{esc(eid)}"><circle cx="{cx:.1f}" cy="{cy:.1f}" r="8" fill="{INK}"/>'
+                               f'<text x="{cx:.1f}" y="{cy + 3.5:.1f}" font-size="9" font-weight="700" fill="{PAPER}" text-anchor="middle" font-family="{MONO}">{spot["marker"]}</text></g>')
+    label_layer.append("</g>")
     # Nodes
     states = set()
     text_w = NODE_W - NODE_PAD - ICON - 10 - NODE_PAD
@@ -860,6 +989,16 @@ def render(graph, output, name, title=None, note=None, icons=None, language="en"
                       f'<text x="{lx + 11}" y="{y_cursor - 0.8:.1f}" font-size="7.5" font-weight="700" fill="{RED}" text-anchor="middle" font-family="{MONO}">SG</text>'
                       f'<text x="{lx + 28}" y="{y_cursor:.1f}" font-size="9.5" fill="{MUTED}">{esc(say("Chip on a node: attached to the aggregate shown with that tag (security groups, route tables)"))}</text>')
         y_cursor += 15
+    if keyed:
+        y_cursor += 6
+        legend.append(f'<text x="{MARGIN}" y="{y_cursor:.1f}" font-size="10" font-weight="700" fill="{INK}">{esc(say("Connections"))}</text>')
+        y_cursor += 14
+        for number, text in keyed:
+            lines, _ = wrap(text, 9.5, max(400, width - 2 * MARGIN - 40), 3)
+            legend.append(f'<circle cx="{lx + 8}" cy="{y_cursor - 3.5:.1f}" r="7" fill="{INK}"/><text x="{lx + 8}" y="{y_cursor - 0.5:.1f}" font-size="8.5" font-weight="700" fill="{PAPER}" text-anchor="middle" font-family="{MONO}">{number}</text>')
+            for k, line in enumerate(lines):
+                legend.append(f'<text x="{lx + 22}" y="{y_cursor + k * 12:.1f}" font-size="9.5" fill="{MUTED}">{esc(line)}</text>')
+            y_cursor += 12 * len(lines) + 4
     if note:
         legend.append(f'<text x="{MARGIN}" y="{y_cursor + 4:.1f}" font-size="9.5" fill="{SOFT}">{esc(say(note))}</text>')
         y_cursor += 16
@@ -875,7 +1014,7 @@ def render(graph, output, name, title=None, note=None, icons=None, language="en"
             '</defs>')
     svg = (f'<svg xmlns="http://www.w3.org/2000/svg" width="{width:.0f}" height="{height:.0f}" viewBox="0 0 {width:.0f} {height:.0f}" role="img" lang="{esc(language)}" aria-labelledby="dg-title dg-desc" data-renderer="aws_diagram">'
            f'<title id="dg-title">{esc(heading)}</title><desc id="dg-desc">{esc(subtitle or note or heading)}</desc>{defs}'
-           f'<rect width="100%" height="100%" fill="{PAPER}"/><g font-family="{SANS}">{head}{"".join(out)}{"".join(legend)}</g></svg>\n')
+           f'<rect width="100%" height="100%" fill="{PAPER}"/><g font-family="{SANS}">{head}{"".join(out)}{"".join(label_layer)}{"".join(legend)}</g></svg>\n')
     # Geometry QA: labels fit by construction; nodes inside their group; no node overlaps; edges end at their nodes.
     outside, overlaps, loose = [], [], []
     for n in graph["nodes"]:
@@ -901,7 +1040,18 @@ def render(graph, output, name, title=None, note=None, icons=None, language="en"
             return x - tol <= pt[0] <= x + w + tol and y - tol <= pt[1] <= y + h + tol
         if not (touches(pts[0], boxes[e["source"]]) and touches(pts[-1], boxes[e["target"]])):
             loose.append(e["id"])
+    node_boxes_all = [boxes[n["id"]] for n in graph["nodes"]]
+    label_boxes = [(eid, sp["box"] if "box" in sp else (sp["center"][0] - 8, sp["center"][1] - 8, 16, 16)) for eid, sp in labels.items()]
+    covered = [eid for eid, b in label_boxes if any(boxes_meet(b, nb, 1) for nb in node_boxes_all) or any(boxes_meet(b, hb, 0) for hb in headers)]
+    clashing = sorted({eid for i, (eid, b) in enumerate(label_boxes) for other, c in label_boxes[i + 1:] if boxes_meet(b, c, 0)})
+    through_titles = sorted({e["id"] for e in graph["edges"] if e["id"] in routes and e not in badge_edges
+                             for a, b in zip(routes[e["id"]][0], routes[e["id"]][0][1:]) for hb in headers if segment_hits((hb[0] + 2, hb[1] + 4, hb[2] - 4, hb[3] - 8), a, b)})
     qa["checks"] = {"nodes_inside_their_group": {"status": "pass" if not outside else "fail", "outside": outside},
+                    "labels_clear": {"status": "pass" if not (covered or clashing) else "fail", "over_nodes_or_titles": covered, "over_each_other": clashing,
+                                     "numbered": [n for n, _ in keyed]},
+                    "group_titles_clear": {"status": "pass" if not through_titles else "warn", "crossed_by": through_titles},
+                    "readable_width": {"status": "pass" if width <= 2400 else "warn", "width": round(width),
+                                       "note": "embedded at page width a drawing wider than 2400 px shows text below 6 px"},
                     "no_node_overlap": {"status": "pass" if not overlaps else "fail", "overlaps": overlaps[:20]},
                     "edges_end_at_their_nodes": {"status": "pass" if not (loose or missing_routes) else "fail", "loose": loose, "not_routed": missing_routes},
                     "connectors_avoid_nodes": {"status": "pass" if not straight else "fail", "drawn_straight": straight},
@@ -909,7 +1059,7 @@ def render(graph, output, name, title=None, note=None, icons=None, language="en"
                     "icons": {"source": str(icon_set.root) if icon_set.root else None,
                               "status": "official" if icon_set.root else "service_tags",
                               "nodes_without_icon": [n["id"] for n in graph["nodes"] if not (icon_for(n)[0] and icon_set.inner(icon_for(n)[0]))]}}
-    if outside or overlaps or loose or missing_routes or straight:
+    if outside or overlaps or loose or missing_routes or straight or covered or clashing:
         qa["status"] = "fail"
     qa["size"] = {"width": round(width), "height": round(height), "nodes": len(graph["nodes"]), "groups": len(groups), "edges": len(graph["edges"]), "badge_edges": len(badge_edges)}
     qa["files"] = {"svg": f"{name}.aws.svg", "html": f"{name}.aws.html", "render": f"{name}.render.json"}

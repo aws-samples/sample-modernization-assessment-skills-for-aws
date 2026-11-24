@@ -107,6 +107,34 @@ class AwsDiagramTests(unittest.TestCase):
         for service in ("codebuild", "secretsmanager", "sns", "logs", "iam", "cloudwatch"):
             self.assertIsNotNone(aws.icon_for({"service": service})[0], service)
 
+    def test_labels_never_cover_nodes_titles_or_each_other_and_wide_rows_wrap(self):
+        """Field case: edge labels sat on group titles, under nodes and on top of each other, and a six-stage DevOps
+        view drew 3,600 px wide. Labels now go where nothing else is, or become numbered markers explained under the
+        legend, and a row of groups wraps at MAX_ROW_W."""
+        groups = [{"id": "region", "label": "Region us-east-1", "kind": "region", "parent": None, "resource_ids": []}]
+        nodes, edges = [], []
+        for g in range(6):
+            groups.append({"id": f"stage{g}", "label": f"Stage {g} with a fairly long title", "kind": "other", "parent": "region", "resource_ids": []})
+            for k in range(3):
+                nodes.append({"id": f"n{g}{k}", "label": f"Component {g}.{k} with a long name", "detail": "detail text that wraps over two lines",
+                              "service": "ecs", "type": "ecs.service", "group": f"stage{g}", "state": "observed", "resource_ids": []})
+        for g in range(5):
+            for k in range(3):
+                edges.append({"id": f"e{g}{k}", "source": f"n{g}{k}", "target": f"n{g + 1}{(k + 1) % 3}", "label": f"connection {g}.{k} carries a long description", "state": "observed_configuration"})
+        graph = {"title": "Wide pipeline", "groups": groups, "nodes": nodes, "edges": edges}
+        with tempfile.TemporaryDirectory() as tmp:
+            qa = aws.render(graph, Path(tmp), "wide", None, None, None)
+            self.assertEqual(qa["checks"]["labels_clear"]["status"], "pass", qa["checks"]["labels_clear"])
+            self.assertEqual(qa["checks"]["readable_width"]["status"], "pass", qa["size"])
+            self.assertLessEqual(qa["size"]["width"], aws.MAX_ROW_W + 2 * aws.MARGIN + 2 * aws.PAD)
+            svg = (Path(tmp) / "wide.aws.svg").read_text()
+            placed = svg.count('data-label-for="')
+            self.assertEqual(placed, len(edges), "every edge label is drawn, inline or as a numbered marker")
+            for number in qa["checks"]["labels_clear"]["numbered"]:
+                self.assertIn(f">{number}</text>", svg)
+            if qa["checks"]["labels_clear"]["numbered"]:
+                self.assertIn(">Connections<", svg)
+
     def test_focused_to_be_graph_draws_states_without_an_inventory(self):
         """A specialist's drawing: retained, changed, proposed and removal-candidate nodes, a proposed edge, no inventory
         to cover. The drawing passes the id audit and tags every non-observed state."""
