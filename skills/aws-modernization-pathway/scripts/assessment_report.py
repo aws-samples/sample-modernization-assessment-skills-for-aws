@@ -952,8 +952,9 @@ def account_posture_html(checks, manifest, inventory=None, scope_context=None, s
             f'{posture}{plan_note}{compliance_callout(scope_context, (inventory or {}).get("regions"))}{cards}{spend_html(inventory, scope_ids)}<h3>Query scope</h3>{scope_table}')
 
 
-def evidence_index(manifest, checks, screener):
-    """One row per evidence ID that the report cites: what was asked, of what, when, and which findings rely on it.
+def evidence_index(manifest, checks, screener, specialists=None):
+    """One row per evidence ID that the report cites: what was asked, of what, when, and which findings (or Specialist
+    SA Agent recommendations) rely on it.
 
     IDs: e#### = base inventory call, s#### = supplementary workload evidence (templates, policies, source files),
     h#### = host inspection. Raw payloads stay in the run directory; the report shows the call, not the content."""
@@ -963,6 +964,12 @@ def evidence_index(manifest, checks, screener):
         cited = list(c.get("evidence_ids", []) or []) + re.findall(r"\b([esh]\d{4,})\b", f"{c.get('observation', '')} {c.get('recommendation', '')}")
         for e in dict.fromkeys(cited):  # IDs quoted in the text of a manual check are evidence too
             used.setdefault(e, []).append(c["id"])
+    for sp in specialists or []:
+        items = [("current", i) for i in sp.get("current_state") or []] + [("rec", r) for r in sp.get("recommendations") or []] + [("later", i) for i in sp.get("not_now") or []]
+        for _, item in items:
+            for ref in item.get("refs") or []:
+                if re.fullmatch(r"[esh]\d{4,}", ref) and sp["specialist"] not in used.setdefault(ref, []):
+                    used[ref].append(sp["specialist"])
     rows = []
     for eid in sorted(used, key=lambda x: (x[0], int(x[1:]) if x[1:].isdigit() else 0)):
         call = calls.get(eid)
@@ -987,10 +994,18 @@ def evidence_html(rows):
             f'<details><summary>Evidence table ({len(rows)} item(s))</summary><div class="body">{evidence_table(rows)}</div></details>')
 
 
+def used_by_link(ref):
+    """A finding id links to its card; a specialist id to its section (the role name is the label)."""
+    import advice  # noqa: E402  (same folder)
+    if ref in advice.SPECIALISTS:
+        return f'<a href="#sp-{kit.esc(ref)}">{kit.esc(advice.SPECIALISTS[ref]["role"].replace(" Specialist SA Agent", ""))}</a>'
+    return f'<a href="#{kit.esc(ref)}">{kit.esc(ref)}</a>'
+
+
 def evidence_table(rows):
     body = "".join(f'<tr id="ev-{kit.esc(r["id"])}"><td><code>{kit.esc(r["id"])}</code></td><td><code>{kit.esc(r["what"])}</code></td><td>{kit.esc(r["target"])}</td>'
                    f'<td>{kit.esc(r["kind"])}</td><td class="small">{kit.esc(r["when"])}</td><td class="small">{"ok" if r["status"] == "ok" else kit.esc(r["status"])}</td>'
-                   f'<td class="small">{" ".join(f"<a href=#{kit.esc(f)}>{kit.esc(f)}</a>" for f in r["findings"][:8])}{" +" + str(len(r["findings"]) - 8) if len(r["findings"]) > 8 else ""}</td>'
+                   f'<td class="small">{" ".join(used_by_link(f) for f in r["findings"][:8])}{" +" + str(len(r["findings"]) - 8) if len(r["findings"]) > 8 else ""}</td>'
                    f'<td class="small"><code>{kit.esc(r["raw"])}</code></td></tr>' for r in rows)
     return ('<p class="small">The raw response of each call is stored under the run directory at the path shown; the report never reproduces its content.</p>'
             '<table class="evidence-table"><thead><tr><th>ID</th><th>Call</th><th>Target / locator</th><th>Kind</th><th>Collected (UTC)</th><th>Result</th><th>Used by</th><th>Raw file</th></tr></thead>'
@@ -1597,7 +1612,7 @@ def render(args):
             + kit.kpi(status_counts["WARN"], "warnings", "warn", listing("WARN"))
             + kit.kpi(len(open_groups), "open questions", "unknown", [(f"#q-{members[0]['id']}", f"{members[0]['id']} · {text}") for text, members in open_groups])
             + kit.kpi(len(recommended), "recommended directions", "accent", [("#directions", f"{PATHWAYS[c['pathway']]} · {kit.PATHWAY_STATUS[c['status']][0]}") for c in recommended]))
-    evidence_rows = evidence_index(manifest, checks, screener)
+    evidence_rows = evidence_index(manifest, checks, screener, specialists)
     worst_text = (f"Most urgent pillars: {', '.join(worst)}." if worst else "No pillar is graded critical or weak.")
     to_be_block = (zoom_figure("zoom-to-be", to_be_svg, "directions", f'Proposed target architecture · retained, proposed and unresolved parts are distinguished in the legend · click the diagram to enlarge · {open_full(args.to_be_diagram, run)}') if to_be_svg
                    else '<div class="callout"><p>The target-architecture diagram has not been produced yet.</p></div>') + to_be_changes_html(args.to_be_diagram)

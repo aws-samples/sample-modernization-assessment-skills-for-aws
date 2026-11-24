@@ -139,6 +139,12 @@ class BenefitsTests(unittest.TestCase):
             self.assertIn('class="input-needed"', html)
             md = (run / "06-assessment/assessment.md").read_text()
             self.assertIn("| Pipeline history shop-catalog | 3 run(s), 1 failed", md)
+            # Evidence a specialist cites is in the evidence index and links back to its section on the report page.
+            details = (run / "06-assessment/details.html").read_text()
+            self.assertIn('href="assessment.html#sp-database">Database</a>', details)
+            for page in (html, details):
+                ids = set(re.findall(r'\bid="([^"]+)"', page))
+                self.assertEqual([h for h in re.findall(r'href="#([^"]+)"', page) if h not in ids], [])
             written = json.loads((run / "06-assessment/benefits.json").read_text())
             self.assertEqual(len(written["recommendations"]), 2)
             cli = run_python(str(BENEFITS), "--run-dir", str(run), capture_output=True, text=True)

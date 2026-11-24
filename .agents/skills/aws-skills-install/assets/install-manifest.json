@@ -127,10 +127,10 @@
     {
       "name": "aws-mcp-setup",
       "source": "skills/aws-mcp-setup",
-      "digest": "0d10082818483ca5c8d58e7ffa368fe2fadb5e9d3d9b091fa9347e793fec36f9",
+      "digest": "41b608619e5a0b709af5f4e7eefdac637bbfb37906a5a6c782d77cbda5723886",
       "stamp": {
         "package": "moda-skills",
-        "sha256": "0d10082818483ca5c8d58e7ffa368fe2fadb5e9d3d9b091fa9347e793fec36f9"
+        "sha256": "41b608619e5a0b709af5f4e7eefdac637bbfb37906a5a6c782d77cbda5723886"
       },
       "files": [
         {
@@ -155,13 +155,13 @@
         },
         {
           "path": "references/compatibility.md",
-          "bytes": 4153,
-          "sha256": "043d2788966ae39a15fcac6ea8a5a407c7a997deb5c1379bd398f89485e2442c"
+          "bytes": 4337,
+          "sha256": "2081ae83743bac45d9bfc0f60ad0b112570dc2500012c0a15922867a5c72c733"
         },
         {
           "path": "references/output-language.md",
-          "bytes": 7344,
-          "sha256": "164b9c55494288bae035ff3b1711e3b59fdd27d73ad18213e951e7832d08d381"
+          "bytes": 8152,
+          "sha256": "f5c5c323db182ca8f4f9504e709807808ac16c0a77a723bc644da5103c560bfa"
         },
         {
           "path": "references/run-metadata.md",
@@ -180,8 +180,8 @@
         },
         {
           "path": "scripts/render_artifact.mjs",
-          "bytes": 3553,
-          "sha256": "2dbb12f16886d51441c23b263c6327dd6f9a0e14ec6e21b00a372f260a942303"
+          "bytes": 9256,
+          "sha256": "63bdfdf600e9e334d8a44a25826a12057b18e0b0ef0d8665a99092bf1b5ba23e"
         },
         {
           "path": "scripts/run_metadata.py",
@@ -274,10 +274,10 @@
     {
       "name": "aws-architecture-review",
       "source": "skills/aws-architecture-review",
-      "digest": "7d4c0a2a0ebebbb70cfe5e2f3be0ddbeea59ad982ac6e569528ebea946b1be2c",
+      "digest": "8565a0929f254643bf6c196a2d4d93d69a8ce27bc3ebb677e4e0d295ad7bdf60",
       "stamp": {
         "package": "moda-skills",
-        "sha256": "7d4c0a2a0ebebbb70cfe5e2f3be0ddbeea59ad982ac6e569528ebea946b1be2c"
+        "sha256": "8565a0929f254643bf6c196a2d4d93d69a8ce27bc3ebb677e4e0d295ad7bdf60"
       },
       "files": [
         {
@@ -337,8 +337,8 @@
         },
         {
           "path": "scripts/report_kit.py",
-          "bytes": 46920,
-          "sha256": "d78b080a71ab1ae0c353ee14682b5c3d0b8a21775df37552292022e0b0d04d22"
+          "bytes": 47097,
+          "sha256": "46a376d9c8b98b8e90973322d02b44bf4260034770f006484e1d7dba7f0da2c8"
         },
         {
           "path": "scripts/review.py",
@@ -355,16 +355,16 @@
     {
       "name": "aws-modernization-pathway",
       "source": "skills/aws-modernization-pathway",
-      "digest": "4b63272a959492971975f088659b5d8bca81b8227bcba2a36b04300eae60a88c",
+      "digest": "d3c700833a99b53d7107c5da0348b17ee13c3a0f93a17519b74615daf0dc7a1b",
       "stamp": {
         "package": "moda-skills",
-        "sha256": "4b63272a959492971975f088659b5d8bca81b8227bcba2a36b04300eae60a88c"
+        "sha256": "d3c700833a99b53d7107c5da0348b17ee13c3a0f93a17519b74615daf0dc7a1b"
       },
       "files": [
         {
           "path": "SKILL.md",
-          "bytes": 21965,
-          "sha256": "a456dabddeefad4ce62fd472b9cc9d07f9c47cb21a82176fce7d16ce948707db"
+          "bytes": 22356,
+          "sha256": "b453bbeee1b5687f1386b611a3ac513321451a6150fbfba47f2bc8af6264d68a"
         },
         {
           "path": "agents/openai.yaml",
@@ -463,8 +463,8 @@
         },
         {
           "path": "scripts/assessment_report.py",
-          "bytes": 138458,
-          "sha256": "a2ef2216300b502f786c8b641664da3591b288b016aeaa8fd3f6356322c01346"
+          "bytes": 139356,
+          "sha256": "1481218134179dbb5d2e1e6cd22d2d69210cc89d272610b439dc17db47459c70"
         },
         {
           "path": "scripts/benefits.py",
@@ -488,8 +488,8 @@
         },
         {
           "path": "scripts/report_kit.py",
-          "bytes": 46920,
-          "sha256": "d78b080a71ab1ae0c353ee14682b5c3d0b8a21775df37552292022e0b0d04d22"
+          "bytes": 47097,
+          "sha256": "46a376d9c8b98b8e90973322d02b44bf4260034770f006484e1d7dba7f0da2c8"
         },
         {
           "path": "scripts/write_audit.py",

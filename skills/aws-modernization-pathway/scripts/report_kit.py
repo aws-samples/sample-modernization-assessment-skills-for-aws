@@ -70,6 +70,7 @@ details.kpi-list[open]{{grid-column:1 / -1}} details.kpi-list ul{{margin:0;paddi
 .kpi.fail{{border-top-color:#DD344C}} .kpi.warn{{border-top-color:#EC7211}} .kpi.pass{{border-top-color:#7AA116}} .kpi.unknown{{border-top-color:#7D8998}} .kpi.accent{{border-top-color:#FF9900}} .kpi.link{{border-top-color:{LINK}}}
 .grid{{display:grid;gap:16px}} .g2{{grid-template-columns:1.15fr 0.85fr}} .g3{{grid-template-columns:repeat(3,1fr)}}
 @media (max-width:900px){{.g2,.g3{{grid-template-columns:1fr}}}}
+@media (max-width:700px){{table{{display:block;max-width:100%;overflow-x:auto}} table.fields th{{width:auto;white-space:normal}} .wrap{{padding-left:16px;padding-right:16px}}}}
 .card{{border:1px solid {RULE};border-radius:6px;padding:18px 20px;background:#fff}} .card h3{{margin:0 0 6px;font-size:15px}} .card h4{{margin:0 0 8px;font-size:15px}} .card.consider p{{margin:6px 0;font-size:13px}} .card.consider p b{{color:{MUTED};font-weight:600;margin-right:4px}}
 .card .sub{{font-family:{MONO};font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:{MUTED};margin:0 0 12px}} .card svg{{width:100%;height:auto;display:block}}
 .chip{{display:inline-block;font-family:{MONO};font-size:10px;letter-spacing:0.04em;padding:2px 8px;border-radius:3px;border:1px solid transparent;white-space:nowrap;vertical-align:middle}}

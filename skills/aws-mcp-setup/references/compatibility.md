@@ -43,7 +43,8 @@ downloads are the same on every machine:
 ```bash
 npm install playwright@1.64.1
 npx playwright@1.64.1 install chromium
-node "$SKILL_DIR/scripts/render_artifact.mjs" report.html qa
+node "$SKILL_DIR/scripts/render_artifact.mjs" report.html qa --check   # DOM layout checks, layout-check.json; screenshot only on failure
+node "$SKILL_DIR/scripts/render_artifact.mjs" report.html qa           # full-page screenshot for a person
 node "$SKILL_DIR/scripts/render_artifact.mjs" presentation.bento.html qa --bento
 ```
 

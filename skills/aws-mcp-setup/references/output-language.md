@@ -66,11 +66,23 @@ Write final narrative in the resolved language or use the complete workflow belo
 
 5. Review titles and body text for completeness, meaning and terminology. HTML lang
    alone is insufficient. Set appropriate CJK fallbacks or right-to-left layout
-   when needed. Regenerate listed rasters from localized HTML/SVG, run diagram ID,
-   self-check, geometry/browser checks, inspect images and verify links. Do not
-   rerun an old English report-authoring script over localized output.
-6. After language and visual review pass, set localization.json status=complete
-   and record language_review/visual_qa. Deliver the localized bundle. Pending
+   when needed. Then check each localized page from the DOM, not from screenshots:
+
+   ```bash
+   node "$TOOLKIT_SKILL/scripts/render_artifact.mjs" "$LOCALIZED_RUN/assessment.html" "$LOCALIZATION_WORK/qa-assessment" --check
+   node "$TOOLKIT_SKILL/scripts/render_artifact.mjs" "$LOCALIZED_RUN/details.html" "$LOCALIZATION_WORK/qa-details" --check
+   ```
+
+   `--check` renders the page at 1280 px and 390 px and records page overflow, elements
+   wider than their container, clipped text, images and SVGs that did not render,
+   same-page links without a target and English sentences left in a non-English page
+   (`layout-check.json`). Exit code 0 is the pass; on failure it also writes `page.png`
+   for the person, and you fix what the issue list names (an untranslated unit, a long
+   unbroken label) and run it again. Diagrams drawn by `diagram.py` are SVG and are
+   translated with the page; no raster to regenerate. Do not rerun an old English
+   report-authoring script over localized output.
+6. After language review and the layout check pass, set localization.json status=complete
+   and record language_review/visual_qa (the layout-check.json status). Deliver the localized bundle. Pending
    translations, raster regeneration or QA mean the result is still incomplete.
 
 The agent can supply any language it can translate faithfully; no fixed locale
