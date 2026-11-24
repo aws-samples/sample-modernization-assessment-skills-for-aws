@@ -277,7 +277,19 @@
     "Quantitative evidence": "정량 근거",
     "Metric": "항목",
     "Value": "값",
-    "Net list price": "정가 합계"
+    "Net list price": "정가 합계",
+    "Findings this change addresses": "이 변경이 해결하는 점검 결과",
+    "Resources it touches": "변경 대상 리소스",
+    "Single-AZ or single-node components among them": "그중 단일 AZ 또는 단일 노드 구성 요소",
+    "EC2 instances the team patches and replaces itself": "팀이 직접 패치하고 교체하는 EC2 인스턴스",
+    "ECS services deployed by a pipeline": "파이프라인으로 배포되는 ECS 서비스",
+    "Alarms and notification topics in scope": "범위 내 경보와 알림 토픽",
+    "Hours per manual deployment × deployments per month": "수동 배포 1회 소요 시간 × 월 배포 횟수",
+    "Hours per host per month for patching and replacement": "호스트당 월 패치·교체 시간",
+    "Cost of one hour without these components": "이 구성 요소가 1시간 멈췄을 때의 비용",
+    "owner to provide": "고객 입력 필요",
+    "Kubernetes standard support ends": "Kubernetes 표준 지원 종료",
+    "Database engine standard support ends": "데이터베이스 엔진 표준 지원 종료"
   },
   "avoid": {
     "방언": "'MySQL 호환 SQL'처럼 의미를 풀어 쓴다",

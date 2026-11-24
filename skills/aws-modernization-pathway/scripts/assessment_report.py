@@ -646,7 +646,14 @@ def load_specialists(run, checks, screener, manifest, inventory, prices):
     for s in out:
         for rec in s.get("recommendations") or []:
             rec["list_prices"] = [dict(prices[r["id"]], sign=r["sign"]) for r in rec.get("list_prices") or []]
+    if out:
+        import benefits  # noqa: E402  (same folder)
+        BENEFITS["result"] = benefits.compute(run, out)
+        benefits.attach(out, BENEFITS["result"])
     return out
+
+
+BENEFITS = {"result": None}  # the evidence rows computed for this render; written to 06-assessment/benefits.json
 
 
 def ref_links(refs, finding_ids):
@@ -1464,14 +1471,17 @@ def rec_current(rec, specialist, by_id):
 
 
 def rec_evidence_rows(rec):
-    """(metric, value, source) rows for the third field. Computed figures attached by benefits.py (`evidence`) first, then
-    the list prices the specialist cited; the renderer adds nothing of its own."""
-    rows = [(str(e.get("metric", "")), str(e.get("value", "")), str(e.get("source", ""))) for e in rec.get("evidence") or [] if isinstance(e, dict)]
+    """(metric, value, source, kind) rows for the third field. The figures benefits.py computed from the evidence
+    (`evidence`) first, then the list prices the specialist cited, then the one figure the owner provides; the renderer
+    adds nothing of its own."""
+    computed = [e for e in rec.get("evidence") or [] if isinstance(e, dict)]
+    rows = [(str(e.get("metric", "")), str(e.get("value", "")), str(e.get("source", "")), e.get("kind", "")) for e in computed if e.get("kind") != "input_needed"]
     prices = rec.get("list_prices") or []
     for p in prices:
-        rows.append((f"{p['sign']} {p['label']}", f"${p['monthly_usd']:,.0f}/month", f"{p['basis']}; AWS Price List API, On-Demand ({p['id']})"))
+        rows.append((f"List price {p['sign']} {p['label']}", f"${p['monthly_usd']:,.0f}/month", f"{p['basis']}; AWS Price List API, On-Demand ({p['id']})", "price"))
     if len(prices) > 1:
-        rows.append(("Net list price", f"{usd(net_list_price(rec))}/month", "sum of the rows above; not a bill forecast"))
+        rows.append(("Net list price", f"{usd(net_list_price(rec))}/month", "sum of the list prices above; not a bill forecast", "price"))
+    rows += [(str(e.get("metric", "")), str(e.get("value", "")), str(e.get("source", "")), "input_needed") for e in computed if e.get("kind") == "input_needed"]
     return rows
 
 
@@ -1480,7 +1490,7 @@ def rec_fields_html(n, rec, specialist, by_id, finding_ids):
     evidence = rec_evidence_rows(rec)
     if evidence:
         ev = ('<table class="inner"><thead><tr><th>Metric</th><th>Value</th><th>Source</th></tr></thead><tbody>'
-              + "".join(f'<tr><td>{kit.esc(m)}</td><td>{kit.esc(v)}</td><td class="small">{kit.esc(s)}</td></tr>' for m, v, s in evidence) + '</tbody></table>')
+              + "".join(f'<tr{" class=\"input-needed\"" if k == "input_needed" else ""}><td>{kit.esc(m)}</td><td>{kit.esc(v)}</td><td class="small">{kit.esc(s)}</td></tr>' for m, v, s, k in evidence) + '</tbody></table>')
         if is_example(rec):
             ev += '<p class="small">An example at published On-Demand rates for one possible configuration; the size is decided after measurement, so the figure is not a saving to plan on.</p>'
     else:
@@ -1502,7 +1512,7 @@ def rec_fields_markdown(n, rec, specialist, by_id):
     evidence = rec_evidence_rows(rec)
     if evidence:
         lines += ["- Quantitative evidence:", "", "  | Metric | Value | Source |", "  |---|---|---|"]
-        lines += [f"  | {m.replace('|', '/')} | {v} | {s.replace('|', '/')} |" for m, v, s in evidence]
+        lines += [f"  | {m.replace('|', '/')} | {v} | {s.replace('|', '/')} |" for m, v, s, _ in evidence]
         if is_example(rec):
             lines.append("  An example before measurement, not a saving to plan on.")
         lines.append("")
@@ -1531,6 +1541,7 @@ def render(args):
     checks = findings["checks"]; pathways = pathways_doc["candidates"]
     KNOWN_USERS.clear()
     KNOWN_USERS.update(iam_user_names(inventory, findings))
+    BENEFITS["result"] = None
     finding_ids = {c["id"] for c in checks}
     screener, upstream_manifest = [], None
     if args.screener:
@@ -1606,7 +1617,7 @@ def render(args):
         directions_html = (f'<section id="directions"><h2>3 · Specialist SA Agent recommendations</h2><p class="lead">{len(specialists)} Specialist SA Agents '
                            f'({kit.esc(", ".join(sp["role"] for sp in specialists))}), AI agents that each take the role of an AWS specialist solutions architect, '
                            f'reviewed this workload\'s evidence in their area. Each recommendation is written in the same four fields: the current state, the proposal, '
-                           f'the quantitative evidence (figures computed from the collected evidence or read from the AWS Price List API, never estimated by the agent), '
+                           f'the quantitative evidence (counts, dates, pipeline history and the account bill computed from the collected evidence, list prices from the AWS Price List API, and the one figure only the owner can provide; nothing is estimated by the agent), '
                            f'and the prerequisites. The combined target architecture follows.</p>'
                            + "".join(specialist_html(sp, statuses, finding_ids, run, by_id) for sp in specialists)
                            + f'<h3>Combined target architecture</h3>{to_be_block}<h3>Seven directions at a glance</h3>{pathway_table(pathways, specialists)}</section>')
@@ -1753,6 +1764,8 @@ def render(args):
         "specialists": [{"specialist": sp["specialist"], "role": sp["role"], "recommendations": len(sp.get("recommendations") or []),
                          "pathways": {p: statuses.get(p) for p in sp.get("pathways", [])}, "diagram": (sp.get("diagram") or {}).get("svg")} for sp in specialists],
         "run_metadata": run_meta}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    if BENEFITS["result"]:
+        (out / "benefits.json").write_text(json.dumps(BENEFITS["result"], ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     (out / "iac-changes.json").write_text(json.dumps({"schema_version": "1.0", "run_id": inventory["run_id"], "account_id": inventory["account_id"],
                                                        "changes": changes}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return {"status": "generated", "report_status": status, "output": str(out), "key_issues": len(issues), "imported_findings": len(screener),

@@ -66,8 +66,10 @@ problem in the evidence or a need stated in the scope; a service that would be n
 The report shows every recommendation in the same four fields: **current state** (`current`, optional: one sentence in
 the words of the evidence; when absent the report prints the observations of the findings in `refs`), **proposal**
 (`change` and `benefit`), **quantitative evidence** (the `list_prices` you cite and the figures `benefits.py` computes
-from the collected evidence; never write `evidence` yourself) and **prerequisites** (`before_deciding`, `alternatives`,
-`rollback`).
+from what your `refs` cite: findings by severity, resources touched, single-AZ components, self-managed hosts, pipeline
+coverage and history, dates, the account bill; never write `evidence` yourself) and **prerequisites** (`before_deciding`,
+`alternatives`, `rollback`). Cite the findings and resources the change touches in `refs`: the evidence rows are
+computed from them, so a recommendation that cites one finding shows one finding's worth of evidence.
 
 **Not now.** `not_now` lists what you considered and would not recommend for this workload today, with the reason and what
 would change your view. An empty recommendation list with a clear `not_now` is a valid review.

@@ -201,7 +201,7 @@ class SpecialistReviewTests(unittest.TestCase):
             self.assertIn(f'<th>Current state</th><td>{by_id["f0001"]["observation"]}</td>', html, "without a `current` sentence the cited finding's observation is shown")
             md = "\n".join(report.specialist_markdown(specialists[0], {"managed-database": "conditional"}, by_id))
             self.assertIn("### Database Specialist SA Agent (Managed database: Conditional)", md); self.assertIn("- Proposal:", md)
-            self.assertIn("| + reader | $190/month |", md)
+            self.assertIn("| List price + reader | $190/month |", md)
             rows = report.glance_rows("orders", [], ctx.findings["checks"], ctx.inventory, {}, None, {}, specialists)
             self.assertIn("Give the order database a failover target", " ".join(r[2] for r in rows))
             table = report.pathway_table([dict(c, problem="p", rationale="r") for c in recommend.bootstrap()], specialists)
