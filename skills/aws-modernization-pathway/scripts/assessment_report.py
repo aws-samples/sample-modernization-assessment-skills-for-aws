@@ -1107,7 +1107,7 @@ TERMS = {
     "EKS Auto Mode": "An EKS mode in which AWS runs the worker nodes, their scaling and their upgrades for the cluster.",
     "RDS Proxy": "A managed connection pool in front of RDS and Aurora that lets many application instances share a few database connections.",
     "condition key": "A part of an IAM policy that allows an action only when the request meets a condition, such as naming a specific Bedrock guardrail.",
-    "Spot": "Spare EC2 capacity at a lower price that AWS can take back with two minutes' notice; suited to work that can restart.",
+    "Spot": "Spare EC2 capacity at a lower price that AWS can take back with a 2-minute notice; suited to work that can restart.",
     "zero-ETL": "An AWS integration that copies operational data into an analytics service continuously without a pipeline the team has to run.",
     "Graviton": "AWS-designed Arm processors; the same workload usually costs less per unit of performance on them.",
     "Savings Plans": "A one- or three-year spend commitment that lowers the hourly price of compute.",

@@ -33,6 +33,28 @@ PROTECTED = re.compile(
     re.ASCII,
 )
 SKIP_TAGS = {"script", "style", "code", "pre"}
+# Status values that are also ordinary English words: protected only when the unit is the value itself (a chip or a
+# table cell), not inside a sentence ("a confirmed subscriber", "the conditional branch").
+PLAIN_WORD_ENUMS = {"candidate", "conditional", "confirmed", "blocked"}
+MONTHS = {m: i for i, m in enumerate(("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"), 1)}
+
+
+def protected_tokens(text, whole_unit):
+    found = PROTECTED.findall(text)
+    if not whole_unit:
+        found = [t for t in found if t not in PLAIN_WORD_ENUMS]
+    return Counter(found)
+
+
+def protected_match(source, target):
+    """Identifiers, URLs, numbers and status values must survive translation. A month written as a word in the source
+    ("Mar 2026") may become a number in the target (year 2026, month 3)."""
+    whole = source.strip() in PLAIN_WORD_ENUMS
+    want, got = protected_tokens(source, whole), protected_tokens(target, whole)
+    if want == got:
+        return True
+    months = Counter(str(MONTHS[m.lower()[:3]]) for m in re.findall(r"(?i)\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{4}\b", source))
+    return bool(months) and want + months == got
 
 
 def digest(data):
@@ -280,6 +302,11 @@ def glossary_violations(target, avoid, allow_bullets):
     for phrase in avoid:
         if phrase in (" · ", "+") and (allow_bullets or not prose):
             continue
+        if phrase == "+":
+            # a sign or a time-zone offset ("+00:00", "+3"), not a separator between nouns
+            if re.search(r"\+(?!\d)", target):
+                hits.append(phrase)
+            continue
         if phrase in target:
             hits.append(phrase)
     return hits
@@ -382,7 +409,7 @@ def apply(plan, output):
             if (language.split("-")[0] != "en" and " " in term and term != rendering and term not in rendering  # "Pod Identity(...)" keeps the name
                     and re.search(rf"(?<![A-Za-z]){re.escape(term)}(?![A-Za-z])", target)):
                 raise ValueError(f"translation keeps the English label {term!r}; use {rendering!r} (unit: {source[:40]!r})")
-        if Counter(PROTECTED.findall(source)) != Counter(PROTECTED.findall(target)):
+        if not protected_match(source, target):
             raise ValueError("translation changed protected identifiers, enum values, URLs or numbers")
         return target
     # Validate every unit and render in memory before creating output.

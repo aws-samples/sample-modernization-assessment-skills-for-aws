@@ -127,10 +127,10 @@
     {
       "name": "aws-mcp-setup",
       "source": "skills/aws-mcp-setup",
-      "digest": "41b608619e5a0b709af5f4e7eefdac637bbfb37906a5a6c782d77cbda5723886",
+      "digest": "19d977c750f8476f311e1d2a3876415244386b294e1fd128aae612312f768398",
       "stamp": {
         "package": "moda-skills",
-        "sha256": "41b608619e5a0b709af5f4e7eefdac637bbfb37906a5a6c782d77cbda5723886"
+        "sha256": "19d977c750f8476f311e1d2a3876415244386b294e1fd128aae612312f768398"
       },
       "files": [
         {
@@ -150,8 +150,8 @@
         },
         {
           "path": "assets/glossary.ko.json",
-          "bytes": 16340,
-          "sha256": "840444d3a1ea27d36ec817651f51527b6812df6520a1d0f5de79820fee05e31a"
+          "bytes": 16351,
+          "sha256": "77caf07e4fe753cd3be3377a6fd2ff69a32e6bc81552a1172e91c54b6c897ca6"
         },
         {
           "path": "references/compatibility.md",
@@ -175,8 +175,8 @@
         },
         {
           "path": "scripts/localize_artifacts.py",
-          "bytes": 22796,
-          "sha256": "0818a00f0906ba77079983636bac5ed0a84ac2a2072f19076f28e29055eb1d10"
+          "bytes": 24183,
+          "sha256": "e289a8043d852f53da3cc3a503932445155f74c0de966d94488f60429ee273a3"
         },
         {
           "path": "scripts/render_artifact.mjs",
@@ -355,10 +355,10 @@
     {
       "name": "aws-modernization-pathway",
       "source": "skills/aws-modernization-pathway",
-      "digest": "d3c700833a99b53d7107c5da0348b17ee13c3a0f93a17519b74615daf0dc7a1b",
+      "digest": "d607a2412f65305a26cde2e3ca9b143633c55738473304f611f67fa8c7fc8f0b",
       "stamp": {
         "package": "moda-skills",
-        "sha256": "d3c700833a99b53d7107c5da0348b17ee13c3a0f93a17519b74615daf0dc7a1b"
+        "sha256": "d607a2412f65305a26cde2e3ca9b143633c55738473304f611f67fa8c7fc8f0b"
       },
       "files": [
         {
@@ -463,8 +463,8 @@
         },
         {
           "path": "scripts/assessment_report.py",
-          "bytes": 139356,
-          "sha256": "1481218134179dbb5d2e1e6cd22d2d69210cc89d272610b439dc17db47459c70"
+          "bytes": 139354,
+          "sha256": "7879da24cd3411fce558626b753395bcebe5842b55d975ddb359bce1f75c1d92"
         },
         {
           "path": "scripts/benefits.py",
