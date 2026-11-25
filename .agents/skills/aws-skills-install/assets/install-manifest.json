@@ -274,16 +274,16 @@
     {
       "name": "aws-architecture-review",
       "source": "skills/aws-architecture-review",
-      "digest": "7db0e7ab9cfef7283b86b5b609eda5459f02fded036248a7bc15eee6a3fbaca5",
+      "digest": "9a9eb6046742896e0ca358a085d7f47c46380a34475ee24c6806f64428073cbf",
       "stamp": {
         "package": "moda-skills",
-        "sha256": "7db0e7ab9cfef7283b86b5b609eda5459f02fded036248a7bc15eee6a3fbaca5"
+        "sha256": "9a9eb6046742896e0ca358a085d7f47c46380a34475ee24c6806f64428073cbf"
       },
       "files": [
         {
           "path": "SKILL.md",
-          "bytes": 9864,
-          "sha256": "13de62e5b67ab996c8aab757c3cc992dfabb66eaa45e9d8f58ffce65cdc7eeb1"
+          "bytes": 12722,
+          "sha256": "6c3aa96d4b20fa7bc32b53fbe73379052c4d33ae2e4c1b91dc9140c02f8dd6f9"
         },
         {
           "path": "agents/openai.yaml",
@@ -326,6 +326,11 @@
           "sha256": "1290c37ff63f0fdf5539ff731d9f3176f8d1cf207073963a56b6cfd8f6668869"
         },
         {
+          "path": "scripts/iac_fixes.py",
+          "bytes": 11109,
+          "sha256": "df736738f0eacc9e406c55a69dea1f1688f4a682b2886ee578548118901b8970"
+        },
+        {
           "path": "scripts/import_service_screener.py",
           "bytes": 9281,
           "sha256": "60dd9df0cb8eb01c15df6d571db6a23f2456d49f3585b6a313fead8bde26e5ad"
@@ -342,13 +347,13 @@
         },
         {
           "path": "scripts/review.py",
-          "bytes": 48733,
-          "sha256": "03dd72b77666c23cdc02992f118f5afc49c02a63bcc9d0454943debd7ad52cc6"
+          "bytes": 54943,
+          "sha256": "2a93c9c65a518c019882ec76f70c6da259cbb4cd4c5f8d41afad4af1ff269ac6"
         },
         {
           "path": "scripts/workload_rules.py",
-          "bytes": 33342,
-          "sha256": "c076d3d0061a2400c0f7257b27a4e181441822235f1acba91492db495bdc91f0"
+          "bytes": 68283,
+          "sha256": "a9700c06a594636e5b15b48b24d5562d2f79e3ea234f4f0405885e872808bfae"
         }
       ]
     },

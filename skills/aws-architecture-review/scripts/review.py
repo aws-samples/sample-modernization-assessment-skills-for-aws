@@ -12,7 +12,8 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import report_kit  # noqa: E402  (shared visual report kit, standard library only)
-import platform_rules
+import iac_fixes  # noqa: E402
+import platform_rules  # noqa: E402
 import workload_rules  # noqa: E402
 
 PILLARS = ("Operational Excellence", "Security", "Reliability",
@@ -20,7 +21,11 @@ PILLARS = ("Operational Excellence", "Security", "Reliability",
 STATUSES = {"PASS", "FAIL", "WARN", "UNKNOWN", "NOT_APPLICABLE"}
 SH = "https://docs.aws.amazon.com/securityhub/latest/userguide/"
 WA = "https://docs.aws.amazon.com/wellarchitected/latest/"
-RULESET_VERSION = "moda-starter-1.2"
+RULESET_VERSION = "moda-starter-1.3"
+# Pillars whose HIGH baseline severity becomes MEDIUM when the run scope states a non-production environment. Security
+# keeps its severity: non-production environments often hold copies of real data.
+NON_PRODUCTION_PILLARS = ("Reliability", "Operational Excellence", "Performance Efficiency", "Cost Optimization", "Sustainability")
+NON_PRODUCTION_BASIS = "HIGH in production; MEDIUM because the scope states a non-production environment"
 
 
 CONFIDENCE = {"configuration", "template_declared", "source_declared", "runtime_observed",
@@ -127,11 +132,80 @@ def load_scope(path, inventory):
     return ids
 
 
-def evaluate(inventory, manifest, calls, root=None, scoped=None):
+def load_run_scope(path, inventory):
+    """The run's scope.json (aws-cli-setup): workload name and context.environment; None when there is no file."""
+    if not path or not Path(path).is_file():
+        return None
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    if data.get("account_id") not in (None, inventory["account_id"]):
+        raise ValueError("scope.json belongs to another account")
+    context = data.get("context") if isinstance(data.get("context"), dict) else {}
+    environment = context.get("environment") if context.get("environment") in ("production", "non-production") else "unknown"
+    return {"workload_name": data.get("workload_name"), "environment": environment}
+
+
+def names(items, limit=5):
+    """'a, b and c' with at most `limit` names; the rest are counted."""
+    items = list(dict.fromkeys(str(x) for x in items if x))
+    if len(items) > limit:
+        items = items[:limit] + [f"{len(items) - limit} more"]
+    if len(items) < 2:
+        return items[0] if items else ""
+    return ", ".join(items[:-1]) + " and " + items[-1]
+
+
+def owner_questions(resources, run_scope):
+    """The five owner questions, naming the in-scope resources and, for a non-production scope, the environment."""
+    workload = (run_scope or {}).get("workload_name") or "this workload"
+    nonprod = (run_scope or {}).get("environment") == "non-production"
+    env = f"the non-production {workload} environment" if (run_scope or {}).get("workload_name") else "the non-production environment"
+
+    def of(*kinds):
+        return [r for r in resources if r["type"] in kinds and r.get("level") != "account"]
+    instances = [r for r in of("ec2.instance") if not workload_rules.is_eks_node(r["attributes"])]
+    services = ([f"ECS service {r['name']}" for r in of("ecs.service")] + [f"EKS cluster {r['name']}" for r in of("eks.cluster")]
+                + [f"EC2 instance {workload_rules.instance_label(r)}" for r in instances if not workload_rules.is_admin_host(r["attributes"])]
+                + [f"Lambda function {r['name']}" for r in of("lambda.function")])
+    alarms = [r["name"] for r in of("cloudwatch.alarm")]
+    engines = {"aurora": "Aurora cluster", "neptune": "Neptune cluster", "docdb": "DocumentDB cluster"}
+    databases = ([f"{next((v for k, v in engines.items() if str(r['attributes'].get('Engine', '')).startswith(k)), 'DB cluster')} {r['name']}" for r in of("rds.cluster")]
+                 + [f"RDS instance {r['name']}" for r in of("rds.instance") if not r["attributes"].get("DBClusterIdentifier")]
+                 + [f"DynamoDB table {r['name']}" for r in of("dynamodb.table")] + [f"ElastiCache replication group {r['name']}" for r in of("elasticache.replication-group")])
+    entries = ([f"load balancer {r['name']}" for r in of("elbv2.load-balancer")] + [f"API {r['name']}" for r in of("apigateway.rest-api", "apigatewayv2.api")]
+               + [f"distribution {r['name']}" for r in of("cloudfront.distribution")])
+    compute = ([f"EKS cluster {r['name']} nodes" for r in of("eks.cluster")] + [f"ECS service {r['name']}" for r in of("ecs.service")]
+               + [f"EC2 instance {r['native_id']}" for r in instances] + [f"database {r['name']}" for r in of("rds.instance")])
+    ops = (f"Who owns {workload} in operation, is there a deployment runbook for " + (names(services) if services else "each component")
+           + ", and is there a runbook for each alarm" + (f" ({names(alarms)})" if alarms else "") + "?")
+    restore = ((f"What recovery time and data-loss limits (RTO/RPO) apply to {names(databases)}" if databases else "What recovery time and data-loss limits (RTO/RPO) apply")
+               + (f" in {env}" if nonprod else "") + ", and when were restore and failover last tested?")
+    perf = ((f"Which response time and request volume must {env} support (for example in load tests before a release)" if nonprod else
+             "Which latency and availability targets (SLOs) apply") + (f" at {names(entries)}" if entries else "")
+            + ", and can you share two to four weeks of load and latency metrics?")
+    cost = (f"Is there a monthly budget for {env}, and do Savings Plans or Reserved Instances cover any of it?" if nonprod else
+            f"Can you share the monthly cost of {workload} and any Savings Plans or Reserved Instances that cover it?")
+    sus = ((f"Does {env} run outside working hours, or could " + (names(compute, 6) if compute else "its compute") + " be stopped or scaled down at night "
+            "and at weekends? How long must each kind of data be kept?") if nonprod else
+           ("How busy are " + (names(compute, 6) if compute else "the compute resources") + " compared with demand, and how long must each kind of data be kept?"))
+    return {"OPS_PROCEDURES": ops, "REL_RESTORE_TEST": restore, "PERF_MEASUREMENT": perf, "COST_WORKLOAD": cost, "SUS_UTILIZATION": sus}
+
+
+def apply_environment(checks, run_scope):
+    """Non-production scope: HIGH baseline severities outside Security become MEDIUM and say why."""
+    if (run_scope or {}).get("environment") != "non-production":
+        return
+    for check in checks:
+        if check.get("severity") == "HIGH" and check.get("pillar") in NON_PRODUCTION_PILLARS:
+            check["severity"], check["severity_basis"] = "MEDIUM", NON_PRODUCTION_BASIS
+
+
+def evaluate(inventory, manifest, calls, root=None, scoped=None, run_scope=None):
     checks = []
     governance = {"cloudtrail.trail", "iam.account-summary", "s3.account-public-access-block"}
     resources = [r for r in inventory["resources"] if scoped is None or r["id"] in scoped or r["type"] in governance
                  or r.get("level") == "account"]
+    kept = {r["id"] for r in resources}
+    outside = {(r["type"], r["native_id"]) for r in inventory["resources"] if r["id"] not in kept}
     seen = set()
 
     def emit(rule, pillar, resource, status, observation, recommendation, url, weight=2, severity="MEDIUM", evidence=None, target=None, **extra):
@@ -149,7 +223,7 @@ def evaluate(inventory, manifest, calls, root=None, scoped=None):
         }
         if target:
             check["target"] = target
-        check.update({k: v for k, v in extra.items() if k in {"question", "related_pillars", "enablement"} and v})
+        check.update({k: v for k, v in extra.items() if k in {"question", "related_pillars", "enablement", "severity_basis"} and v})
         checks.append(check)
 
     def typed(kind):
@@ -298,19 +372,24 @@ def evaluate(inventory, manifest, calls, root=None, scoped=None):
                  f"Web ACL association query failed ({call.get('error_code') or call.get('status')})",
                  "Grant wafv2:GetWebACLForResource or confirm WAF coverage with the owner.",
                  "https://docs.aws.amazon.com/waf/latest/developerguide/web-acl-associating-aws-resource.html", evidence=evidence)
+    records = workload_rules.Evidence(root if root is not None else Path("."), calls)
     if root is not None:
-        workload_rules.evaluate_workload(emit, resources, workload_rules.Evidence(root, calls),
-                                         {r["id"] for r in resources})
-    platform_rules.evaluate_platform(emit, resources, workload_rules.Evidence(root, calls) if root is not None else workload_rules.Evidence(Path("."), calls),
-                                     {r["id"] for r in resources})
-    for rule, pillar, question, url in (
-        ("OPS_PROCEDURES", "Operational Excellence", "Who owns this workload in operation, and is there a runbook for deployments and for each alarm?", WA+"operational-excellence-pillar/welcome.html"),
-        ("REL_RESTORE_TEST", "Reliability", "What recovery time and data-loss limits (RTO/RPO) apply, and when were restore and failover last tested?", WA+"reliability-pillar/welcome.html"),
-        ("PERF_MEASUREMENT", "Performance Efficiency", "Which latency and availability targets (SLOs) apply, and can you share two to four weeks of load and latency metrics?", WA+"performance-efficiency-pillar/welcome.html"),
-        ("COST_WORKLOAD", "Cost Optimization", "Can you share the monthly cost of this workload and any Savings Plans or Reserved Instances that cover it?", WA+"cost-optimization-pillar/welcome.html"),
-        ("SUS_UTILIZATION", "Sustainability", "How busy are the compute resources compared with demand, and how long must each kind of data be kept?", WA+"sustainability-pillar/welcome.html"),
+        workload_rules.evaluate_workload(emit, resources, records, kept, outside=outside if scoped is not None else set(),
+                                         context={"environment": (run_scope or {}).get("environment"), "inventory": inventory,
+                                                  "truncations": manifest.get("truncations") or []})
+    platform_rules.evaluate_platform(emit, resources, records, kept)
+    questions = owner_questions([r for r in resources if r["id"] in kept], run_scope)
+    for rule, pillar, url in (
+        ("OPS_PROCEDURES", "Operational Excellence", WA+"operational-excellence-pillar/welcome.html"),
+        ("REL_RESTORE_TEST", "Reliability", WA+"reliability-pillar/welcome.html"),
+        ("PERF_MEASUREMENT", "Performance Efficiency", WA+"performance-efficiency-pillar/welcome.html"),
+        ("COST_WORKLOAD", "Cost Optimization", WA+"cost-optimization-pillar/welcome.html"),
+        ("SUS_UTILIZATION", "Sustainability", WA+"sustainability-pillar/welcome.html"),
     ):
-        emit(rule, pillar, None, "UNKNOWN", "Not visible in configuration metadata.", question, url, question=question)
+        emit(rule, pillar, None, "UNKNOWN", "Not visible in configuration metadata.", questions[rule], url, question=questions[rule])
+    apply_environment(checks, run_scope)
+    if root is not None:
+        iac_fixes.attach(checks, inventory["resources"], records, lambda check: validate_iac_changes([check], root, calls), template_resource_block)
     return checks
 
 
@@ -647,6 +726,7 @@ def main():
     parser.add_argument("--checks", type=Path, help="Optional evidence-backed replacement checks array (replaces the baseline)")
     parser.add_argument("--manual", type=Path, help="Agent-authored checks merged with the baseline (preferred over --checks)")
     parser.add_argument("--scope", type=Path, help="scope-resources.json; default: <as-is>/scope-resources.json when present")
+    parser.add_argument("--run-scope", type=Path, help="The run's scope.json (workload name, context.environment); default: <as-is>/../scope.json when present")
     parser.add_argument("--diagram", type=Path)
     parser.add_argument("--run-metadata", type=Path, help="Agent-recorded run-metadata.json (model, inference time, tokens); see aws-mcp-setup run_metadata.py")
     args = parser.parse_args()
@@ -654,7 +734,8 @@ def main():
         inventory, manifest, calls = verify_inputs(args.as_is)
         run_meta = report_kit.load_run_metadata(args.run_metadata)
         scoped = load_scope(args.scope or args.as_is / "scope-resources.json", inventory)
-        baseline = evaluate(inventory, manifest, calls, args.as_is, scoped)
+        run_scope = load_run_scope(args.run_scope or args.as_is.parent / "scope.json", inventory)
+        baseline = evaluate(inventory, manifest, calls, args.as_is, scoped, run_scope)
         if args.manual:
             manual = json.loads(args.manual.read_text(encoding="utf-8"))
             manual = manual["checks"] if isinstance(manual, dict) else manual
@@ -675,7 +756,8 @@ def main():
                   "evaluated_at": datetime.now(timezone.utc).isoformat(), "engine": "moda-starter",
                   "collection_status": manifest["status"], "ruleset_version": RULESET_VERSION,
                   "scope": {"resources": len(scoped) if scoped is not None else len(inventory["resources"]),
-                            "source": "scope-resources.json" if scoped is not None else "whole snapshot"},
+                            "source": "scope-resources.json" if scoped is not None else "whole snapshot",
+                            "environment": (run_scope or {}).get("environment", "unknown")},
                   "assessment_basis": "assessment-basis.json", "run_metadata": run_meta,
                   "as_is_snapshot": {"path": os_relative(args.as_is, args.output.parent),
                                      "resources": len(inventory["resources"]),
