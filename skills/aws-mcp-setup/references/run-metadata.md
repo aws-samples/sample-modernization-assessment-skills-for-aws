@@ -3,10 +3,32 @@
 The review and recommendation reports show which LLM produced the assessment, the total
 inference time and the usage in the unit the client meters: tokens for Claude Code and Codex, **credits for
 Kiro CLI** (Kiro does not expose token counts; the report shows credits in their place and never converts
-between the two). The Python helpers cannot observe any of this: they
-run inside an agent session whose model, latency and token accounting belong to the client.
-The agent therefore **declares** the values and the helpers only validate, total and display
-them. Missing values stay `null` and render as "not recorded"; the helpers never estimate.
+between the two). The values come from the client's own session
+records, never from the agent's memory: `import-auto` finds the session and the report renderer and the stop hook
+call it, so the record exists even when no agent step ran. Missing values stay `null` and render as "not recorded";
+the helpers never estimate.
+
+## Automatic import
+
+```bash
+python3 "$SKILL_DIR/scripts/run_metadata.py" import-auto --run-dir "$RUN_DIR"
+```
+
+The run's start comes from its folder name (`artifacts/<workload>/<UTC run id>`), and the next run of the same
+workload, if any, ends the window. The project is the folder that holds `artifacts/`. Every session of the client
+that worked there in the window is imported: Kiro CLI sessions whose `session.json` lists the project, Claude Code
+transcripts under `~/.claude/projects/<project path with every non-alphanumeric character as '-'>/` (or the
+transcript a Stop hook names), Codex rollouts whose `session_meta` cwd is the project. When sessions of several
+clients match, the client of the newest one is used. Each session is one entry, and a re-import replaces that
+entry, so the stop hook can call it after every turn.
+
+`assessment_report.py` calls it before rendering and shows the result in the executive summary (AI tool, model,
+input and output tokens with the cached part, or Kiro credits, model requests, turn time) between
+`<!--moda-usage-->` markers. A client writes a turn's usage when the turn ends, so the turn that renders the report
+is missing at that moment; the stop hook (`moda-skill config --hooks`) runs `assessment_report.py refresh-usage
+--run-dir RUN_DIR` after the turn, which imports again and rewrites the block in `06-assessment` and in every
+`06-assessment-<language>` copy with that language's glossary terms. Without hooks, `report` re-renders with the
+complete figures.
 
 ## File
 
@@ -67,7 +89,7 @@ also includes CLI collection, rendering and human review.
 
 ## Reporting
 
-`review.py --run-metadata` and `recommend.py --run-metadata` add a "Run provenance" section
+The assessment report shows the usage block in its executive summary (above). `review.py --run-metadata` and `recommend.py --run-metadata` add a "Run provenance" section
 (KPI tiles, totals table, per-segment table, notes) to the HTML, a matching Markdown section
 and a `run_metadata` object in `findings.json` / `pathways.json`. Reports without the flag show
 "model not recorded". Narrative labels are English drafts and localize with the

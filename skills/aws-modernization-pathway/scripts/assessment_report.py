@@ -1162,35 +1162,10 @@ def last_stage_write(run):
     return datetime.fromtimestamp(newest, timezone.utc) if newest is not None else None
 
 
-def usage_withheld(run_meta, inventory):
-    """True when the recorded AI usage is far below the run's wall-clock: a client that records a turn when it ends cannot
-    report the turn that is still writing this report, so the figures describe the first minutes, not the run."""
-    minutes = run_minutes(inventory)
-    recorded = ((run_meta or {}).get("totals") or {}).get("inference_seconds")
-    return bool(run_meta and minutes and recorded is not None and recorded < 0.25 * minutes * 60)
-
-
-def usage_html(run_meta, inventory):
-    """AI usage figures only when they describe the run (see usage_withheld)."""
-    if usage_withheld(run_meta, inventory):
-        recorded = run_meta["totals"]["inference_seconds"]
-        models = ", ".join((run_meta or {}).get("models_seen") or []) or "not recorded"
-        return (f'<p class="small"><b>AI assistant usage:</b> model {kit.esc(models)}. The client records usage when a turn ends, and most of this run happened in the turn that '
-                f'is writing this report, so the recorded figures ({kit.fmt_seconds(recorded)}) describe only the first minutes and are not shown as the run\'s usage.</p>')
-    return (f'<details><summary class="small">AI assistant usage recorded for this run (completed turns only)</summary><div class="body">{kit.run_metadata_html(run_meta)}</div></details>')
-
-
 def usage_markdown(run_meta, inventory):
-    """Markdown twin of run_clock_html + usage_html: the wall-clock first, and the usage table only when it describes the run."""
+    """Appendix B in Markdown: the run's wall-clock. The AI usage itself is in the executive summary (usage block)."""
     minutes = run_minutes(inventory)
-    clock = [f"- Run wall-clock: {minutes // 60} h {minutes % 60} min from the start of setup to this report, including collection, review and any pauses"] if minutes else []
-    if usage_withheld(run_meta, inventory):
-        models = ", ".join(run_meta.get("models_seen") or []) or "not recorded"
-        return (["## Run provenance", "", f"- LLM model: {models}"] + clock
-                + ["- AI assistant usage: the client records usage when a turn ends, and most of this run happened in the turn that wrote this report, "
-                   "so the recorded figures describe only the first minutes and are not shown as the run's usage.", ""])
-    lines = kit.run_metadata_markdown(run_meta)
-    return lines[:4] + clock + lines[4:] if clock else lines
+    return [f"- Run wall-clock: {minutes // 60} h {minutes % 60} min from the start of setup to this report, including collection, review and any pauses", ""] if minutes else []
 
 
 def write_audit_text(audit):
@@ -1228,13 +1203,13 @@ def write_audit_markdown(audit):
 
 
 def run_clock_html(inventory):
-    """Wall-clock time from the start of the run (its id is the UTC start time) to this report, so the assistant's own
-    usage figures below are not read as the length of the assessment."""
+    """Wall-clock time from the start of the run (its id is the UTC start time) to this report, so the assistant's turn
+    time in the executive summary is not read as the length of the assessment."""
     minutes = run_minutes(inventory)
     if not minutes:
         return ""
     return (f'<p class="small"><b>Run wall-clock:</b> {minutes // 60} h {minutes % 60} min from the start of setup to this report, including collection, '
-            f'review, the architect\'s checks and any pauses. The AI-usage figures below cover only the assistant turns completed before this report was written.</p>')
+            f'review, the architect\'s checks and any pauses. The AI tool\'s usage is in the executive summary.</p>')
 
 
 TO_BE_STATES = {"proposed": "New", "changed": "Configuration change", "removal_candidate": "Replace, then retire", "unresolved": "Decision pending"}
@@ -1735,6 +1710,53 @@ def specialist_overview_html(specialists, statuses):
             f'<tbody>{"".join(rows)}</tbody></table>')
 
 
+USAGE_SENTENCE = "Read from the AI tool's own session records when the report was written and again after the final turn; nothing is estimated."
+
+
+def auto_import_usage(run, path=None, transcript=None):
+    """Read the AI assistant's usage from the client's own session records (Kiro CLI, Claude Code or Codex) into
+    run-metadata.json. Best effort: a run outside those clients keeps whatever was recorded."""
+    importer = Path(__file__).resolve().parents[2] / "aws-mcp-setup/scripts/run_metadata.py"
+    if not importer.is_file():
+        return None
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("moda_run_metadata", importer)
+    module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+    try:
+        return module.cmd_import_auto(argparse.Namespace(run_dir=str(run), file=str(path) if path else None, project_root=None, since=None,
+                                                         transcript=transcript, client=None, label=None))
+    except (ValueError, OSError, KeyError):
+        return None
+
+
+def refresh_usage(run, transcript=None):
+    """After the final turn (stop hook): import the usage again and rewrite the usage block of the report and of every
+    localized copy (HTML and Markdown), in each report's language."""
+    run = Path(run)
+    auto_import_usage(run, transcript=transcript)
+    meta = kit.load_run_metadata(run / "run-metadata.json") if (run / "run-metadata.json").is_file() else None
+    changed = []
+    for folder in [run / "06-assessment"] + sorted(run.glob("06-assessment-*")):
+        language = folder.name.split("-", 2)[-1] if folder.name != "06-assessment" else "en"
+        glossary = Path(__file__).resolve().parents[2] / f"aws-mcp-setup/assets/glossary.{language}.json"
+        words = json.loads(glossary.read_text(encoding="utf-8")) if language != "en" and glossary.is_file() else {}
+        terms = {**(words.get("units") or {}), **(words.get("terms") or {})}  # units: the h / min / s of a duration
+        say = lambda text, terms=terms: terms.get(text, text)
+        for name, block in ((REPORT_FILE, kit.usage_block_html(meta, say)), ("assessment.md", kit.usage_block_markdown(meta, say))):
+            report = folder / name
+            if not report.is_file():
+                continue
+            text = report.read_text(encoding="utf-8")
+            new = re.sub(r"<!--moda-usage-->.*?<!--/moda-usage-->", lambda m: block, text, flags=re.S)
+            if new != text:
+                report.write_text(new, encoding="utf-8"); changed.append(str(report.relative_to(run)))
+    summary = run / "06-assessment/assessment-summary.json"
+    if summary.is_file() and meta:
+        doc = json.loads(summary.read_text(encoding="utf-8")); doc["run_metadata"] = meta
+        summary.write_text(json.dumps(doc, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return {"status": "refreshed", "reports": changed, "client": (meta or {}).get("agent_client"), "totals": (meta or {}).get("totals")}
+
+
 def render(args):
     run = args.run_dir
     WALL_CLOCK["minutes"] = args.wall_clock_minutes
@@ -1774,7 +1796,9 @@ def render(args):
     audit_path = args.diagram_audit or run / "04-review/diagrams/diagram-audit.json"
     diagram_audit = read_json(audit_path) if Path(audit_path).is_file() else None
     diagram_ok = bool(diagram_audit) and diagram_audit.get("status") == "pass" and (diagram_audit.get("coverage") or {}).get("status") == "pass"
-    run_meta = kit.load_run_metadata(args.run_metadata)
+    auto_import_usage(run, args.run_metadata)
+    meta_path = args.run_metadata or (run / "run-metadata.json" if (run / "run-metadata.json").is_file() else None)
+    run_meta = kit.load_run_metadata(meta_path)
     write_audit = read_json(run / "write-audit.json") if (run / "write-audit.json").is_file() else None
     grades = kit.grade_all(checks, PILLARS)
     as_is_svg = safe_svg(args.as_is_diagram) if args.as_is_diagram else None
@@ -1830,6 +1854,7 @@ def render(args):
     pages["p-summary"] = (
         f'<h2>1 · Executive summary</h2><p class="lead">{kit.esc(scope_text)}</p>{environment_note(inventory, scope_ids, scope_context)}'
         f'<div class="kpis">{kpis}</div>{radar_html(scores, grades)}<p class="small">{kit.esc(worst_text)} Counts grow with the number of resources checked; they are an index, not a verdict.</p>'
+        f'<h3>How this report was produced</h3><p class="small">{kit.esc(USAGE_SENTENCE)}</p>{kit.usage_block_html(run_meta)}'
         f'<h3>Key improvements</h3><p class="lead">The changes worth deciding on first, in order. Each links to its full description under its pillar.</p>{improvements_html(issues, by_id)}'
         f'{live_signals_html(checks)}<h3>Where to start</h3>{quick_wins_html(issues, checks)}{matrix_html(issues, specialists)}'
         + (f'<h3>Modernization in one line per area</h3><ul class="plain">{"".join(headline)}</ul>' if headline else ""))
@@ -1858,7 +1883,7 @@ def render(args):
     pages["p-appendix"] = (
         f'<h2>Appendix</h2><p class="lead">What the four sections rest on. Links from the sections above open the matching part here.</p>'
         f'<h3 id="evidence"><span class="appendix-letter">A</span>Evidence</h3>{evidence_html(evidence_rows)}'
-        f'<h3 id="appendix"><span class="appendix-letter">B</span>Method and provenance</h3>{method_appendix(scores, checks, pathways, pathways_doc["weights"])}{run_clock_html(inventory)}{write_audit_html(write_audit)}{usage_html(run_meta, inventory)}'
+        f'<h3 id="appendix"><span class="appendix-letter">B</span>Method and provenance</h3>{method_appendix(scores, checks, pathways, pathways_doc["weights"])}{run_clock_html(inventory)}{write_audit_html(write_audit)}'
         f'<details><summary>Scope and limitations</summary><div class="body"><ul><li>Services in scope: {kit.esc(", ".join(inventory["services"]))}.</li><li>Query results: <code>{kit.esc(json.dumps(manifest["coverage"]))}</code>.</li>'
         f'<li>Configuration evidence does not establish traffic, application compatibility, recovery success, cost or business criticality; those need separate evidence.</li></ul></div></details>'
         f'<h3 id="findings"><span class="appendix-letter">C</span>All findings by pillar</h3><p class="small">Failures, warnings and open questions first; passed checks are folded away. {kit.esc(CODES_SENTENCE)}</p>{pillar_sections(checks, grades, screener, scope_context)}'
@@ -1881,6 +1906,7 @@ def render(args):
         k, info = grades[p_]
         sc = (scores.get(p_) or {}).get("score")
         md.append(f"| {p_} | {kit.GRADES[k][0]} | {sc if sc is not None else '-'} | {kit.grade_counts_text(info)} |")
+    md += ["", "### How this report was produced", "", USAGE_SENTENCE, "", kit.usage_block_markdown(run_meta)]
     md += ["", "### Key improvements", ""]
     if issues:
         for n, i in enumerate(issues, 1):
@@ -1973,6 +1999,12 @@ def render(args):
 
 
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "refresh-usage":
+        refresh = argparse.ArgumentParser(description="re-import the AI usage and rewrite the usage block of the finished report(s)")
+        refresh.add_argument("refresh-usage"); refresh.add_argument("--run-dir", type=Path, required=True); refresh.add_argument("--transcript")
+        a = refresh.parse_args()
+        print(json.dumps(refresh_usage(a.run_dir, a.transcript), ensure_ascii=False))
+        return 0
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--run-dir", type=Path, required=True)
     parser.add_argument("--workload", required=True)

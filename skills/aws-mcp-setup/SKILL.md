@@ -40,13 +40,13 @@ Reuse `01-setup/access-check.json`, `$RUN_DIR/scope.json` (take `output_language
    python3 "$SKILL_DIR/scripts/run_metadata.py" init      --output "$RUN_DIR/run-metadata.json" --model "$MODEL_ID" --client "$CLIENT"
    ```
 
-   The agent declares `$MODEL_ID` and `$CLIENT` (claude-code, codex or kiro-cli) from its own session context. After each stage, or once at the end, append measured values with the importer for the running client, bounded to the run with `--since/--until`:
+   The agent declares `$MODEL_ID` and `$CLIENT` (claude-code, codex or kiro-cli) from its own session context. The measured values need no agent step: the final report runs `run_metadata.py import-auto --run-dir "$RUN_DIR"`, which finds the Kiro CLI, Claude Code or Codex session that worked in this project since the run started and imports its model, tokens (Kiro CLI: credits) and requests, and the stop hook runs it again after the final turn. The per-client importers below remain for a manual or partial import, bounded to the run with `--since/--until`:
 
    - Claude Code: `import-claude-transcript --transcript ~/.claude/projects/<workspace>/<session>.jsonl` (sub-agent transcripts under `<session>/subagents/` are included)
    - Codex: `import-codex-rollout --rollout ~/.codex/sessions/YYYY/MM/DD/rollout-<id>.jsonl` (the sub-agent rollouts this session started are included)
-   - Kiro CLI: `/stats save FILE`, then `import-kiro-stats --stats FILE`
+   - Kiro CLI: `import-kiro-session --project-root "$PROJECT_DIR"` (reads `~/.kiro/sessions`)
 
-   Importers read model names, timestamps and token counts only. Inference time comes from the client summary (Claude Code `/cost`, Codex `/status`, Kiro `/stats`) via `add --inference-seconds`, or stays null. Unknown values are reported as "not recorded"; never estimate them. Pass `--run-metadata "$RUN_DIR/run-metadata.json"` to `review.py` and `recommend.py`. See [run metadata](references/run-metadata.md).
+   Importers read model names, timestamps and token counts only. Unknown values are reported as "not recorded"; never estimate them. Pass `--run-metadata "$RUN_DIR/run-metadata.json"` to `review.py` and `recommend.py`. See [run metadata](references/run-metadata.md).
 
 ## Handoff and limitations
 

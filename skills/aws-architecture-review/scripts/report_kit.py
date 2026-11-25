@@ -670,8 +670,78 @@ def run_metadata_html(meta):
             f"{kpis}<table><tbody>{table}</tbody></table>{entries}" + (f"<ul class=\"small\">{notes}</ul>" if notes else "") + "</section>")
 
 
+CLIENT_NAMES = {"kiro-cli": "Kiro CLI", "kiro": "Kiro CLI", "claude-code": "Claude Code", "claude": "Claude Code", "codex": "Codex"}
+# Every word the usage block shows. A localized report refreshes the block after the final turn with these words from
+# its glossary, so the refreshed block is in the report's language too.
+USAGE_WORDS = ("AI tool", "Model", "Input tokens", "of which cached", "Output tokens", "Kiro credits", "Model requests", "Turn time",
+               "Sub-agents", "Recorded", "not recorded", "Usage of the AI assistant", "Kiro CLI records credits, not tokens.")
+
+
+def usage_facts(meta):
+    """(label, value) pairs for the usage block, from run-metadata.json as the client recorded it; nothing estimated."""
+    if not meta or not meta["entries"]:
+        return []
+    t = meta["totals"]
+    credits = [e["breakdown"].get("credits") for e in meta["entries"] if e["breakdown"].get("credits") is not None]
+    cached = sum(int(e["breakdown"].get(k) or 0) for e in meta["entries"] for k in ("cache_read_input", "cached_input"))
+    subagents = sum(int(e["breakdown"].get("subagents") or 0) for e in meta["entries"])
+    recorded = max((e.get("recorded_at") or "" for e in meta["entries"]), default="")
+    facts = [("AI tool", CLIENT_NAMES.get(str(meta.get("agent_client") or "").lower(), meta.get("agent_client") or "not recorded")),
+             ("Model", ", ".join(meta["models_seen"]) or "not recorded")]
+    if t["input_tokens"] is not None or t["output_tokens"] is not None:
+        facts.append(("Input tokens", fmt_int(t["input_tokens"]) + (f" ({fmt_int(cached)} of which cached)" if cached else "")))
+        facts.append(("Output tokens", fmt_int(t["output_tokens"])))
+    if credits:
+        facts.append(("Kiro credits", f"{sum(float(c) for c in credits):,.2f}"))
+    facts.append(("Model requests", fmt_int(t["requests"]) if t["requests"] is not None else "not recorded"))
+    if t["inference_seconds"] is not None:
+        facts.append(("Turn time", fmt_seconds(t["inference_seconds"])))
+    if subagents:
+        facts.append(("Sub-agents", str(subagents)))
+    facts.append(("Recorded", recorded[:16].replace("T", " ") + " UTC" if recorded else "not recorded"))
+    return facts
+
+
+DURATION_UNITS = ("h", "min", "s")
+
+
+def usage_value(label, value, say=lambda text: text):
+    """A usage value in the report's language: "not recorded", "of which cached" and the duration units go through
+    `say` (glossary terms); names, numbers and model ids stay as the client wrote them."""
+    if value == "not recorded":
+        return say(value)
+    if "of which cached" in value:
+        value = value.replace(" of which cached", " " + say("of which cached"))
+    if label == "Turn time":
+        value = re.sub(r"(\d+(?:\.\d)?) (h|min|s)\b", lambda m: m.group(1) + (say(m.group(2)) if say(m.group(2)) != m.group(2) else " " + m.group(2)), value)
+    return value
+
+
+def usage_block_html(meta, say=lambda text: text):
+    """The usage tiles: AI tool, model, tokens (or Kiro credits), requests. Wrapped in markers so the stop hook can
+    replace it with the figures of the finished run."""
+    facts = usage_facts(meta)
+    if not facts:
+        body = f'<p class="small">{esc(say("Usage of the AI assistant"))}: {esc(say("not recorded"))}</p>'
+    else:
+        body = '<div class="kpis">' + "".join(f'<div class="kpi link"><div class="n" style="font-size:20px">{esc(usage_value(l, v, say))}</div><div class="l">{esc(say(l))}</div></div>'
+                                              for l, v in facts) + "</div>"
+        if any(l == "Kiro credits" for l, _ in facts) and not any(l == "Input tokens" for l, _ in facts):
+            body += f'<p class="small">{esc(say("Kiro CLI records credits, not tokens."))}</p>'
+    return f'<!--moda-usage-->{body}<!--/moda-usage-->'
+
+
+def usage_block_markdown(meta, say=lambda text: text):
+    """Markdown twin of usage_block_html, between the same markers."""
+    facts = usage_facts(meta)
+    lines = [f"- {say(l)}: {usage_value(l, v, say)}" for l, v in facts] or [f"- {say('Usage of the AI assistant')}: {say('not recorded')}"]
+    if any(l == "Kiro credits" for l, _ in facts) and not any(l == "Input tokens" for l, _ in facts):
+        lines.append(f"- {say('Kiro CLI records credits, not tokens.')}")
+    return "<!--moda-usage-->\n" + "\n".join(lines) + "\n<!--/moda-usage-->"
+
+
 def run_metadata_markdown(meta):
-    lines = ["## Run provenance", "", "Declared by the agent and recorded in run-metadata.json; the helper does not measure model usage.", ""]
+    lines = ["## Run provenance", "", "Read from the AI tool's own session records into run-metadata.json; nothing is estimated.", ""]
     lines += [f"- {a}: {b}" for a, b in run_metadata_rows(meta)]
     if meta and meta["entries"]:
         lines += ["", "| Segment | Model | Inference time | Input tokens | Output tokens | Requests | Breakdown | Source |", "|---|---|---|---:|---:|---:|---|---|"]

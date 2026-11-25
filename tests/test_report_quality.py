@@ -423,6 +423,122 @@ class RunMetadataImport(unittest.TestCase):
             self.assertIn(("Kiro credits", "402.2"), kit.run_metadata_rows(meta))
 
 
+class UsageAutoImport(unittest.TestCase):
+    """The report records the AI tool, model and tokens (or Kiro credits) from the client's own session files: no agent
+    step, no estimate, and a re-import after every turn never double-counts."""
+
+    @staticmethod
+    def kiro(home, project, name, records, modified="2020-01-01T09:00:00Z"):
+        sess = home / f".kiro/sessions/h/{name}"
+        sess.mkdir(parents=True)
+        (sess / "session.json").write_text(json.dumps({"workspacePaths": [str(project)], "title": "moda", "lastModifiedAt": modified}))
+        (sess / "messages.jsonl").write_text("\n".join(json.dumps(r) for r in records))
+        return sess
+
+    @staticmethod
+    def turn(stamp, credits, requests=1, ms=60000):
+        return {"timestamp": stamp, "payload": {"type": "usage_summary", "elapsedTime": ms, "requestIds": [f"{stamp}{i}" for i in range(requests)],
+                                                "promptTurnSummaries": [{"usage": credits}]}}
+
+    def test_each_client_is_found_from_the_run_folder(self):
+        rm = load("ua_run_metadata", "skills/aws-mcp-setup/scripts/run_metadata.py")
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home"
+            # Kiro CLI: two sessions (the run was resumed), and a later run of the same workload bounds the window.
+            kiro_project = Path(tmp) / "kiro-proj"; run = kiro_project / "artifacts/shop/20200101T070000Z"; run.mkdir(parents=True)
+            (kiro_project / "artifacts/shop/20200101T080000Z").mkdir()
+            model = {"timestamp": "2020-01-01T07:01:00Z", "payload": {"type": "assistant", "reasoningModelId": "qdev::model-k"}}
+            self.kiro(home, kiro_project, "sess_a", [model, self.turn("2020-01-01T07:10:00Z", 10.0, 3)])
+            self.kiro(home, kiro_project, "sess_b", [self.turn("2020-01-01T07:40:00Z", 5.5, 2), self.turn("2020-01-01T08:30:00Z", 99.0, 50)])
+            self.kiro(home, kiro_project, "sess_old", [self.turn("2019-12-31T07:00:00Z", 77.0)], modified="2019-12-31T08:00:00Z")
+            # Claude Code: the project folder name with every non-alphanumeric character as '-'.
+            claude_project = Path(tmp) / "claude.proj"; claude_run = claude_project / "artifacts/shop/20200101T070000Z"; claude_run.mkdir(parents=True)
+            folder = home / ".claude/projects" / "".join(c if c.isalnum() else "-" for c in str(claude_project.resolve())); folder.mkdir(parents=True)
+            (folder / "s1.jsonl").write_text(json.dumps({"type": "assistant", "uuid": "a1", "timestamp": "2020-01-01T07:05:00Z",
+                                                         "message": {"id": "m1", "model": "model-c", "usage": {"input_tokens": 100, "cache_read_input_tokens": 900, "output_tokens": 40}}}) + "\n")
+            # Codex: rollouts whose session_meta cwd is the project; another project's rollout is ignored.
+            codex_project = Path(tmp) / "codex-proj"; codex_run = codex_project / "artifacts/shop/20200101T070000Z"; codex_run.mkdir(parents=True)
+            day = home / ".codex/sessions/2020/01/01"; day.mkdir(parents=True)
+            for name, cwd, tokens in (("rollout-a.jsonl", codex_project, 1000), ("rollout-b.jsonl", Path(tmp) / "elsewhere", 99999)):
+                lines = [{"timestamp": "2020-01-01T07:00:00Z", "type": "session_meta", "payload": {"id": name, "cwd": str(cwd), "source": "cli"}},
+                         {"timestamp": "2020-01-01T07:00:01Z", "type": "turn_context", "payload": {"model": "model-x"}},
+                         {"timestamp": "2020-01-01T07:02:00Z", "type": "token_usage_record", "payload": {"response_id": "r1", "usage": {"input_tokens": tokens, "cached_input_tokens": 0, "output_tokens": 7}}}]
+                (day / name).write_text("\n".join(json.dumps(x) for x in lines) + "\n")
+            args = lambda run_dir: argparse.Namespace(run_dir=str(run_dir), file=None, project_root=None, since=None, transcript=None, client=None, label=None)
+            with patch.object(rm.Path, "home", return_value=home):
+                first = rm.cmd_import_auto(args(run))
+                again = rm.cmd_import_auto(args(run))
+                claude = rm.cmd_import_auto(args(claude_run))
+                codex = rm.cmd_import_auto(args(codex_run))
+                with self.assertRaisesRegex(ValueError, "not a run folder"):
+                    rm.cmd_import_auto(args(Path(tmp) / "kiro-proj"))
+            self.assertEqual((first["client"], sorted(first["sessions"]), first["until"]), ("kiro-cli", ["sess_a", "sess_b"], "2020-01-01T08:00:00Z"))
+            meta = rm.report_kit.load_run_metadata(run / "run-metadata.json")
+            self.assertEqual(len(meta["entries"]), 2, "two sessions, each imported once although import-auto ran twice")
+            self.assertEqual(again["totals"]["requests"], 5, "the next run's turn and the earlier day's session are not counted")
+            self.assertEqual(sum(e["breakdown"]["credits"] for e in meta["entries"]), 15.5)
+            self.assertEqual((meta["agent_client"], meta["models_seen"]), ("kiro-cli", ["model-k"]))
+            c = rm.report_kit.load_run_metadata(claude_run / "run-metadata.json")
+            self.assertEqual((claude["client"], c["totals"]["input_tokens"], c["totals"]["output_tokens"], c["models_seen"]), ("claude-code", 1000, 40, ["model-c"]))
+            x = rm.report_kit.load_run_metadata(codex_run / "run-metadata.json")
+            self.assertEqual((codex["client"], x["totals"]["input_tokens"], codex["sessions"]), ("codex", 1000, ["rollout-a.jsonl"]))
+
+    def test_usage_block_in_each_language_and_refresh_after_the_last_turn(self):
+        report = load("ua_assessment_report", "skills/aws-modernization-pathway/scripts/assessment_report.py")
+        kit = report.kit
+        with tempfile.TemporaryDirectory() as tmp:
+            home, project = Path(tmp) / "home", Path(tmp) / "proj"
+            run = project / "artifacts/shop/20200101T070000Z"
+            sess = self.kiro(home, project, "sess_a", [{"timestamp": "2020-01-01T07:01:00Z", "payload": {"type": "assistant", "reasoningModelId": "model-k"}},
+                                                       self.turn("2020-01-01T07:10:00Z", 1.25, 2, ms=126000)])
+            stale = "<!--moda-usage-->stale<!--/moda-usage-->"
+            for folder in ("06-assessment", "06-assessment-ko"):
+                (run / folder).mkdir(parents=True)
+                (run / folder / "assessment.html").write_text(f"<html><body><p>before</p>{stale}<p>after</p></body></html>")
+                (run / folder / "assessment.md").write_text(f"# r\n\n{stale}\n\nafter\n")
+            (run / "06-assessment/assessment-summary.json").write_text(json.dumps({"status": "complete", "run_metadata": None}))
+            with patch.object(Path, "home", return_value=home):
+                first = report.refresh_usage(run)
+                # the final turn ends after the report was written: the next refresh counts it
+                (sess / "messages.jsonl").write_text((sess / "messages.jsonl").read_text() + "\n" + json.dumps(self.turn("2020-01-01T07:50:00Z", 3.0, 4)))
+                report.refresh_usage(run)
+            self.assertEqual(len(first["reports"]), 4)
+            en = (run / "06-assessment/assessment.html").read_text()
+            self.assertNotIn("stale", en); self.assertIn("<p>after</p>", en)
+            for text in ("Kiro CLI", "model-k", "4.25", "Kiro credits", "Model requests", "Kiro CLI records credits, not tokens."):
+                self.assertIn(text, en)
+            ko = (run / "06-assessment-ko/assessment.html").read_text()
+            for text in ("AI \ub3c4\uad6c", "Kiro \ud06c\ub808\ub527", "\ubaa8\ub378 \uc694\uccad \uc218", "4.25"):
+                self.assertIn(text, ko)
+            self.assertNotIn("Model requests", ko); self.assertNotIn("min", ko.replace("<!--", ""), "durations use the glossary units")
+            self.assertIn("- Kiro credits: 4.25", (run / "06-assessment/assessment.md").read_text())
+            self.assertIn("4.25", (run / "06-assessment-ko/assessment.md").read_text())
+            self.assertEqual(json.loads((run / "06-assessment/assessment-summary.json").read_text())["run_metadata"]["totals"]["requests"], 6)
+        tokens = {"entries": [{"breakdown": {"cache_read_input": 900}, "recorded_at": "2020-01-01T08:00:00Z"}], "totals": {"input_tokens": 1000, "output_tokens": 40, "requests": 3,
+                  "inference_seconds": 3725}, "models_seen": ["model-c"], "agent_client": "claude-code"}
+        html = kit.usage_block_html(tokens)
+        self.assertIn("1,000 (900 of which cached)", html); self.assertIn("Claude Code", html); self.assertIn("1 h 2 min", html)
+        self.assertNotIn("records credits", html)
+        self.assertIn("Usage of the AI assistant: not recorded", kit.usage_block_markdown(None))
+
+    def test_stop_hook_refreshes_the_usage_of_a_finished_run(self):
+        hook = load("ua_hook", "skills/moda-skill/scripts/hook.py")
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp) / "artifacts/shop/20200101T070000Z"
+            (run / "06-assessment").mkdir(parents=True)
+            transcript = Path(tmp) / "t.jsonl"; transcript.write_text("{}\n")
+            calls = []
+            with patch("subprocess.run", side_effect=lambda command, **kw: calls.append(command)):
+                hook.refresh_usage(run, {"transcript_path": str(transcript)})  # no report yet: nothing to refresh
+                (run / "06-assessment/assessment.html").write_text("<html></html>")
+                hook.refresh_usage(run, {"transcript_path": str(transcript)})
+            self.assertEqual(len(calls), 1)
+            self.assertEqual(calls[0][2:5], ["refresh-usage", "--run-dir", str(run)])
+            self.assertEqual(calls[0][-2:], ["--transcript", str(transcript)])
+            with patch("subprocess.run", side_effect=OSError("boom")):
+                hook.refresh_usage(run, {})  # never fails the stop
+
+
 class ModelGuidance(unittest.TestCase):
     def test_tiers_and_exit_codes(self):
         moda = load("rq_moda", "skills/moda-skill/scripts/moda.py")

@@ -562,6 +562,23 @@ def newest_mtime(run):
     return newest
 
 
+def refresh_usage(run, event):
+    """After a turn of a finished run: re-read the AI tool's session records and rewrite the report's usage block, so the
+    turn that wrote the report is counted too. Never blocks the stop and never fails it."""
+    import subprocess  # nosec B404 - this skill's own script, list-form arguments
+    script = Path(__file__).resolve().parents[2] / "aws-modernization-pathway/scripts/assessment_report.py"
+    if not script.is_file() or not (run / "06-assessment/assessment.html").is_file():
+        return
+    command = [sys.executable, str(script), "refresh-usage", "--run-dir", str(run)]
+    transcript = event.get("transcript_path") if isinstance(event, dict) else None
+    if isinstance(transcript, str) and transcript.endswith(".jsonl") and Path(transcript).is_file():
+        command += ["--transcript", transcript]
+    try:
+        subprocess.run(command, capture_output=True, text=True, timeout=20)  # nosec B603
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
 def stop(event, project_root):
     if event.get("stop_hook_active"):
         return 0
@@ -572,6 +589,7 @@ def stop(event, project_root):
     import moda  # noqa: E402
     info = moda.inspect(run)
     if info["complete"]:
+        refresh_usage(run, event)
         summary = run / "06-assessment/assessment-summary.json"
         try:
             status = json.loads(summary.read_text(encoding="utf-8")).get("status", "")

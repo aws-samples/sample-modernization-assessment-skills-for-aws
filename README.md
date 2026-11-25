@@ -232,7 +232,8 @@ modified.
   host inspection uses. In Kiro it also checks the built-in `use_aws` tool. With the guard in
   place, read-only access is enforced by the hook rather than left to the agent's instructions.
 - A **stop gate** asks the agent to continue while a run still has unfinished stages or a draft
-  report.
+  report. After the turn that finishes a run, it also re-reads the AI tool's usage so the report
+  counts that last turn too.
 
 The guard does not see AWS tools that you add yourself, such as an AWS API MCP server. The
 read-only role described in [Permissions](#permissions) is the control that holds in every case.
@@ -426,9 +427,10 @@ The [test runs](#tested-clients) went through these checks in all three clients.
 - The scope is the workload you name. Application logic and database contents are not inspected.
 - Costs are published On-Demand list prices with their basis, not a bill forecast. Savings, dates
   and effort in person-days are not estimated.
-- Model usage is read from the client's own session records (Kiro CLI, Claude Code, Codex). When
-  the records cover only part of the run, the report says so instead of showing a misleading
-  number.
+- The AI tool, model and usage in the executive summary are read from the client's own session
+  records (Kiro CLI, Claude Code, Codex), not reported by the agent. Claude Code and Codex record
+  tokens; Kiro CLI records credits, not tokens. A client writes a turn's usage when the turn ends,
+  so without hooks the last turn is counted only when you run `report` again.
 
 ## Verification
 

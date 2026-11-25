@@ -15,6 +15,7 @@ reports display them. Missing values stay null and are shown as "not recorded"; 
           --transcript ~/.claude/projects/<workspace>/<session>.jsonl [--since ...] [--until ...]
   python3 run_metadata.py import-codex-rollout --file RUN_DIR/run-metadata.json --label "session" \\
           --rollout ~/.codex/sessions/YYYY/MM/DD/rollout-<id>.jsonl [--since ...] [--until ...]
+  python3 run_metadata.py import-auto --run-dir RUN_DIR      # finds the client session itself (used by the report and the stop hook)
   python3 run_metadata.py show --file RUN_DIR/run-metadata.json
 
 Importers read only model names, timestamps and token counts from the client logs; prompt and
@@ -27,6 +28,7 @@ import argparse
 from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
+import re
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "aws-architecture-review" / "scripts"))
@@ -400,6 +402,113 @@ def cmd_import_codex_rollout(args):
             "models": sorted(models), "input_tokens": totals["input_tokens"], "output_tokens": totals["output_tokens"]}
 
 
+CLIENT_NAMES = {"kiro-cli": "Kiro CLI", "claude-code": "Claude Code", "codex": "Codex"}
+
+
+def run_start(run_dir):
+    """The run's start time from its folder name (the UTC run id, 20261123T073326Z), as ISO-8601."""
+    name = Path(run_dir).name
+    try:
+        return datetime.strptime(name[:16], "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    except ValueError:
+        return None
+
+
+def newest_mtime(path):
+    path = Path(path)
+    if path.is_file():
+        return path.stat().st_mtime
+    times = [p.stat().st_mtime for p in path.rglob("*") if p.is_file()]
+    return max(times) if times else path.stat().st_mtime
+
+
+def find_sessions(project_root, since=None, transcript=None):
+    """Client sessions that worked in project_root since the run started: (client, last write, path), newest last.
+
+    Kiro CLI: ~/.kiro/sessions/<hash>/sess_*/ whose session.json lists the folder. Claude Code: the transcript a Stop hook
+    names, else ~/.claude/projects/<folder with every non-alphanumeric character as '-'>/*.jsonl. Codex:
+    ~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl whose session_meta cwd is the folder (sub-agent rollouts are counted
+    through their parent)."""
+    root = Path(project_root).resolve()
+    floor = datetime.strptime(since, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).timestamp() if since else 0
+    found = []
+    for folder, _ in kiro_session_dirs(root, since):
+        found.append(("kiro-cli", newest_mtime(folder), folder))
+    claude = [Path(transcript)] if transcript else sorted((Path.home() / ".claude/projects" / re.sub(r"[^A-Za-z0-9]", "-", str(root))).glob("*.jsonl"))
+    for path in claude:
+        if path.is_file() and path.stat().st_mtime >= floor:
+            found.append(("claude-code", path.stat().st_mtime, path))
+    codex_root = Path.home() / ".codex/sessions"
+    if codex_root.is_dir():
+        for path in codex_root.glob("*/*/*/rollout-*.jsonl"):
+            if path.stat().st_mtime < floor:
+                continue
+            cwd, parent = None, None
+            for record in read_jsonl(path):
+                if isinstance(record, dict) and record.get("type") == "session_meta":
+                    payload = record.get("payload") or {}
+                    cwd = payload.get("cwd")
+                    _, parent = codex_session_meta(path)
+                    break
+            if cwd and not parent and (Path(cwd).resolve() == root or root in Path(cwd).resolve().parents):
+                found.append(("codex", path.stat().st_mtime, path))
+    return sorted(found, key=lambda t: t[1])
+
+
+def run_end(run_dir):
+    """The start of the next run of the same workload, if any: sessions after it belong to that run, not this one."""
+    run = Path(run_dir).resolve()
+    starts = sorted(s for s in (run_start(p) for p in run.parent.iterdir() if p.is_dir() and p != run) if s and s > (run_start(run) or ""))
+    return starts[0] if starts else None
+
+
+def cmd_import_auto(args):
+    """Find the client sessions that ran this assessment and import their usage with the matching importer. No agent
+    step: the report renderer and the stop hook call this, so the record exists even when the agent forgot to import it.
+    Every session of that client in the run's window is imported (a run resumed in a new session counts both); each
+    re-import replaces its own entry, so calling this after every turn never double-counts."""
+    run = Path(args.run_dir).resolve()
+    since = args.since or run_start(run)
+    if not since:
+        raise ValueError(f"{run.name} is not a run folder (artifacts/<workload>/<UTC run id>); pass --since to bound the sessions")
+    until = run_end(run) if not args.since else None
+    project = Path(args.project_root).resolve() if args.project_root else (run.parents[2] if len(run.parents) > 2 else run.parent)
+    sessions = find_sessions(project, since, args.transcript)  # the importers drop records after `until` themselves
+    if args.client:
+        sessions = [s for s in sessions if s[0] == args.client]
+    if not sessions:
+        raise ValueError(f"no Kiro CLI, Claude Code or Codex session found for {project} since {since}")
+    client = sessions[-1][0]
+    paths = [path for name, _, path in sessions if name == client]
+    target = Path(args.file) if args.file else run / "run-metadata.json"
+    if not target.is_file():
+        cmd_init(argparse.Namespace(output=str(target), model=None, client=client, note=None, force=False))
+    label = args.label or "assessment run"
+    imported, errors = [], []
+    if client == "kiro-cli":
+        result = cmd_import_kiro_session(argparse.Namespace(file=str(target), project_root=str(project), label=label, since=since, until=until, last=len(paths)))
+        imported = [s["session"] for s in result["sessions"]]
+    else:
+        for path in paths:
+            try:
+                if client == "claude-code":
+                    cmd_import_claude_transcript(argparse.Namespace(file=str(target), transcript=str(path), label=label, model=None, since=since, until=until))
+                else:
+                    cmd_import_codex_rollout(argparse.Namespace(file=str(target), rollout=str(path), label=label, model=None, since=since, until=until, no_subagents=False))
+                imported.append(Path(path).name)
+            except ValueError as exc:  # a session in the window with no model turns of its own
+                errors.append(f"{Path(path).name}: {exc}")
+        if not imported:
+            raise ValueError("; ".join(errors) or "no usage records in the matching sessions")
+    data = load(target)
+    data["agent_client"] = client
+    data["imported_at"] = now()
+    data["notes"] = list(dict.fromkeys(data.get("notes") or []))
+    save(target, data)
+    totals = report_kit.load_run_metadata(target)["totals"] if report_kit else {}
+    return {"status": "imported", "client": client, "sessions": imported, "since": since, "until": until, "file": str(target), "totals": totals}
+
+
 def cmd_show(args):
     if not report_kit:
         raise ValueError("report_kit.py not found beside aws-architecture-review; show requires the installed skill set")
@@ -428,6 +537,11 @@ def main():
     p.add_argument("--file", required=True); p.add_argument("--project-root", default=str(Path.cwd())); p.add_argument("--label", default="assessment session")
     p.add_argument("--since"); p.add_argument("--until"); p.add_argument("--last", type=int, default=1, help="how many most recent matching sessions to import")
     p.set_defaults(func=cmd_import_kiro_session)
+    p = sub.add_parser("import-auto", help="find the Kiro CLI, Claude Code or Codex session that ran the assessment and import its usage")
+    p.add_argument("--run-dir", required=True); p.add_argument("--file", help="default: RUN_DIR/run-metadata.json")
+    p.add_argument("--project-root", help="default: the folder that holds artifacts/<workload>/<run id>")
+    p.add_argument("--since", help="default: the run's start, from its folder name"); p.add_argument("--transcript", help="Claude Code: the transcript a Stop hook names")
+    p.add_argument("--client", choices=sorted(CLIENT_NAMES)); p.add_argument("--label"); p.set_defaults(func=cmd_import_auto)
     p = sub.add_parser("show"); p.add_argument("--file", required=True); p.set_defaults(func=cmd_show)
     args = parser.parse_args()
     try:

@@ -349,7 +349,7 @@ class ReaderFeedbackTests(unittest.TestCase):
         empty = self.report.quick_wins_html([{"title": "Big", "effort": "weeks", "cost_direction": "neutral", "list_prices": []}], [])
         self.assertIn("none declared", empty[:empty.index("Needs an investment decision")], "template lines no longer fill the list (no IaC section)")
         meta = {"totals": {"inference_seconds": 396}, "models_seen": ["claude-opus-5.5"], "entries": [], "notes": []}
-        self.assertIn("describe only the first minutes", self.report.usage_html(meta, {"run_id": "20260101T000000Z"}))
+        self.assertIn("Usage of the AI assistant: not recorded", self.report.kit.usage_block_html(meta), "no entries: said so, nothing estimated")
         self.assertEqual(self.report.resource_tags({"attributes": {"Tags": [{"Key": "Project", "Value": "moda-testbed"}]}}), {"Project": "moda-testbed"})
         from datetime import datetime, timedelta, timezone
         old = "2020-01-01T00:00:00Z"
@@ -397,7 +397,7 @@ class ReaderFeedbackTests(unittest.TestCase):
         self.assertIn("Services this workload uses:</b> $120 of the $743", self.report.spend_html(inventory, {"r0"}))
         meta = {"totals": {"inference_seconds": 338}, "models_seen": ["claude-opus-5.5"], "entries": [], "notes": [], "partial_fields": [], "agent_client": "kiro-cli", "model_id": None}
         md = "\n".join(self.report.usage_markdown(meta, {"run_id": "20260101T000000Z"}))
-        self.assertIn("not shown as the run's usage", md); self.assertNotIn("5m 38s", md); self.assertIn("Run wall-clock", md)
+        self.assertNotIn("5m 38s", md); self.assertIn("Run wall-clock", md)
         self.assertEqual(self.report.plain_words("over 0.0.0.0/0 (configuration, s0032) and (template_declared)"), "over 0.0.0.0/0 (API configuration, s0032) and (from the template)")
         pathways = [{"pathway": "container", "status": "conditional", "rationale": "Fits ECS.", "problem": "p", "target_services": ["Amazon ECS"], "finding_ids": ["f0001"], "wave": 2, "prerequisites": []},
                     {"pathway": "managed-analytics", "status": "not_assessed", "rationale": "Order data exists.", "problem": "p", "target_services": [], "finding_ids": [], "wave": None,

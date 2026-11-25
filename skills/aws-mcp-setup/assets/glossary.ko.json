@@ -289,7 +289,29 @@
     "Cost of one hour without these components": "이 구성 요소가 한 시간 멈췄을 때의 비용",
     "owner to provide": "고객 입력 필요",
     "Kubernetes standard support ends": "Kubernetes 표준 지원 종료",
-    "Database engine standard support ends": "데이터베이스 엔진 표준 지원 종료"
+    "Database engine standard support ends": "데이터베이스 엔진 표준 지원 종료",
+    "AI tool": "AI 도구",
+    "Model": "모델",
+    "Input tokens": "입력 토큰",
+    "of which cached": "캐시 사용",
+    "Output tokens": "출력 토큰",
+    "Model requests": "모델 요청 수",
+    "Turn time": "턴 처리 시간",
+    "Sub-agents": "하위 에이전트",
+    "Recorded": "기록 시각",
+    "not recorded": "기록 없음",
+    "Usage of the AI assistant": "AI 도구 사용량",
+    "Kiro CLI records credits, not tokens.": "Kiro CLI는 토큰이 아니라 크레딧을 기록합니다.",
+    "How this report was produced": "리포트 생성 정보",
+    "Read from the AI tool's own session records when the report was written and again after the final turn; nothing is estimated.": "AI 도구가 남긴 세션 기록을 리포트 작성 시점과 마지막 턴이 끝난 뒤에 다시 읽은 값이며, 추정한 값은 없습니다.",
+    "Legend": "범례",
+    "Connections": "연결",
+    "Executive summary": "핵심 요약"
+  },
+  "units": {
+    "h": "시간",
+    "min": "분",
+    "s": "초"
   },
   "avoid": {
     "방언": "'MySQL 호환 SQL'처럼 의미를 풀어 쓴다",
