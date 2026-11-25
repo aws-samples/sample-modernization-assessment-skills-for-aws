@@ -135,6 +135,56 @@ class AwsDiagramTests(unittest.TestCase):
             if qa["checks"]["labels_clear"]["numbered"]:
                 self.assertIn(">Connections<", svg)
 
+    def test_official_style_nodes_and_crowded_graphs_drawn_as_views(self):
+        """Field case: boxed cards with three to four text lines made the drawings hard to read. Nodes are now drawn as in
+        the official AWS diagrams (icon, name under it, no box unless the state needs an outline), connectors end at the
+        icon and never run through another component, and a graph too large for one readable drawing is cut into views
+        along its top-level groups, with the components of the other view shown as small copies."""
+        groups = [{"id": "region", "label": "Region us-east-1", "kind": "region", "resource_ids": []},
+                  {"id": "vpc", "label": "VPC shop", "kind": "vpc", "parent": "region", "resource_ids": []},
+                  {"id": "svc", "label": "Regional services", "kind": "services", "parent": "region", "resource_ids": []}]
+        nodes = [{"id": f"v{k}", "label": f"ECS service {k}", "type": "ecs.service", "group": "vpc", "state": "observed", "resource_ids": []} for k in range(14)]
+        nodes += [{"id": f"s{k}", "label": f"Pipeline {k}", "type": "codepipeline.pipeline", "group": "svc", "state": "proposed" if k == 0 else "observed", "resource_ids": []}
+                  for k in range(14)]
+        edges = [{"id": f"in{k}", "source": f"v{k}", "target": f"v{k + 1}", "label": "calls", "state": "observed_configuration"} for k in range(0, 12, 2)]
+        edges += [{"id": f"sv{k}", "source": f"s{k}", "target": f"s{k + 1}", "label": "triggers", "state": "observed_configuration"} for k in range(0, 12, 2)]
+        edges += [{"id": "deploy", "source": "s0", "target": "v0", "label": "deploys", "state": "proposed"}]
+        graph = {"title": "Crowded", "groups": groups, "nodes": nodes, "edges": edges}
+        with tempfile.TemporaryDirectory() as tmp:
+            qa = aws.render(graph, Path(tmp), "crowded", None, None, None)
+            svg = (Path(tmp) / "crowded.aws.svg").read_text()
+            self.assertEqual(qa["status"], "pass", qa["checks"])
+            self.assertEqual((qa["size"]["views"], qa["checks"]["views"]["count"]), (2, 2))
+            self.assertIn('data-views="2"', svg); self.assertIn("View 1: VPC shop", svg); self.assertIn("View 2: Regional services", svg)
+            self.assertEqual(re.findall(r'data-node-id="([^"]+)"', svg).count("v0"), 1, "each component is drawn in full once")
+            self.assertEqual(ids_in(svg, "node"), {n["id"] for n in nodes})
+            self.assertEqual(ids_in(svg, "edge"), {e["id"] for e in edges})
+            self.assertEqual(set(re.findall(r'data-stub-of="([^"]+)"', svg)), {"s0", "v0"}, "the deploy connector ends at a copy in each view")
+            self.assertIn("In other views", svg)
+            self.assertEqual(diagram.audit(graph, Path(tmp) / "crowded.aws.svg", require_coverage=False)["status"], "pass",
+                             "every graph id appears once; the region and the connector between views repeat as data-*-repeat")
+            self.assertIn('data-group-repeat="region"', svg); self.assertIn('data-edge-repeat="deploy"', svg)
+            self.assertEqual(qa["checks"]["connectors_clear_of_nodes"]["status"], "pass")
+            plain = re.search(r'<g data-node-id="v3" data-state="observed"><title>[^<]*</title>(<[^>]+>)', svg).group(1)
+            self.assertNotIn("stroke=", plain, "an observed component has no box, only its icon (here the service tile)")
+            self.assertRegex(svg, r'<g data-node-id="s0" data-state="proposed"><title>[^<]*</title><rect [^>]*stroke-dasharray', "a proposed one keeps its dashed outline")
+            self.assertRegex(svg, r'font-weight="600" fill="#232F3E" text-anchor="middle">ECS service 3<', "the name sits centred under the icon")
+        # connectors end on the icon, not on the edge of the text column
+        pair = {"groups": [], "nodes": [dict(nodes[0], group=None), dict(nodes[1], group=None)], "edges": [edges[0]]}
+        boxes = aws.Layout(pair).run()
+        (start, *_, end), _ = aws.route_edges(pair, boxes, set())["in0"]
+        sx, sy, sw, sh = aws.icon_box(boxes["v0"]); tx, ty, tw, th = aws.icon_box(boxes["v1"])
+        self.assertEqual((round(start[0], 1), round(end[0], 1)), (round(sx + sw, 1), round(tx, 1)))
+        self.assertTrue(sy <= start[1] <= sy + sh and ty <= end[1] <= ty + th)
+        # a graph that fits one drawing stays one drawing
+        small = {"title": "Small", "groups": groups, "nodes": nodes[:6] + nodes[14:18], "edges": [e for e in edges if e["id"] in {"in0", "in2", "sv0"}]}
+        with tempfile.TemporaryDirectory() as tmp:
+            qa = aws.render(small, Path(tmp), "small", None, None, None)
+            self.assertEqual(qa["size"]["views"], 1)
+            self.assertNotIn("data-stub-of", (Path(tmp) / "small.aws.svg").read_text())
+        # members of a group are ordered along their connectors, so a chain sits side by side
+        self.assertEqual(aws.flow_order(["c", "b", "a", "z"], [{"source": "a", "target": "b"}, {"source": "b", "target": "c"}]), ["a", "b", "c", "z"])
+
     def test_focused_to_be_graph_draws_states_without_an_inventory(self):
         """A specialist's drawing: retained, changed, proposed and removal-candidate nodes, a proposed edge, no inventory
         to cover. The drawing passes the id audit and tags every non-observed state."""

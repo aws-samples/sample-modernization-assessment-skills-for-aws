@@ -127,10 +127,10 @@
     {
       "name": "aws-mcp-setup",
       "source": "skills/aws-mcp-setup",
-      "digest": "61d3f834aade97d8801dfac18a3361e3598fffc3ed43434a34108ec55262c4d3",
+      "digest": "e294f956d2f9cf7c35338e2d6c88dd6e4f2169a42a871c0e2f38c1770a90b982",
       "stamp": {
         "package": "moda-skills",
-        "sha256": "61d3f834aade97d8801dfac18a3361e3598fffc3ed43434a34108ec55262c4d3"
+        "sha256": "e294f956d2f9cf7c35338e2d6c88dd6e4f2169a42a871c0e2f38c1770a90b982"
       },
       "files": [
         {
@@ -150,8 +150,8 @@
         },
         {
           "path": "assets/glossary.ko.json",
-          "bytes": 17390,
-          "sha256": "1a6c0bea2c6e87f1f18aab170c111f605507567be5767381ca5050e4c9de66bc"
+          "bytes": 17717,
+          "sha256": "704bb799b8025e34421729e6e86dbe024c9790a5eb780473dd116aaf2226c421"
         },
         {
           "path": "references/compatibility.md",
@@ -274,10 +274,10 @@
     {
       "name": "aws-architecture-review",
       "source": "skills/aws-architecture-review",
-      "digest": "9a9eb6046742896e0ca358a085d7f47c46380a34475ee24c6806f64428073cbf",
+      "digest": "d019029a4a676d2827a3f56655ebd8138945c645ff7671d83a884bba341eb6a5",
       "stamp": {
         "package": "moda-skills",
-        "sha256": "9a9eb6046742896e0ca358a085d7f47c46380a34475ee24c6806f64428073cbf"
+        "sha256": "d019029a4a676d2827a3f56655ebd8138945c645ff7671d83a884bba341eb6a5"
       },
       "files": [
         {
@@ -302,8 +302,8 @@
         },
         {
           "path": "references/diagram-workflow.md",
-          "bytes": 6174,
-          "sha256": "597d764c47c56802aed458eac5f7ed47f53ab2b32fef722c368da3eab70d3a40"
+          "bytes": 7219,
+          "sha256": "f28f863a277495f5f4b74f2edcdb1ca662bc15648dac972498bcc76716f186a6"
         },
         {
           "path": "references/review-method.md",
@@ -317,8 +317,8 @@
         },
         {
           "path": "scripts/aws_diagram.py",
-          "bytes": 65624,
-          "sha256": "4f48db218b8bf8dc220e13b8bc48dc7b68b2cd9c007e6d7216b7a8ddc20348f5"
+          "bytes": 81011,
+          "sha256": "20589cfb644a27273ff641b2fd5be2c7dab8fb4b727468b614f6e1f9a7d54e98"
         },
         {
           "path": "scripts/diagram.py",

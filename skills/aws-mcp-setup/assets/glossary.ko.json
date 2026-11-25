@@ -306,7 +306,11 @@
     "Read from the AI tool's own session records when the report was written and again after the final turn; nothing is estimated.": "AI 도구가 남긴 세션 기록을 리포트 작성 시점과 마지막 턴이 끝난 뒤에 다시 읽은 값이며, 추정한 값은 없습니다.",
     "Legend": "범례",
     "Connections": "연결",
-    "Executive summary": "핵심 요약"
+    "Executive summary": "핵심 요약",
+    "View": "그림",
+    "In other views": "다른 그림의 구성 요소",
+    "Drawn in full in another view; shown here for its connections": "다른 그림에 전체가 있으며, 여기서는 연결만 보여 줍니다",
+    "Components drawn in full in another view": "다른 그림에 전체가 있는 구성 요소"
   },
   "units": {
     "h": "시간",

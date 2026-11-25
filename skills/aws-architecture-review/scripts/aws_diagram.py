@@ -4,16 +4,19 @@
 The layout is the one an architect draws by hand: in a region, the VPCs side by side and the regional services beside
 them; in a VPC, the Availability Zones as columns with their subnets stacked (public first), then one band per group of
 resources deployed across several subnets, then the VPC-level components (gateways, endpoints, aggregates) in a row.
-Nodes are AWS-styled boxes with the official service icon, a wrapped label and a detail line; zones are the official
-containers (region, VPC, AZ, subnet) with their badges; edges are orthogonal connectors with labels; attachments to
-aggregate nodes (security groups, route tables) are chips on the source node rather than lines. A title and a legend of
-states complete the drawing. Every node, group and edge keeps its graph id as data-node-id / data-group-id /
+Nodes are drawn as in the official AWS architecture diagrams: the 48 px service icon with the name under it and one or
+two short detail lines, no box (a dashed or coloured outline only for proposed, changed, declared or unconfirmed
+components); zones are the official containers (region, VPC, AZ, subnet) with their badges; edges are orthogonal
+connectors that end at the icons, with labels beside their own line or numbered markers explained under the legend;
+attachments to aggregate nodes (security groups, route tables) are chips on the source node rather than lines. A graph
+too large for one readable drawing is drawn as two or three views along its top-level groups (see plan_views). A title
+and a legend of states complete the drawing. Every node, group and edge keeps its graph id as data-node-id / data-group-id /
 data-edge-id, so `diagram.py --audit-graph` passes on the result. Icons are read from the aws-diagram-design companion
 skill (assets/aws-icons) when it is installed beside this skill or in the client's skills folder; without it, nodes carry
 a coloured service tag instead of an icon.
 
 Geometry is checked here, not by looking at a PNG: every label fits its box, every node lies inside its group, no two
-nodes overlap, every connector ends at its nodes. The result is diagram-qa.json; a failing check fails the render.
+nodes overlap, every connector ends at its nodes and runs through no other node. The result is diagram-qa.json; a failing check fails the render.
 
   aws_diagram.py --graph diagram-graph.json --output DIR --name as-is [--title "..."] [--note "..."] [--icons DIR]
 
@@ -30,11 +33,16 @@ SANS = "'Amazon Ember','Helvetica Neue',Helvetica,Arial,'Apple SD Gothic Neo','N
 MONO = "'Amazon Ember Mono',ui-monospace,SFMono-Regular,Menlo,monospace"
 INK, MUTED, SOFT, ACCENT, RED, PAPER = "#232F3E", "#545B64", "#7D8998", "#EC7211", "#DD344C", "#FFFFFF"
 
-NODE_W = 232           # node box width; the text column is NODE_W - ICON_X - ICON - gaps
-NODE_PAD = 10
-ICON = 32
-LABEL_SIZE, DETAIL_SIZE, LABEL_LH, DETAIL_LH = 11.5, 9.5, 14, 12
-MAX_LABEL_LINES, MAX_DETAIL_LINES = 3, 4
+# A node is drawn the way the official AWS architecture diagrams draw it: the 48 px icon, the name centred under it and
+# one or two short detail lines, no box. NODE_W is the width of that cell (the text column), which connectors and edge
+# labels keep clear of; connectors attach to the icon.
+NODE_W = 150
+NODE_TOP = 6           # space above the icon inside the cell (room for a state tag)
+ICON = 48
+TEXT_W = NODE_W - 8
+LABEL_SIZE, DETAIL_SIZE, LABEL_LH, DETAIL_LH = 11, 9.5, 13.5, 12
+NODE_DETAIL_SIZE, NODE_DETAIL_LH = 9, 11
+MAX_LABEL_LINES, MAX_DETAIL_LINES = 3, 2
 GROUP_LABEL_SIZE, GROUP_HEAD = 12, 20
 TITLE_H = 64
 MARGIN = 24
@@ -52,6 +60,7 @@ ZONES = {
     "cloud": ("#232F3E", None, "AWS-Cloud_32.svg", "AWS Cloud"),
     "security-group": ("#DD344C", "4,4", None, "Security group"),
     "autoscaling": ("#ED7100", "4,4", "Auto-Scaling-group_32.svg", "Auto Scaling group"),
+    "external": ("#7D8998", "2,3", None, "Components drawn in full in another view"),
     "other": ("#545B64", None, None, "Group"),
 }
 # Node states: stroke colour, dash pattern, stroke width, legend text. Observed and retained are the plain box.
@@ -63,7 +72,9 @@ STATES = {
     "proposed": (ACCENT, "5,3", 1.6, "Proposed; does not exist yet"),
     "removal_candidate": (RED, "5,3", 1.6, "Candidate for removal"),
     "unresolved": (SOFT, "3,3", 1, "Could not be confirmed from the evidence"),
+    "elsewhere": (SOFT, "2,3", 1, "Drawn in full in another view; shown here for its connections"),
 }
+PLAIN_STATES = {"observed", "retained"}  # drawn without an outline, as in the official diagrams
 # Edges to these aggregate nodes (every resource is attached to some security group and route table) are drawn as a chip
 # on the source node instead of a routed line, which is what an architect does by hand; the edge keeps its id on the chip.
 BADGE_TARGETS = {"ec2.security-group", "ec2.route-table", "elbv2.target-group:aggregate"}
@@ -329,24 +340,30 @@ def esc(value):
     return (str(value).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;"))
 
 
-def node_lines(node, width):
+def node_lines(node, width=TEXT_W):
     label, t1 = wrap(node.get("label", ""), LABEL_SIZE, width, MAX_LABEL_LINES)
-    detail, t2 = wrap(node.get("detail", ""), DETAIL_SIZE, width, MAX_DETAIL_LINES)
+    detail, t2 = wrap(node.get("detail", ""), NODE_DETAIL_SIZE, width, MAX_DETAIL_LINES)
     return label, detail, t1 or t2
 
 
 BADGE_ROW = 18
-GAP = 40           # between siblings; leaves a corridor for two or three connectors
-MAX_ROW_W = 1800   # a row of groups wraps beyond this width, so a drawing stays readable at page width
+GAP = 40           # between siblings, vertically; leaves a corridor for two or three connectors
+GAP_X = 96         # between siblings, horizontally: room for an arrow and a short label between two cells
+MAX_ROW_W = 1400   # a row of groups wraps beyond this width, so a drawing stays readable at page width
 PAD = 16           # inside a group, left/right/bottom
-HEAD = 30          # inside a group, top (badge + label)
+HEAD = 40          # inside a group, top: the title band (24) and a free row a connector can turn in before it leaves the group
 
 
 def node_size(node, badges=0):
-    width = NODE_W - NODE_PAD - ICON - 10 - NODE_PAD
-    label, detail, _ = node_lines(node, width)
-    text_h = len(label) * LABEL_LH + (len(detail) * DETAIL_LH + 4 if detail else 0)
-    return NODE_W, max(56, NODE_PAD * 2 + max(ICON, text_h)) + (BADGE_ROW if badges else 0)
+    label, detail, _ = node_lines(node)
+    text_h = len(label) * LABEL_LH + (len(detail) * NODE_DETAIL_LH + 3 if detail else 0)
+    return NODE_W, NODE_TOP + ICON + 6 + text_h + 4 + (BADGE_ROW if badges else 0)
+
+
+def icon_box(box):
+    """The icon inside a node cell: centred, at the top."""
+    x, y, w, h = box
+    return (x + (w - ICON) / 2, y + NODE_TOP, ICON, ICON)
 
 
 def is_badge_edge(edge, nodes):
@@ -366,9 +383,9 @@ def grid(items, columns):
         if i and i % columns == 0:
             x, y, row_h = 0, y + row_h + GAP, 0
         pos[iid] = (x, y)
-        x += w + GAP
+        x += w + GAP_X
         row_h = max(row_h, h)
-        width = max(width, x - GAP)
+        width = max(width, x - GAP_X)
     return pos, width, (y + row_h) if items else 0
 
 
@@ -379,18 +396,47 @@ def rows(items, max_width=MAX_ROW_W):
         if x and x + w > max_width:
             x, y, row_h = 0, y + row_h + GAP, 0
         pos[iid] = (x, y)
-        x += w + GAP
+        x += w + GAP_X
         row_h = max(row_h, h)
-        width = max(width, x - GAP)
+        width = max(width, x - GAP_X)
     return pos, width, (y + row_h) if items else 0
 
 
 def columns_for(n, kind):
-    if kind in {"subnet", "az"}:
-        return 1 if n <= 4 else 2
+    if kind == "az":
+        return 1
+    if kind == "subnet":
+        return min(n, 2) if n <= 4 else 3
     if kind == "subnet-span":
-        return min(n, 4) or 1
-    return max(1, min(4, round(n ** 0.5 + 0.49))) if n else 1
+        return min(n, 5) or 1
+    if n <= 4:
+        return max(1, n)
+    return min(5, -(-n // 2)) if n <= 10 else 5
+
+
+GATEWAYS = {"ec2.internet-gateway", "ec2.vpn-gateway", "ec2.egress-only-internet-gateway", "ec2.transit-gateway-attachment"}
+
+
+def flow_order(ids, edges):
+    """Members of one group in the order their connectors run (a chain of sources and targets kept next to each other),
+    so the grid puts connected components side by side instead of in graph order. Unconnected members follow."""
+    inside = set(ids)
+    out, incoming = {}, {i: 0 for i in ids}
+    for e in edges:
+        if e["source"] in inside and e["target"] in inside and e["source"] != e["target"]:
+            out.setdefault(e["source"], []).append(e["target"]); incoming[e["target"]] += 1
+    linked = {i for i in ids if out.get(i) or incoming[i]}
+    order, seen = [], set()
+
+    def visit(i):
+        if i in seen:
+            return
+        seen.add(i); order.append(i)
+        for j in out.get(i, []):
+            visit(j)
+    for i in [i for i in ids if i in linked and not incoming[i]] + [i for i in ids if i in linked]:
+        visit(i)
+    return order + [i for i in ids if i not in seen]
 
 
 class Layout:
@@ -432,7 +478,8 @@ class Layout:
             w, h = self.arrange_region(gid)
         else:
             kids = sorted(self.children[gid], key=lambda c: subnet_order(self.groups[c])) if kind == "az" else list(self.children[gid])
-            items = [(cid, *self.size[cid]) for cid in kids] + [(nid, *self.size[nid]) for nid in self.members[gid]]
+            members = flow_order(self.members[gid], self.graph["edges"])
+            items = [(cid, *self.size[cid]) for cid in kids] + [(nid, *self.size[nid]) for nid in members]
             cols = 1 if kind == "az" else columns_for(len(items), kind)
             pos, w, h = grid(items, cols)
             self.rel.update(pos)
@@ -452,8 +499,8 @@ class Layout:
             items = [(nid, *self.size[nid]) for nid in self.members[gid]]
             pos, pw, ph = grid(items, 1 if order else columns_for(len(items), "other"))
             for nid, (px, py) in pos.items():
-                self.rel[nid] = (px + (w + GAP if order else 0), py)
-            w = w + GAP + pw if order else pw
+                self.rel[nid] = (px + (w + GAP_X if order else 0), py)
+            w = w + GAP_X + pw if order else pw
             h = max(h, ph)
         return w, h
 
@@ -462,16 +509,24 @@ class Layout:
         azs = sorted([c for c in kids if (self.groups[c].get("kind") or "") == "az"], key=lambda c: str(self.groups[c].get("az") or self.groups[c].get("label")))
         spans = [c for c in kids if (self.groups[c].get("kind") or "") == "subnet-span"]
         others = [c for c in kids if c not in azs and c not in spans]
+        gates = [n for n in self.members[gid] if (self.nodes[n].get("type") or "") in GATEWAYS]
+        y0 = 0
+        if gates:  # the internet and VPN gateways sit on top, next to the public subnets, as in the official diagrams
+            pos, gw, gh = rows([(nid, *self.size[nid]) for nid in gates])
+            self.rel.update(pos); y0 = gh + GAP
         top = [(cid, *self.size[cid]) for cid in azs + others]
-        pos, width, row_h = rows(top, max(MAX_ROW_W, sum(self.size[c][0] + GAP for c in azs)))  # the AZ columns stay side by side
-        self.rel.update(pos)
+        pos, width, row_h = rows(top, max(MAX_ROW_W, sum(self.size[c][0] + GAP_X for c in azs)))  # the AZ columns stay side by side
+        self.rel.update({k: (x, y + y0) for k, (x, y) in pos.items()})
+        row_h += y0
+        width = max(width, gw if gates else 0)
         y = row_h + (GAP if row_h else 0)
         for cid in spans:
             cw, ch = self.size[cid]
             self.rel[cid] = (0, y); y += ch + GAP; width = max(width, cw)
-        if self.members[gid]:
-            items = [(nid, *self.size[nid]) for nid in self.members[gid]]
-            cols = max(1, min(len(items), (max(width, NODE_W) + GAP) // (NODE_W + GAP))) if width else columns_for(len(items), "other")
+        rest = [n for n in flow_order(self.members[gid], self.graph["edges"]) if n not in gates]
+        if rest:
+            items = [(nid, *self.size[nid]) for nid in rest]
+            cols = max(1, min(len(items), (max(width, NODE_W) + GAP_X) // (NODE_W + GAP_X))) if width else columns_for(len(items), "other")
             pos, pw, ph = grid(items, cols)
             for nid, (px, py) in pos.items():
                 self.rel[nid] = (px, py + y)
@@ -578,15 +633,19 @@ def route_edges(graph, boxes, badge_ids, cell=8):
             s_side, t_side = plan[e["id"]]
             use.setdefault((e["source"], s_side), []).append((e["id"], e["target"]))
             use.setdefault((e["target"], t_side), []).append((e["id"], e["source"]))
-    ports = {}
+    ports, reach = {}, {}
     for (nid, side), entries in use.items():
         x, y, w, h = boxes[nid]
+        ix, iy, iw, ih = icon_box(boxes[nid])
         key = (lambda o: boxes[o][1] + boxes[o][3] / 2) if side in {"left", "right"} else (lambda o: boxes[o][0] + boxes[o][2] / 2)
         entries.sort(key=lambda t: key(t[1]))
         n = len(entries)
         for i, (eid, _) in enumerate(entries):
             frac = (i + 1) / (n + 1)
-            ports[(eid, nid)] = {"right": (x + w, y + h * frac), "left": (x, y + h * frac), "bottom": (x + w * frac, y + h), "top": (x + w * frac, y)}[side]
+            # the connector leaves the cell at the icon's height (sides) or across the icon's width (top, bottom), and
+            # runs on to the icon itself through the empty space beside it
+            ports[(eid, nid)] = {"right": (x + w, iy + ih * frac), "left": (x, iy + ih * frac), "bottom": (ix + iw * frac, y + h), "top": (ix + iw * frac, y)}[side]
+            reach[(eid, nid)] = {"right": (ix + iw, iy + ih * frac), "left": (ix, iy + ih * frac), "bottom": None, "top": None}[side]
     STEP = {"right": (1, 0), "left": (-1, 0), "bottom": (0, 1), "top": (0, -1)}
     DIRS = ((1, 0), (-1, 0), (0, 1), (0, -1))
 
@@ -643,6 +702,10 @@ def route_edges(graph, boxes, badge_ids, cell=8):
             head = [a, (first[0], a[1])] if s_side in {"left", "right"} else [a, (a[0], first[1])]
             tail = [(last[0], b[1]), b] if t_side in {"left", "right"} else [(b[0], last[1]), b]
             pts = head + mid + tail
+            if reach.get((e["id"], e["source"])):
+                pts = [reach[(e["id"], e["source"])]] + pts
+            if reach.get((e["id"], e["target"])):
+                pts = pts + [reach[(e["id"], e["target"])]]
             for c in cells:
                 used[c] = used.get(c, 0) + 10
                 for nx, ny in ((c[0] + 1, c[1]), (c[0] - 1, c[1]), (c[0], c[1] + 1), (c[0], c[1] - 1)):
@@ -680,7 +743,7 @@ def label_point(pts, obstacles=()):
     return ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2 - 4)
 
 
-LABEL_W = 200       # an edge label wraps at this width, two lines at most
+LABEL_W = 170       # an edge label wraps at this width, two lines at most
 LABEL_LH_EDGE = 11
 
 
@@ -696,7 +759,7 @@ def segment_hits(box, a, b):
     return x <= a[0] <= x + w and min(a[1], b[1]) <= y + h and max(a[1], b[1]) >= y
 
 
-def place_labels(graph, routes, boxes, badge_ids, headers, extent):
+def place_labels(graph, routes, boxes, badge_ids, headers, extent, first=1):
     """A position for every edge label that covers no node, no group title and no other label, preferring spots no
     other connector crosses. A label that fits nowhere becomes a numbered marker on its connector, explained under the
     legend. Returns ({edge id: placement}, [(number, text)])."""
@@ -733,12 +796,12 @@ def place_labels(graph, routes, boxes, badge_ids, headers, extent):
                     break
             if best and best[0] == 0:
                 break
-        if best:
+        if best and best[0] == 0:  # beside its own line and crossed by no other: anything else reads as another line's label
             placed.append(best[1])
             out[e["id"]] = {"lines": lines, "box": best[1]}
             continue
         # A numbered marker on the connector; the text goes under the legend.
-        number = len(keyed) + 1
+        number = first + len(keyed)
         spot = None
         for a, b in segs:
             for frac in (0.5, 0.3, 0.7, 0.15, 0.85):
@@ -789,7 +852,7 @@ def group_depth(groups, gid):
 def renderer_words():
     """The renderer's own English words (legend lines, state tags, the legend heading), for a drawing in another
     language: the localizer translates these with the graph's labels and redraws."""
-    out = ["Legend", "Connections", "Architecture", "Chip on a node: attached to the aggregate shown with that tag (security groups, route tables)",
+    out = ["Legend", "Connections", "Architecture", "View", "In other views", "Chip on a node: attached to the aggregate shown with that tag (security groups, route tables)",
            "proposed", "changed", "removal candidate", "unconfirmed", "declared"]
     out += [v[3] for v in STATES.values()] + [v[2] for v in EDGE_STATES.values()] + [v[3] for v in ZONES.values()]
     return list(dict.fromkeys(out))
@@ -822,31 +885,158 @@ def translated_graph(graph, translate):
     return g
 
 
-def render(graph, output, name, title=None, note=None, icons=None, language="en", words=None):
-    """Write <name>.aws.svg, <name>.aws.html, <name>.render.json and diagram-qa.json; return the QA record. `words` maps
-    the renderer's own English words (legend lines, state tags) to the drawing's language."""
-    say = (lambda text: (words or {}).get(text, text))
-    output.mkdir(parents=True, exist_ok=True)
+# ---------------------------------------------------------------------------
+# Views: a drawing with too many components is cut into views along its top-level groups
+# ---------------------------------------------------------------------------
+SPLIT_NODES = 24           # more components than this, or a layout beyond SPLIT_W x SPLIT_H, is drawn as two or three views
+SPLIT_W, SPLIT_H = 1500, 1400
+SPLIT_CROSS = 0.3          # ... unless every cut leaves more than this share of the connectors running between views
+PART_GAP, PART_HEAD = 44, 30
+WRAPPERS = {"region", "cloud", "account"}
+
+
+def view_sections(graph):
+    """(parent group, top-level groups in drawing order, {group: its subtree groups}, {node: section index}). The parent is
+    the outermost wrapper (AWS Cloud, account, region) that holds nothing but groups; the sections are its children."""
     groups = {g["id"]: g for g in graph.get("groups", [])}
-    nodes_by_id = {n["id"]: n for n in graph["nodes"]}
+    children, members = {}, {}
+    for g in graph.get("groups", []):
+        children.setdefault(g.get("parent") if g.get("parent") in groups else None, []).append(g["id"])
+    for n in graph["nodes"]:
+        members.setdefault(n.get("group") if n.get("group") in groups else None, []).append(n["id"])
+    parent, level = None, children.get(None, [])
+    while len(level) == 1 and (groups[level[0]].get("kind") or "") in WRAPPERS and not members.get(level[0]) and children.get(level[0]):
+        parent, level = level[0], children[level[0]]
+    if parent and (groups[parent].get("kind") or "") == "region":
+        kind = lambda c: groups[c].get("kind") or ""  # noqa: E731 - the order Layout.arrange_region draws
+        level = [c for c in level if kind(c) == "vpc"] + [c for c in level if kind(c) == "services"] + [c for c in level if kind(c) not in {"vpc", "services"}]
+
+    def subtree(gid):
+        out = {gid}
+        for c in children.get(gid, []):
+            out |= subtree(c)
+        return out
+    trees = {c: subtree(c) for c in level}
+    owner = {}
+    for i, c in enumerate(level):
+        for gid in trees[c]:
+            for nid in members.get(gid, []):
+                owner[nid] = i
+    for nid in members.get(parent, []) + members.get(None, []):
+        owner.setdefault(nid, 0)
+    return parent, level, trees, owner
+
+
+def plan_views(graph, badge_ids):
+    """None when one drawing is readable; else (parent, [[section ids] per view], {node: view index}). Consecutive sections
+    form a view, so the order of the drawing is kept; the cut that leaves the fewest connectors between views and the
+    most even views wins."""
+    from itertools import combinations
+    n = len(graph["nodes"])
+    parent, level, trees, owner = view_sections(graph)
+    if len(level) < 2:
+        return None
+    trial = Layout(graph).run()
+    width = max(b[0] + b[2] for b in trial.values()) - min(b[0] for b in trial.values())
+    height = max(b[1] + b[3] for b in trial.values()) - min(b[1] for b in trial.values())
+    if n <= SPLIT_NODES and width <= SPLIT_W and height <= SPLIT_H:
+        return None
+    counts = [sum(1 for i in owner.values() if i == k) for k in range(len(level))]
+    edges = [e for e in graph["edges"] if e["id"] not in badge_ids and e["source"] in owner and e["target"] in owner]
+    best = None
+    for parts in (2, 3) if n > 2.5 * SPLIT_NODES else (2,):
+        for cuts in combinations(range(1, len(level)), min(parts, len(level)) - 1):
+            bounds = (0,) + cuts + (len(level),)
+            view_of = {i: v for v in range(len(bounds) - 1) for i in range(bounds[v], bounds[v + 1])}
+            sizes = [sum(counts[i] for i in range(bounds[v], bounds[v + 1])) for v in range(len(bounds) - 1)]
+            if min(sizes) == 0:
+                continue
+            cross = sum(1 for e in edges if view_of[owner[e["source"]]] != view_of[owner[e["target"]]])
+            cost = 3 * cross + (max(sizes) - min(sizes)) + 6 * max(0, max(sizes) - SPLIT_NODES - 4)
+            if best is None or cost < best[0]:
+                best = (cost, bounds, view_of)
+    if best is None:
+        return None
+    _, bounds, view_of = best
+    cross = sum(1 for e in edges if view_of[owner[e["source"]]] != view_of[owner[e["target"]]])
+    if cross > max(4, SPLIT_CROSS * len(edges)):
+        return None  # the parts are too entangled: two views would repeat most components as stubs
+    views = [level[bounds[v]:bounds[v + 1]] for v in range(len(bounds) - 1)]
+    return parent, views, {nid: view_of[i] for nid, i in owner.items()}, trees
+
+
+def view_graph(graph, parent, sections, trees, node_view, index, badge_ids, say):
+    """The part of the graph one view draws. A connector to a component of another view ends at a small copy of that
+    component (same icon and name, dotted outline, "View N"), grouped as "In other views", so no line crosses views."""
+    groups = {g["id"]: g for g in graph.get("groups", [])}
+    nodes = {n["id"]: n for n in graph["nodes"]}
+    keep, gid = set(), parent
+    while gid:
+        keep.add(gid); gid = groups[gid].get("parent") if groups[gid].get("parent") in groups else None
+    for section in sections:
+        keep |= trees[section]
+    mine = [n for n in graph["nodes"] if node_view.get(n["id"], 0) == index]
+    ids = {n["id"] for n in mine}
+    edges, stubs, refs = [], {}, {}
+    for e in graph["edges"]:
+        s_in, t_in = e["source"] in ids, e["target"] in ids
+        if e["id"] in badge_ids:
+            if s_in:
+                edges.append(dict(e, drawn_as="badge")); refs[e["target"]] = nodes.get(e["target"]) or {}
+            continue
+        if s_in and t_in:
+            edges.append(e)
+        elif s_in or t_in:
+            far = e["target"] if s_in else e["source"]
+            stub = "~" + far
+            if stub not in stubs:
+                stubs[stub] = dict({k: v for k, v in nodes[far].items() if k not in {"group", "state", "detail"}}, id=stub, stub_of=far,
+                                   detail=f"{say('View')} {node_view.get(far, 0) + 1}", state="elsewhere", group="~views")
+            edges.append(dict(e, source=e["source"] if s_in else stub, target=stub if s_in else e["target"]))
+    out_groups = [g for g in graph.get("groups", []) if g["id"] in keep]
+    if stubs:
+        out_groups.append({"id": "~views", "kind": "external", "label": say("In other views"), **({"parent": parent} if parent else {})})
+    labels = [str(groups[c].get("label") or "") for c in sections]
+    return {"title": graph.get("title"), "groups": out_groups, "nodes": mine + list(stubs.values()), "edges": edges, "refs": refs,
+            "heading": f"{say('View')} {index + 1}: " + " · ".join(l for l in labels if l)}
+
+
+def layout_view(graph, first=1):
+    """Geometry of one drawing: node and group boxes, routed connectors, edge labels (numbered from `first`)."""
+    nodes_by_id = {**graph.get("refs", {}), **{n["id"]: n for n in graph["nodes"]}}
     badge_edges = [e for e in graph["edges"] if is_badge_edge(e, nodes_by_id)]
     badge_ids = {e["id"] for e in badge_edges}
     boxes = Layout(graph).run()
     routes = route_edges(graph, boxes, badge_ids)
     straight = routes.pop("__fallback__", [])
-    qa = {"status": "pass", "checks": {}, "notes": []}
-    missing = [i for i in list(groups) + [n["id"] for n in graph["nodes"]] if i not in boxes]
+    missing = [i for i in [g["id"] for g in graph.get("groups", [])] + [n["id"] for n in graph["nodes"]] if i not in boxes]
     if missing:
         raise RuntimeError(f"no geometry for {', '.join(missing[:8])}")
-    min_x = min(b[0] for b in boxes.values()); min_y = min(b[1] for b in boxes.values())
-    max_x = max(b[0] + b[2] for b in boxes.values()); max_y = max(b[1] + b[3] for b in boxes.values())
+    extent = (min(b[0] for b in boxes.values()), min(b[1] for b in boxes.values()),
+              max(b[0] + b[2] for b in boxes.values()), max(b[1] + b[3] for b in boxes.values()))
     headers = group_headers(graph, boxes)
-    labels, keyed = place_labels(graph, routes, boxes, badge_ids, headers, (min_x, min_y, max_x, max_y))
-    dx, dy = MARGIN - min_x, TITLE_H + MARGIN - min_y
-    width = max_x - min_x + 2 * MARGIN
-    icon_set = IconSet(icons)
-    out = []
-    # Groups, parents first
+    labels, keyed = place_labels(graph, routes, boxes, badge_ids, headers, extent, first)
+    return {"graph": graph, "nodes": nodes_by_id, "badge_edges": badge_edges, "badge_ids": badge_ids, "boxes": boxes, "routes": routes,
+            "straight": straight, "extent": extent, "headers": headers, "labels": labels, "keyed": keyed}
+
+
+def draw_view(view, dx, dy, icon_set, say, notes, drawn=None):
+    """SVG fragments of one laid-out drawing, shifted by (dx, dy): groups, connectors, nodes, then edge labels on top.
+    `drawn` holds the group and edge ids an earlier view already carries: a repeat (the region around every view, a
+    connector between views) is marked data-*-repeat, so each graph id appears once as data-*-id, as the audit expects."""
+    drawn = set() if drawn is None else drawn
+
+    def ident(kind, iid):
+        key = f"{kind}:{iid}"
+        if key in drawn:
+            return f'data-{kind}-repeat="{esc(iid)}"'
+        drawn.add(key)
+        return f'data-{kind}-id="{esc(iid)}"'
+
+    graph, boxes, routes, labels = view["graph"], view["boxes"], view["routes"], view["labels"]
+    groups = {g["id"]: g for g in graph.get("groups", [])}
+    nodes_by_id, badge_edges = view["nodes"], view["badge_edges"]
+    out, top = [], []
     for gid in sorted(groups, key=lambda g: group_depth(groups, g)):
         g = groups[gid]
         x, y, w, h = boxes[gid]
@@ -854,7 +1044,8 @@ def render(graph, output, name, title=None, note=None, icons=None, language="en"
         kind, (color, dash, badge, legend) = zone_style(g)
         dash_attr = f' stroke-dasharray="{dash}"' if dash else ""
         fill = f' fill="{color}" fill-opacity="0.035"' if kind in {"subnet", "public-subnet", "vpc"} else ' fill="none"'
-        out.append(f'<g data-group-id="{esc(gid)}" data-kind="{esc(kind)}"><rect x="{x:.1f}" y="{y:.1f}" width="{w:.1f}" height="{h:.1f}" stroke="{color}" stroke-width="1.2"{dash_attr}{fill}/>')
+        marker = f'data-stub-group="{esc(gid)}"' if gid.startswith("~") else ident("group", gid)
+        out.append(f'<g {marker} data-kind="{esc(kind)}"><rect x="{x:.1f}" y="{y:.1f}" width="{w:.1f}" height="{h:.1f}" stroke="{color}" stroke-width="1.2"{dash_attr}{fill}/>')
         label_x = x + 8
         icon = icon_set.inner(f"group/{badge}") if badge else None
         if icon:
@@ -866,14 +1057,12 @@ def render(graph, output, name, title=None, note=None, icons=None, language="en"
             label_x = x + 30
         lines, truncated = wrap(g.get("label", ""), GROUP_LABEL_SIZE, w - (label_x - x) - 8, 1)
         if truncated:
-            qa["notes"].append(f"group {gid}: label shortened to fit {w:.0f}px")
+            notes.append(f"group {gid}: label shortened to fit {w:.0f}px")
         if lines:
             out.append(f'<text x="{label_x:.1f}" y="{y + 16:.1f}" font-size="{GROUP_LABEL_SIZE}" font-weight="600" fill="{INK}">{esc(lines[0])}</text>')
         out.append("</g>")
-    # Edges under nodes
     out.append(f'<g transform="translate({dx:.1f},{dy:.1f})" fill="none">')
-    edge_states = set()
-    missing_routes = []
+    edge_states, missing_routes = set(), []
     for e in graph["edges"]:
         if e in badge_edges:
             continue
@@ -886,136 +1075,78 @@ def render(graph, output, name, title=None, note=None, icons=None, language="en"
         dash_attr = f' stroke-dasharray="{dash}"' if dash else ""
         marker = "arrow-accent" if color == ACCENT else "arrow-soft" if color == SOFT else "arrow"
         label = " ".join(str(e.get("label") or "").split())
-        out.append(f'<g data-edge-id="{esc(e["id"])}"><title>{esc(label)}</title><path d="{points_to_path(pts)}" stroke="{color}" stroke-width="1.3"{dash_attr} marker-end="url(#{marker})"/></g>')
+        out.append(f'<g {ident("edge", e["id"])}><title>{esc(label)}</title><path d="{points_to_path(pts)}" stroke="{color}" stroke-width="1.4"{dash_attr} marker-end="url(#{marker})"/></g>')
     out.append("</g>")
-    # Edge labels above everything: a white plate under the text, or a numbered marker explained under the legend.
-    label_layer = [f'<g transform="translate({dx:.1f},{dy:.1f})">']
+    top.append(f'<g transform="translate({dx:.1f},{dy:.1f})">')
     for eid, spot in labels.items():
         if "lines" in spot:
             bx, by, bw, bh = spot["box"]
-            label_layer.append(f'<g data-label-for="{esc(eid)}"><rect x="{bx:.1f}" y="{by:.1f}" width="{bw:.1f}" height="{bh:.1f}" rx="3" fill="{PAPER}" fill-opacity="0.92"/>')
+            top.append(f'<g data-label-for="{esc(eid)}"><rect x="{bx:.1f}" y="{by:.1f}" width="{bw:.1f}" height="{bh:.1f}" rx="3" fill="{PAPER}" fill-opacity="0.92"/>')
             for k, line in enumerate(spot["lines"]):
-                label_layer.append(f'<text x="{bx + bw / 2:.1f}" y="{by + 11 + k * LABEL_LH_EDGE:.1f}" font-size="{DETAIL_SIZE}" fill="{MUTED}" text-anchor="middle">{esc(line)}</text>')
-            label_layer.append("</g>")
+                top.append(f'<text x="{bx + bw / 2:.1f}" y="{by + 11 + k * LABEL_LH_EDGE:.1f}" font-size="{DETAIL_SIZE}" fill="{MUTED}" text-anchor="middle">{esc(line)}</text>')
+            top.append("</g>")
         else:
             cx, cy = spot["center"]
-            label_layer.append(f'<g data-label-for="{esc(eid)}"><circle cx="{cx:.1f}" cy="{cy:.1f}" r="8" fill="{INK}"/>'
-                               f'<text x="{cx:.1f}" y="{cy + 3.5:.1f}" font-size="9" font-weight="700" fill="{PAPER}" text-anchor="middle" font-family="{MONO}">{spot["marker"]}</text></g>')
-    label_layer.append("</g>")
-    # Nodes
+            top.append(f'<g data-label-for="{esc(eid)}"><circle cx="{cx:.1f}" cy="{cy:.1f}" r="8" fill="{INK}"/>'
+                       f'<text x="{cx:.1f}" y="{cy + 3.5:.1f}" font-size="9" font-weight="700" fill="{PAPER}" text-anchor="middle" font-family="{MONO}">{spot["marker"]}</text></g>')
+    top.append("</g>")
     states = set()
-    text_w = NODE_W - NODE_PAD - ICON - 10 - NODE_PAD
     for n in graph["nodes"]:
         x, y, w, h = boxes[n["id"]]
         x += dx; y += dy
         state = n.get("state") or "observed"
         color, dash, sw, _ = STATES.get(state, STATES["observed"])
         states.add(state if state in STATES else "observed")
-        dash_attr = f' stroke-dasharray="{dash}"' if dash else ""
-        label, detail, truncated = node_lines(n, text_w)
-        if truncated:
-            qa["notes"].append(f"node {n['id']}: text shortened to {MAX_LABEL_LINES}+{MAX_DETAIL_LINES} lines")
+        label, detail, truncated = node_lines(n)
+        if truncated and not n.get("stub_of"):
+            notes.append(f"node {n['id']}: text shortened to {MAX_LABEL_LINES}+{MAX_DETAIL_LINES} lines")
         title_text = " ".join(filter(None, [n.get("label"), n.get("detail")]))
-        out.append(f'<g data-node-id="{esc(n["id"])}" data-state="{esc(state)}"><title>{esc(title_text)}</title>'
-                   f'<rect x="{x:.1f}" y="{y:.1f}" width="{w:.1f}" height="{h:.1f}" rx="6" fill="{PAPER}" stroke="{color}" stroke-width="{sw}"{dash_attr}/>')
+        node_attr = f'data-stub-of="{esc(n["stub_of"])}"' if n.get("stub_of") else f'data-node-id="{esc(n["id"])}"'
+        out.append(f'<g {node_attr} data-state="{esc(state)}"><title>{esc(title_text)}</title>')
+        if state not in PLAIN_STATES:
+            dash_attr = f' stroke-dasharray="{dash}"' if dash else ""
+            out.append(f'<rect x="{x:.1f}" y="{y:.1f}" width="{w:.1f}" height="{h:.1f}" rx="6" fill="{PAPER}" fill-opacity="0.6" stroke="{color}" stroke-width="{sw}"{dash_attr}/>')
         icon_path, cat_color, tag = icon_for(n)
-        ix, iy = x + NODE_PAD, y + (h - ICON) / 2
+        ix, iy, _, _ = icon_box((x, y, w, h))
         icon = icon_set.inner(icon_path) if icon_path else None
         if icon:
             body, iw, ih = icon
             out.append(f'<g transform="translate({ix:.1f},{iy:.1f}) scale({ICON / iw:.4f})" aria-hidden="true">{body}</g>')
         else:
             out.append(f'<rect x="{ix:.1f}" y="{iy:.1f}" width="{ICON}" height="{ICON}" rx="4" fill="{cat_color}"/>'
-                       f'<text x="{ix + ICON / 2:.1f}" y="{iy + ICON / 2 + 3.5:.1f}" font-size="{9 if len(tag) > 4 else 10.5}" font-weight="700" fill="{PAPER}" text-anchor="middle" font-family="{MONO}">{esc(tag)}</text>')
-        text_h = len(label) * LABEL_LH + (len(detail) * DETAIL_LH + 4 if detail else 0)
-        ty = y + (h - text_h) / 2 + LABEL_SIZE
-        tx = x + NODE_PAD + ICON + 10
+                       f'<text x="{ix + ICON / 2:.1f}" y="{iy + ICON / 2 + 4:.1f}" font-size="{10 if len(tag) > 4 else 12}" font-weight="700" fill="{PAPER}" text-anchor="middle" font-family="{MONO}">{esc(tag)}</text>')
+        cx_text = x + w / 2
+        ty = iy + ICON + 6 + LABEL_SIZE
         for line in label:
-            out.append(f'<text x="{tx:.1f}" y="{ty:.1f}" font-size="{LABEL_SIZE}" font-weight="600" fill="{INK}">{esc(line)}</text>'); ty += LABEL_LH
-        ty += 4 - (LABEL_LH - DETAIL_LH) if detail else 0
+            out.append(f'<text x="{cx_text:.1f}" y="{ty:.1f}" font-size="{LABEL_SIZE}" font-weight="600" fill="{INK}" text-anchor="middle">{esc(line)}</text>'); ty += LABEL_LH
+        ty += 3 - (LABEL_LH - NODE_DETAIL_LH) if detail else 0
         for line in detail:
-            out.append(f'<text x="{tx:.1f}" y="{ty:.1f}" font-size="{DETAIL_SIZE}" fill="{MUTED}">{esc(line)}</text>'); ty += DETAIL_LH
+            out.append(f'<text x="{cx_text:.1f}" y="{ty:.1f}" font-size="{NODE_DETAIL_SIZE}" fill="{MUTED}" text-anchor="middle">{esc(line)}</text>'); ty += NODE_DETAIL_LH
         if state in {"proposed", "changed", "removal_candidate", "unresolved", "declared"}:
             tag_text = say({"proposed": "proposed", "changed": "changed", "removal_candidate": "removal candidate", "unresolved": "unconfirmed", "declared": "declared"}[state])
             tw = text_width(tag_text, 8) + 10
             out.append(f'<rect x="{x + w - tw - 6:.1f}" y="{y - 7:.1f}" width="{tw:.1f}" height="14" rx="7" fill="{color}"/>'
                        f'<text x="{x + w - tw / 2 - 6:.1f}" y="{y + 3.3:.1f}" font-size="8" font-weight="700" fill="{PAPER}" text-anchor="middle">{esc(tag_text)}</text>')
-        # Badge chips: one per edge to an aggregate node, bottom-right, carrying the edge id.
         mine = [e for e in badge_edges if e["source"] == n["id"]]
-        cx = x + w - 6
-        for e in reversed(mine):
+        chips = []
+        for e in mine:
             target = nodes_by_id.get(e["target"]) or {}
             _, chip_color, chip_tag = icon_for(target)
-            chip_label = chip_tag
-            cw = text_width(chip_label, 8) + 10
-            cx -= cw
-            out.append(f'<g data-edge-id="{esc(e["id"])}"><title>{esc(" ".join(str(e.get("label") or "").split()) + " → " + str(target.get("label") or e["target"]))}</title>'
+            chips.append((e, target, chip_color, chip_tag, text_width(chip_tag, 8) + 10))
+        cx = x + (w - (sum(c[4] for c in chips) + 4 * max(0, len(chips) - 1))) / 2
+        for e, target, chip_color, chip_tag, cw in chips:
+            out.append(f'<g {ident("edge", e["id"])}><title>{esc(" ".join(str(e.get("label") or "").split()) + " → " + str(target.get("label") or e["target"]))}</title>'
                        f'<rect x="{cx:.1f}" y="{y + h - 15:.1f}" width="{cw:.1f}" height="11" rx="2" fill="{chip_color}" fill-opacity="0.12" stroke="{chip_color}" stroke-width="0.8"/>'
-                       f'<text x="{cx + cw / 2:.1f}" y="{y + h - 6.8:.1f}" font-size="7.5" font-weight="700" fill="{chip_color}" text-anchor="middle" font-family="{MONO}">{esc(chip_label)}</text></g>')
-            cx -= 4
+                       f'<text x="{cx + cw / 2:.1f}" y="{y + h - 6.8:.1f}" font-size="7.5" font-weight="700" fill="{chip_color}" text-anchor="middle" font-family="{MONO}">{esc(chip_tag)}</text></g>')
+            cx += cw + 4
         out.append("</g>")
-    # Legend
-    legend_y = max_y + dy + 28
-    legend = []
-    lx = MARGIN
-    row_items = [("node", s, STATES[s]) for s in sorted(states, key=lambda s: list(STATES).index(s))]
-    row_items += [("edge", s, EDGE_STATES[s]) for s in sorted(edge_states, key=lambda s: list(EDGE_STATES).index(s))]
-    kinds_seen = []
-    for gid in groups:
-        kind, style = zone_style(groups[gid])
-        if kind not in [k for k, _ in kinds_seen]:
-            kinds_seen.append((kind, style))
-    y_cursor = legend_y
-    legend.append(f'<text x="{MARGIN}" y="{y_cursor:.1f}" font-size="10" font-weight="700" fill="{INK}">{esc(say("Legend"))}</text>')
-    y_cursor += 14
-    for kind, item, style in row_items:
-        if kind == "node":
-            color, dash, sw, text = style
-            dash_attr = f' stroke-dasharray="{dash}"' if dash else ""
-            legend.append(f'<rect x="{lx}" y="{y_cursor - 9:.1f}" width="22" height="12" rx="3" fill="{PAPER}" stroke="{color}" stroke-width="{sw}"{dash_attr}/>')
-        else:
-            color, dash, text = style
-            dash_attr = f' stroke-dasharray="{dash}"' if dash else ""
-            legend.append(f'<line x1="{lx}" y1="{y_cursor - 3:.1f}" x2="{lx + 22}" y2="{y_cursor - 3:.1f}" stroke="{color}" stroke-width="1.3"{dash_attr} marker-end="url(#arrow)"/>')
-        legend.append(f'<text x="{lx + 28}" y="{y_cursor:.1f}" font-size="9.5" fill="{MUTED}">{esc(say(text))}</text>')
-        y_cursor += 15
-    for kind, (color, dash, badge, text) in kinds_seen:
-        dash_attr = f' stroke-dasharray="{dash}"' if dash else ""
-        legend.append(f'<rect x="{lx}" y="{y_cursor - 9:.1f}" width="22" height="12" fill="none" stroke="{color}" stroke-width="1.2"{dash_attr}/>')
-        legend.append(f'<text x="{lx + 28}" y="{y_cursor:.1f}" font-size="9.5" fill="{MUTED}">{esc(say(text))}</text>')
-        y_cursor += 15
-    if badge_edges:
-        legend.append(f'<rect x="{lx}" y="{y_cursor - 9:.1f}" width="22" height="11" rx="2" fill="{RED}" fill-opacity="0.12" stroke="{RED}" stroke-width="0.8"/>'
-                      f'<text x="{lx + 11}" y="{y_cursor - 0.8:.1f}" font-size="7.5" font-weight="700" fill="{RED}" text-anchor="middle" font-family="{MONO}">SG</text>'
-                      f'<text x="{lx + 28}" y="{y_cursor:.1f}" font-size="9.5" fill="{MUTED}">{esc(say("Chip on a node: attached to the aggregate shown with that tag (security groups, route tables)"))}</text>')
-        y_cursor += 15
-    if keyed:
-        y_cursor += 6
-        legend.append(f'<text x="{MARGIN}" y="{y_cursor:.1f}" font-size="10" font-weight="700" fill="{INK}">{esc(say("Connections"))}</text>')
-        y_cursor += 14
-        for number, text in keyed:
-            lines, _ = wrap(text, 9.5, max(400, width - 2 * MARGIN - 40), 3)
-            legend.append(f'<circle cx="{lx + 8}" cy="{y_cursor - 3.5:.1f}" r="7" fill="{INK}"/><text x="{lx + 8}" y="{y_cursor - 0.5:.1f}" font-size="8.5" font-weight="700" fill="{PAPER}" text-anchor="middle" font-family="{MONO}">{number}</text>')
-            for k, line in enumerate(lines):
-                legend.append(f'<text x="{lx + 22}" y="{y_cursor + k * 12:.1f}" font-size="9.5" fill="{MUTED}">{esc(line)}</text>')
-            y_cursor += 12 * len(lines) + 4
-    if note:
-        legend.append(f'<text x="{MARGIN}" y="{y_cursor + 4:.1f}" font-size="9.5" fill="{SOFT}">{esc(say(note))}</text>')
-        y_cursor += 16
-    height = y_cursor + MARGIN
-    heading = say(title or graph.get("title") or "Architecture")
-    subtitle = graph.get("subtitle") or ""
-    head = (f'<text x="{MARGIN}" y="30" font-size="18" font-weight="700" fill="{INK}">{esc(heading)}</text>'
-            + (f'<text x="{MARGIN}" y="48" font-size="11" fill="{MUTED}">{esc(subtitle)}</text>' if subtitle else ""))
-    defs = ('<defs>'
-            f'<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="{MUTED}"/></marker>'
-            f'<marker id="arrow-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="{ACCENT}"/></marker>'
-            f'<marker id="arrow-soft" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="{SOFT}"/></marker>'
-            '</defs>')
-    svg = (f'<svg xmlns="http://www.w3.org/2000/svg" width="{width:.0f}" height="{height:.0f}" viewBox="0 0 {width:.0f} {height:.0f}" role="img" lang="{esc(language)}" aria-labelledby="dg-title dg-desc" data-renderer="aws_diagram">'
-           f'<title id="dg-title">{esc(heading)}</title><desc id="dg-desc">{esc(subtitle or note or heading)}</desc>{defs}'
-           f'<rect width="100%" height="100%" fill="{PAPER}"/><g font-family="{SANS}">{head}{"".join(out)}{"".join(label_layer)}{"".join(legend)}</g></svg>\n')
-    # Geometry QA: labels fit by construction; nodes inside their group; no node overlaps; edges end at their nodes.
+    kinds = [zone_style(groups[gid]) for gid in groups]
+    return out, top, states, edge_states, kinds, missing_routes
+
+
+def view_checks(view):
+    """Geometry QA of one laid-out drawing (see render)."""
+    graph, boxes, routes, labels, headers, badge_edges = view["graph"], view["boxes"], view["routes"], view["labels"], view["headers"], view["badge_edges"]
     outside, overlaps, loose = [], [], []
     for n in graph["nodes"]:
         x, y, w, h = boxes[n["id"]]
@@ -1046,22 +1177,135 @@ def render(graph, output, name, title=None, note=None, icons=None, language="en"
     clashing = sorted({eid for i, (eid, b) in enumerate(label_boxes) for other, c in label_boxes[i + 1:] if boxes_meet(b, c, 0)})
     through_titles = sorted({e["id"] for e in graph["edges"] if e["id"] in routes and e not in badge_edges
                              for a, b in zip(routes[e["id"]][0], routes[e["id"]][0][1:]) for hb in headers if segment_hits((hb[0] + 2, hb[1] + 4, hb[2] - 4, hb[3] - 8), a, b)})
-    qa["checks"] = {"nodes_inside_their_group": {"status": "pass" if not outside else "fail", "outside": outside},
-                    "labels_clear": {"status": "pass" if not (covered or clashing) else "fail", "over_nodes_or_titles": covered, "over_each_other": clashing,
-                                     "numbered": [n for n, _ in keyed]},
-                    "group_titles_clear": {"status": "pass" if not through_titles else "warn", "crossed_by": through_titles},
+    # a connector that runs through another node's cell (its icon or its text) would hide it
+    through_nodes = sorted({e["id"] for e in graph["edges"] if e["id"] in routes and e not in badge_edges
+                            for a, b in zip(routes[e["id"]][0], routes[e["id"]][0][1:])
+                            for n in graph["nodes"] if n["id"] not in {e["source"], e["target"]}
+                            and segment_hits((boxes[n["id"]][0] + 2, boxes[n["id"]][1] + 2, boxes[n["id"]][2] - 4, boxes[n["id"]][3] - 4), a, b)})
+    return {"outside": outside, "overlaps": overlaps, "loose": loose, "covered": covered, "clashing": clashing, "through_titles": through_titles,
+            "through_nodes": through_nodes, "straight": view["straight"]}
+
+
+def render(graph, output, name, title=None, note=None, icons=None, language="en", words=None):
+    """Write <name>.aws.svg, <name>.aws.html, <name>.render.json and diagram-qa.json; return the QA record. `words` maps
+    the renderer's own English words (legend lines, state tags) to the drawing's language. A graph with more components
+    than one readable drawing holds is drawn as two or three views, one under the other, in the same file."""
+    say = (lambda text: (words or {}).get(text, text))
+    output.mkdir(parents=True, exist_ok=True)
+    nodes_by_id = {n["id"]: n for n in graph["nodes"]}
+    badge_ids = {e["id"] for e in graph["edges"] if is_badge_edge(e, nodes_by_id)}
+    plan = plan_views(graph, badge_ids)
+    if plan:
+        parent, sections, node_view, trees = plan
+        graphs = [view_graph(graph, parent, part, trees, node_view, i, badge_ids, say) for i, part in enumerate(sections)]
+    else:
+        graphs = [graph]
+    views, first = [], 1
+    for g in graphs:
+        view = layout_view(g, first)
+        first += len(view["keyed"])
+        views.append(view)
+    qa = {"status": "pass", "checks": {}, "notes": []}
+    icon_set = IconSet(icons)
+    out, top, states, edge_states, kinds_seen, keyed, missing_routes, drawn = [], [], set(), set(), [], [], [], set()
+    width = max(v["extent"][2] - v["extent"][0] for v in views) + 2 * MARGIN
+    y = TITLE_H + MARGIN
+    for i, view in enumerate(views):
+        x0, y0, x1, y1 = view["extent"]
+        if len(views) > 1:
+            out.append(f'<g data-view="{i + 1}"><text x="{MARGIN}" y="{y + 14:.1f}" font-size="13" font-weight="700" fill="{INK}">{esc(view["graph"]["heading"])}</text>'
+                       f'<line x1="{MARGIN}" y1="{y + 22:.1f}" x2="{width - MARGIN:.1f}" y2="{y + 22:.1f}" stroke="#D5DBDB" stroke-width="1"/></g>')
+            y += PART_HEAD
+        o, t, st, es, kinds, mr = draw_view(view, MARGIN - x0, y - y0, icon_set, say, qa["notes"], drawn)
+        out += o; top += t; states |= st; edge_states |= es; missing_routes += mr; keyed += view["keyed"]
+        for kind, style in kinds:
+            if kind not in [k for k, _ in kinds_seen]:
+                kinds_seen.append((kind, style))
+        y += (y1 - y0) + (PART_GAP if i < len(views) - 1 else 0)
+    # Legend
+    legend = []
+    lx = MARGIN
+    y_cursor = y + 28
+    legend.append(f'<text x="{MARGIN}" y="{y_cursor:.1f}" font-size="10" font-weight="700" fill="{INK}">{esc(say("Legend"))}</text>')
+    y_cursor += 14
+    row_items = [("node", s, STATES[s]) for s in sorted(states, key=lambda s: list(STATES).index(s))]
+    row_items += [("edge", s, EDGE_STATES[s]) for s in sorted(edge_states, key=lambda s: list(EDGE_STATES).index(s))]
+    for kind, item, style in row_items:
+        if kind == "node":
+            color, dash, sw, text = style
+            if item in PLAIN_STATES:
+                legend.append(f'<rect x="{lx + 5}" y="{y_cursor - 10:.1f}" width="12" height="12" rx="2" fill="#879196"/>')
+            else:
+                dash_attr = f' stroke-dasharray="{dash}"' if dash else ""
+                legend.append(f'<rect x="{lx}" y="{y_cursor - 9:.1f}" width="22" height="12" rx="3" fill="{PAPER}" stroke="{color}" stroke-width="{sw}"{dash_attr}/>')
+        else:
+            color, dash, text = style
+            dash_attr = f' stroke-dasharray="{dash}"' if dash else ""
+            legend.append(f'<line x1="{lx}" y1="{y_cursor - 3:.1f}" x2="{lx + 22}" y2="{y_cursor - 3:.1f}" stroke="{color}" stroke-width="1.3"{dash_attr} marker-end="url(#arrow)"/>')
+        legend.append(f'<text x="{lx + 28}" y="{y_cursor:.1f}" font-size="9.5" fill="{MUTED}">{esc(say(text))}</text>')
+        y_cursor += 15
+    for kind, (color, dash, badge, text) in kinds_seen:
+        dash_attr = f' stroke-dasharray="{dash}"' if dash else ""
+        legend.append(f'<rect x="{lx}" y="{y_cursor - 9:.1f}" width="22" height="12" fill="none" stroke="{color}" stroke-width="1.2"{dash_attr}/>')
+        legend.append(f'<text x="{lx + 28}" y="{y_cursor:.1f}" font-size="9.5" fill="{MUTED}">{esc(say(text))}</text>')
+        y_cursor += 15
+    if any(v["badge_edges"] for v in views):
+        legend.append(f'<rect x="{lx}" y="{y_cursor - 9:.1f}" width="22" height="11" rx="2" fill="{RED}" fill-opacity="0.12" stroke="{RED}" stroke-width="0.8"/>'
+                      f'<text x="{lx + 11}" y="{y_cursor - 0.8:.1f}" font-size="7.5" font-weight="700" fill="{RED}" text-anchor="middle" font-family="{MONO}">SG</text>'
+                      f'<text x="{lx + 28}" y="{y_cursor:.1f}" font-size="9.5" fill="{MUTED}">{esc(say("Chip on a node: attached to the aggregate shown with that tag (security groups, route tables)"))}</text>')
+        y_cursor += 15
+    if keyed:
+        y_cursor += 6
+        legend.append(f'<text x="{MARGIN}" y="{y_cursor:.1f}" font-size="10" font-weight="700" fill="{INK}">{esc(say("Connections"))}</text>')
+        y_cursor += 14
+        for number, text in keyed:
+            lines, _ = wrap(text, 9.5, max(400, width - 2 * MARGIN - 40), 3)
+            legend.append(f'<circle cx="{lx + 8}" cy="{y_cursor - 3.5:.1f}" r="7" fill="{INK}"/><text x="{lx + 8}" y="{y_cursor - 0.5:.1f}" font-size="8.5" font-weight="700" fill="{PAPER}" text-anchor="middle" font-family="{MONO}">{number}</text>')
+            for k, line in enumerate(lines):
+                legend.append(f'<text x="{lx + 22}" y="{y_cursor + k * 12:.1f}" font-size="9.5" fill="{MUTED}">{esc(line)}</text>')
+            y_cursor += 12 * len(lines) + 4
+    if note:
+        legend.append(f'<text x="{MARGIN}" y="{y_cursor + 4:.1f}" font-size="9.5" fill="{SOFT}">{esc(say(note))}</text>')
+        y_cursor += 16
+    height = y_cursor + MARGIN
+    heading = say(title or graph.get("title") or "Architecture")
+    subtitle = graph.get("subtitle") or ""
+    head = (f'<text x="{MARGIN}" y="30" font-size="18" font-weight="700" fill="{INK}">{esc(heading)}</text>'
+            + (f'<text x="{MARGIN}" y="48" font-size="11" fill="{MUTED}">{esc(subtitle)}</text>' if subtitle else ""))
+    defs = ('<defs>'
+            f'<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="{MUTED}"/></marker>'
+            f'<marker id="arrow-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="{ACCENT}"/></marker>'
+            f'<marker id="arrow-soft" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="{SOFT}"/></marker>'
+            '</defs>')
+    svg = (f'<svg xmlns="http://www.w3.org/2000/svg" width="{width:.0f}" height="{height:.0f}" viewBox="0 0 {width:.0f} {height:.0f}" role="img" lang="{esc(language)}" aria-labelledby="dg-title dg-desc" data-renderer="aws_diagram" data-views="{len(views)}">'
+           f'<title id="dg-title">{esc(heading)}</title><desc id="dg-desc">{esc(subtitle or note or heading)}</desc>{defs}'
+           f'<rect width="100%" height="100%" fill="{PAPER}"/><g font-family="{SANS}">{head}{"".join(out)}{"".join(top)}{"".join(legend)}</g></svg>\n')
+    # Geometry QA per view: nodes inside their group, no node overlap, connectors end at their nodes and never run through
+    # another node, labels clear of nodes, titles and each other.
+    merged = {}
+    for view in views:
+        for key, value in view_checks(view).items():
+            merged.setdefault(key, []).extend(value)
+    qa["checks"] = {"nodes_inside_their_group": {"status": "pass" if not merged["outside"] else "fail", "outside": merged["outside"]},
+                    "labels_clear": {"status": "pass" if not (merged["covered"] or merged["clashing"]) else "fail", "over_nodes_or_titles": merged["covered"],
+                                     "over_each_other": merged["clashing"], "numbered": [n for n, _ in keyed]},
+                    "group_titles_clear": {"status": "pass" if not merged["through_titles"] else "warn", "crossed_by": sorted(set(merged["through_titles"]))},
+                    "connectors_clear_of_nodes": {"status": "pass" if not merged["through_nodes"] else "fail", "through": sorted(set(merged["through_nodes"]))},
                     "readable_width": {"status": "pass" if width <= 2400 else "warn", "width": round(width),
                                        "note": "embedded at page width a drawing wider than 2400 px shows text below 6 px"},
-                    "no_node_overlap": {"status": "pass" if not overlaps else "fail", "overlaps": overlaps[:20]},
-                    "edges_end_at_their_nodes": {"status": "pass" if not (loose or missing_routes) else "fail", "loose": loose, "not_routed": missing_routes},
-                    "connectors_avoid_nodes": {"status": "pass" if not straight else "fail", "drawn_straight": straight},
+                    "no_node_overlap": {"status": "pass" if not merged["overlaps"] else "fail", "overlaps": merged["overlaps"][:20]},
+                    "edges_end_at_their_nodes": {"status": "pass" if not (merged["loose"] or missing_routes) else "fail", "loose": merged["loose"], "not_routed": missing_routes},
+                    "connectors_avoid_nodes": {"status": "pass" if not merged["straight"] else "fail", "drawn_straight": merged["straight"]},
                     "labels_fit": {"status": "pass", "shortened": [n for n in qa["notes"]]},
+                    "views": {"count": len(views), "headings": [v["graph"].get("heading") for v in views] if len(views) > 1 else [],
+                              "note": f"more than {SPLIT_NODES} components or a layout beyond {SPLIT_W}x{SPLIT_H} px is drawn as views"},
                     "icons": {"source": str(icon_set.root) if icon_set.root else None,
                               "status": "official" if icon_set.root else "service_tags",
                               "nodes_without_icon": [n["id"] for n in graph["nodes"] if not (icon_for(n)[0] and icon_set.inner(icon_for(n)[0]))]}}
-    if outside or overlaps or loose or missing_routes or straight or covered or clashing:
+    if merged["outside"] or merged["overlaps"] or merged["loose"] or missing_routes or merged["straight"] or merged["covered"] or merged["clashing"] or merged["through_nodes"]:
         qa["status"] = "fail"
-    qa["size"] = {"width": round(width), "height": round(height), "nodes": len(graph["nodes"]), "groups": len(groups), "edges": len(graph["edges"]), "badge_edges": len(badge_edges)}
+    qa["size"] = {"width": round(width), "height": round(height), "nodes": len(graph["nodes"]), "groups": len(graph.get("groups", [])), "edges": len(graph["edges"]),
+                  "badge_edges": len(badge_ids), "views": len(views)}
     qa["files"] = {"svg": f"{name}.aws.svg", "html": f"{name}.aws.html", "render": f"{name}.render.json"}
     (output / f"{name}.aws.svg").write_text(svg, encoding="utf-8")
     # The exact inputs of this drawing, so a report in another language can redraw it from translated labels instead of

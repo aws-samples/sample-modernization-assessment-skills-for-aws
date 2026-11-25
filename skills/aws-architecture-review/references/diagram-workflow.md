@@ -41,9 +41,17 @@ arrows or make up topology. If workload relationships remain unavailable after e
 
 - Region: VPCs side by side, then the regional services, then loose nodes. VPC: Availability Zones as columns with
   their subnets stacked (public first), then one band per group of resources deployed across several subnets, then
-  VPC-level components (gateways, endpoints, aggregates). Other groups: a grid.
+  VPC-level components (internet and VPN gateways on top, endpoints and aggregates below). Other groups: a grid whose
+  members follow their connectors, so a chain of components sits side by side.
+- Nodes are drawn as in the official AWS diagrams: the 48 px icon, the name centred under it and at most two short
+  detail lines, no box. Connectors end at the icon and never run through another component or a group title.
+- A graph with more than 24 components, or whose layout is larger than 1,500 x 1,400 px, is drawn as two or three
+  views in the same SVG, one under the other ("View 1: VPC ...", "View 2: Regional services"), cut along the top-level
+  groups at the place that leaves the fewest connectors between views. A connector to a component of another view
+  ends at a small dotted copy of it under "In other views". When every cut would leave more than 30% of the connectors
+  between views, the graph stays one drawing. `diagram-qa.json` records the views.
 - Zones follow the official AWS convention (region and AZ dashed teal, VPC purple, private subnet teal, public subnet
-  green, badge top-left). Node states: `observed`/`retained` plain, `declared` dashed grey, `changed` orange, `proposed`
+  green, badge top-left). Node states: `observed`/`retained` plain (icon only), `declared` dashed grey, `changed` orange, `proposed`
   orange dashed, `removal_candidate` red dashed, `unresolved` grey dashed; every non-observed state carries a tag and the
   legend explains it. Edge states: `observed_configuration`, `declared`, `proposed`, `unresolved`.
 - Attachments to aggregate nodes (security groups, route tables) are chips on the source node ("SG"), not lines; the
@@ -52,7 +60,8 @@ arrows or make up topology. If workload relationships remain unavailable after e
   client's skills folder; `--icons DIR` or `MODA_AWS_ICONS` to point elsewhere). Without it, nodes carry a coloured
   service tag; `diagram-qa.json` records which.
 - `diagram-qa.json` checks: every node inside its group, no two nodes overlap, every connector ends at its nodes and
-  avoids nodes, every label fits (long labels are wrapped, then shortened with "…" and listed under `notes`). A failing
+  runs through no other node, edge labels sit beside their own line where no other line crosses (otherwise a numbered
+  marker explained under "Connections"), every label fits (long labels are wrapped, then shortened with "…" and listed under `notes`). A failing
   check fails the command; fix the graph (shorter labels, fewer nodes per group) rather than the drawing.
 - `--d2` additionally writes the D2 source and renders it with `d2` when installed, as a structural cross-check. It is
   not needed for the deliverable.
