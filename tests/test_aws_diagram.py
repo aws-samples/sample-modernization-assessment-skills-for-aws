@@ -159,10 +159,11 @@ class AwsDiagramTests(unittest.TestCase):
             self.assertEqual(re.findall(r'data-node-id="([^"]+)"', svg).count("v0"), 1, "each component is drawn in full once")
             self.assertEqual(ids_in(svg, "node"), {n["id"] for n in nodes})
             self.assertEqual(ids_in(svg, "edge"), {e["id"] for e in edges})
-            self.assertEqual(set(re.findall(r'data-stub-of="([^"]+)"', svg)), {"s0", "v0"}, "the deploy connector ends at a copy in each view")
-            self.assertIn("In other views", svg)
+            # a connector to a component of the other view is a chip under the component, not a line across the drawing
+            self.assertNotIn("data-stub-of", svg); self.assertNotIn("In other views", svg)
+            self.assertEqual(sorted(re.findall(r'data-edge-(?:id|repeat)="deploy" data-view-link="(\d)"', svg)), ["1", "2"], "one chip in each view")
             self.assertEqual(diagram.audit(graph, Path(tmp) / "crowded.aws.svg", require_coverage=False)["status"], "pass",
-                             "every graph id appears once; the region and the connector between views repeat as data-*-repeat")
+                             "every graph id appears once; the region and the second chip repeat as data-*-repeat")
             self.assertIn('data-group-repeat="region"', svg); self.assertIn('data-edge-repeat="deploy"', svg)
             self.assertEqual(qa["checks"]["connectors_clear_of_nodes"]["status"], "pass")
             plain = re.search(r'<g data-node-id="v3" data-state="observed"><title>[^<]*</title>(<[^>]+>)', svg).group(1)
@@ -184,6 +185,44 @@ class AwsDiagramTests(unittest.TestCase):
             self.assertNotIn("data-stub-of", (Path(tmp) / "small.aws.svg").read_text())
         # members of a group are ordered along their connectors, so a chain sits side by side
         self.assertEqual(aws.flow_order(["c", "b", "a", "z"], [{"source": "a", "target": "b"}, {"source": "b", "target": "c"}]), ["a", "b", "c", "z"])
+
+    def test_grouping_resources_wrap_what_they_apply_to(self):
+        """Field request: security groups, target groups and Auto Scaling groups are drawn around the components they apply
+        to (a red dashed frame, a purple container, an orange container), not as separate icons joined by lines. The ids
+        stay once in the SVG, so the audit passes; the readability record and the wrap rule are part of the QA."""
+        g = {"title": "T", "groups": [{"id": "vpc", "label": "VPC v", "kind": "vpc"}, {"id": "sub", "label": "Private subnet app", "kind": "subnet", "parent": "vpc"}],
+             "nodes": [{"id": "alb", "label": "ALB internal", "type": "elbv2.load-balancer", "group": "sub"},
+                       {"id": "svc", "label": "ECS service api", "type": "ecs.service", "group": "sub"},
+                       {"id": "svc2", "label": "ECS service web", "type": "ecs.service", "group": "sub"},
+                       {"id": "tg", "label": "Target group api", "type": "elbv2.target-group", "group": "sub"},
+                       {"id": "sg", "label": "Security group app-sg", "type": "ec2.security-group", "group": "vpc", "resource_ids": ["x"]},
+                       {"id": "asg", "label": "Auto Scaling group web", "type": "autoscaling.group", "group": "sub"},
+                       {"id": "i1", "label": "EC2 web 1", "type": "ec2.instance", "group": "sub"}, {"id": "i2", "label": "EC2 web 2", "type": "ec2.instance", "group": "sub"}],
+             "edges": [{"id": "e1", "source": "alb", "target": "tg", "label": "listener"}, {"id": "e2", "source": "tg", "target": "svc", "label": "registered"},
+                       {"id": "e2b", "source": "tg", "target": "svc2", "label": "registered"},
+                       {"id": "e3", "source": "svc", "target": "sg", "label": "Security group attachment", "drawn_as": "badge"},
+                       {"id": "e4", "source": "asg", "target": "i1", "label": "member"}, {"id": "e5", "source": "asg", "target": "i2", "label": "member"}]}
+        with tempfile.TemporaryDirectory() as tmp:
+            qa = aws.render(g, Path(tmp), "wrap", None, None, None)
+            svg = (Path(tmp) / "wrap.aws.svg").read_text()
+            self.assertEqual(qa["status"], "pass", qa["checks"])
+            kinds = dict((k, v) for v, k in re.findall(r'<g (data-[a-z-]+="[^"]+")[^>]*data-kind="(security-group|target-group|autoscaling)"', svg))
+            self.assertEqual(kinds, {"target-group": 'data-node-id="tg"', "autoscaling": 'data-node-id="asg"', "security-group": 'data-frame-for="svc"'})
+            self.assertEqual(diagram.audit(g, Path(tmp) / "wrap.aws.svg", require_coverage=False)["status"], "pass")
+            self.assertEqual(ids_in(svg, "edge"), {"e1", "e2", "e2b", "e3", "e4", "e5"}, "membership edges keep their ids on the container")
+            self.assertEqual(svg.count('data-edge-id="e2"'), 1)
+            r = qa["readability"]
+            for key in ("connectors", "crossings", "bends", "length", "longest_share_of_diagonal", "width", "height"):
+                self.assertIn(key, r)
+            self.assertEqual((r["connectors"], r["crossings"]), (1, 0), "only the listener is a line; registration and membership are containment")
+        # wrapping breaks at spaces first and splits an over-long word only at - _ / without leaving a short piece
+        self.assertEqual(aws.wrap("NAT gateway shopnow-nat-a", aws.LABEL_SIZE, aws.TEXT_W, 3)[0], ["NAT gateway", "shopnow-nat-a"])
+        lines, _ = aws.wrap("shopnow-data-dbcluster-a7sa5hydmrzh", aws.LABEL_SIZE, 90, 4)
+        self.assertTrue(len(lines) > 1 and all(len(line) >= aws.MIN_PIECE for line in lines), lines)
+        # the same graph twice gives the same drawing (the arrangement search is deterministic)
+        with tempfile.TemporaryDirectory() as a, tempfile.TemporaryDirectory() as b:
+            aws.render(g, Path(a), "x", None, None, None); aws.render(g, Path(b), "x", None, None, None)
+            self.assertEqual((Path(a) / "x.aws.svg").read_text(), (Path(b) / "x.aws.svg").read_text())
 
     def test_focused_to_be_graph_draws_states_without_an_inventory(self):
         """A specialist's drawing: retained, changed, proposed and removal-candidate nodes, a proposed edge, no inventory

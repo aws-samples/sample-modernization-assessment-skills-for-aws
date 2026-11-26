@@ -2,29 +2,37 @@
 """Draw the AWS-styled architecture diagram from a diagram graph, without an agent redraw.
 
 The layout is the one an architect draws by hand: in a region, the VPCs side by side and the regional services beside
-them; in a VPC, the Availability Zones as columns with their subnets stacked (public first), then one band per group of
-resources deployed across several subnets, then the VPC-level components (gateways, endpoints, aggregates) in a row.
-Nodes are drawn as in the official AWS architecture diagrams: the 48 px service icon with the name under it and one or
-two short detail lines, no box (a dashed or coloured outline only for proposed, changed, declared or unconfirmed
-components); zones are the official containers (region, VPC, AZ, subnet) with their badges; edges are orthogonal
-connectors that end at the icons, with labels beside their own line or numbered markers explained under the legend;
-attachments to aggregate nodes (security groups, route tables) are chips on the source node rather than lines. A graph
-too large for one readable drawing is drawn as two or three views along its top-level groups (see plan_views). A title
-and a legend of states complete the drawing. Every node, group and edge keeps its graph id as data-node-id / data-group-id /
-data-edge-id, so `diagram.py --audit-graph` passes on the result. Icons are read from the aws-diagram-design companion
-skill (assets/aws-icons) when it is installed beside this skill or in the client's skills folder; without it, nodes carry
-a coloured service tag instead of an icon.
+them; in a VPC, the Availability Zones as columns of equal width with their subnets stacked in aligned tiers (public
+first), then one band per group of resources deployed across several subnets, then the VPC-level components (gateways
+on top, endpoints and aggregates below). Nodes are drawn as in the official AWS architecture diagrams: the 48 px service
+icon with the name under it and at most two short detail lines, no box (a dashed or coloured outline only for proposed,
+changed, declared or unconfirmed components); zones are the official containers (region, VPC, AZ, subnet) with their
+badges and fills. Grouping resources are drawn as containers around what they apply to: a security group is a red
+dashed frame around each attached component, a target group or Auto Scaling group a dashed container around its
+members when they sit in one zone. Members of a group are ordered and placed by the position of what they connect to,
+so connectors run short and straight; connectors are orthogonal with rounded bends, leave and enter the icons on the
+side that needs the fewest bends, keep apart from each other, and carry their labels beside their own line or as
+numbered markers explained under the legend. A graph too large for one readable drawing is drawn as two or three views
+along its top-level groups (see plan_views); a connector to a component of another view is a chip on the component
+("-> Secrets Manager · View 2"), not a line. A title and a legend complete the drawing. Every node, group and edge
+keeps its graph id as data-node-id / data-group-id / data-edge-id exactly once, so `diagram.py --audit-graph` passes on
+the result. Icons are read from the aws-diagram-design companion skill (assets/aws-icons) when it is installed beside
+this skill or in the client's skills folder; without it, nodes carry a coloured service tag instead of an icon.
 
 Geometry is checked here, not by looking at a PNG: every label fits its box, every node lies inside its group, no two
-nodes overlap, every connector ends at its nodes and runs through no other node. The result is diagram-qa.json; a failing check fails the render.
+nodes overlap, every connector ends at its nodes and runs through no other node or group title. diagram-qa.json
+records the checks (a failing check fails the render) and a `readability` measurement: connector crossings, overlaps,
+bends, total and longest connector length, drawing size.
 
   aws_diagram.py --graph diagram-graph.json --output DIR --name as-is [--title "..."] [--note "..."] [--icons DIR]
 
 Text in the drawing (title, legend, group and node labels) is the English draft unless the graph already carries the
-output language; localize_artifacts.py translates SVG text with the rest of the report.
+output language; localize_artifacts.py redraws translated drawings from <name>.render.json with renderer_words().
 """
 import argparse
+import heapq
 import json
+import math
 from pathlib import Path
 import re
 import sys
@@ -32,22 +40,30 @@ import sys
 SANS = "'Amazon Ember','Helvetica Neue',Helvetica,Arial,'Apple SD Gothic Neo','Noto Sans KR',sans-serif"
 MONO = "'Amazon Ember Mono',ui-monospace,SFMono-Regular,Menlo,monospace"
 INK, MUTED, SOFT, ACCENT, RED, PAPER = "#232F3E", "#545B64", "#7D8998", "#EC7211", "#DD344C", "#FFFFFF"
+TEXT_2 = "#414D5C"     # edge labels and legend text: darker than MUTED, on white plates
 
+# Every coordinate and size of the layout is a multiple of GRID, and the router's cells are GRID wide with their centres
+# on that grid, so a connector between two aligned icons is one straight line.
+GRID = 8
 # A node is drawn the way the official AWS architecture diagrams draw it: the 48 px icon, the name centred under it and
-# one or two short detail lines, no box. NODE_W is the width of that cell (the text column), which connectors and edge
+# at most two short detail lines, no box. NODE_W is the width of that cell (the text column), which connectors and edge
 # labels keep clear of; connectors attach to the icon.
-NODE_W = 150
-NODE_TOP = 6           # space above the icon inside the cell (room for a state tag)
+NODE_W = 160
+NODE_TOP = 8           # space above the icon inside the cell (room for a state tag)
 ICON = 48
 TEXT_W = NODE_W - 8
-LABEL_SIZE, DETAIL_SIZE, LABEL_LH, DETAIL_LH = 11, 9.5, 13.5, 12
-NODE_DETAIL_SIZE, NODE_DETAIL_LH = 9, 11
+LABEL_SIZE, LABEL_LH = 12, 15            # node name: 12 px semibold ink
+NODE_DETAIL_SIZE, NODE_DETAIL_LH = 10, 12.5
+DETAIL_SIZE, EDGE_LABEL_LH = 10, 12.5    # edge labels
 MAX_LABEL_LINES, MAX_DETAIL_LINES = 3, 2
-GROUP_LABEL_SIZE, GROUP_HEAD = 12, 20
+GROUP_LABEL_SIZE, TITLE_LH = 12, 15
+TITLE_MIN_W = 360                         # a zone title wider than its content and this wraps to two lines
+WRAP_LABEL_SIZE = 10.5                   # title of a security group frame or a target group container
 TITLE_H = 64
 MARGIN = 24
 
-# Zone containers: border colour, dash pattern, group badge file (aws-icons/group/<file>). Official AWS convention.
+# Zone containers: border colour, dash pattern, group badge file (aws-icons/group/<file>), legend text. Official AWS
+# convention; FILLS are the official light fills of the subnet containers.
 ZONES = {
     "region": ("#00A4A6", "6,4", "Region_32.svg", "Region"),
     "vpc": ("#8C4FFF", None, "Virtual-private-cloud-VPC_32.svg", "VPC"),
@@ -59,11 +75,13 @@ ZONES = {
     "account": ("#E7157B", None, "AWS-Account_32.svg", "AWS account"),
     "cloud": ("#232F3E", None, "AWS-Cloud_32.svg", "AWS Cloud"),
     "security-group": ("#DD344C", "4,4", None, "Security group"),
+    "target-group": ("#8C4FFF", "4,4", None, "Target group: the components registered behind it"),
     "autoscaling": ("#ED7100", "4,4", "Auto-Scaling-group_32.svg", "Auto Scaling group"),
-    "external": ("#7D8998", "2,3", None, "Components drawn in full in another view"),
     "other": ("#545B64", None, None, "Group"),
 }
-# Node states: stroke colour, dash pattern, stroke width, legend text. Observed and retained are the plain box.
+FILLS = {"public-subnet": "#F2F6E8", "subnet": "#E6F6F7", "subnet-span": "#F4FAFB"}
+WRAP_KINDS = {"security-group", "target-group", "autoscaling"}  # drawn around the components they apply to
+# Node states: stroke colour, dash pattern, stroke width, legend text. Observed and retained are the plain icon.
 STATES = {
     "observed": (INK, None, 1, "Observed in the account (configuration read by API)"),
     "retained": (INK, None, 1, "Retained as it is"),
@@ -72,11 +90,12 @@ STATES = {
     "proposed": (ACCENT, "5,3", 1.6, "Proposed; does not exist yet"),
     "removal_candidate": (RED, "5,3", 1.6, "Candidate for removal"),
     "unresolved": (SOFT, "3,3", 1, "Could not be confirmed from the evidence"),
-    "elsewhere": (SOFT, "2,3", 1, "Drawn in full in another view; shown here for its connections"),
 }
 PLAIN_STATES = {"observed", "retained"}  # drawn without an outline, as in the official diagrams
-# Edges to these aggregate nodes (every resource is attached to some security group and route table) are drawn as a chip
-# on the source node instead of a routed line, which is what an architect does by hand; the edge keeps its id on the chip.
+STATE_TAGS = {"proposed": "proposed", "changed": "changed", "removal_candidate": "removal candidate", "unresolved": "unconfirmed", "declared": "declared"}
+# Edges to these aggregate nodes (every resource is attached to some security group and route table) are not routed
+# lines: a security group attachment is a frame around the source node, a route table attachment a chip on it. The edge
+# keeps its id on the frame or chip.
 BADGE_TARGETS = {"ec2.security-group", "ec2.route-table", "elbv2.target-group:aggregate"}
 EDGE_STATES = {
     "observed_configuration": (MUTED, None, "Configured path (not measured traffic)"),
@@ -85,6 +104,8 @@ EDGE_STATES = {
     "proposed": (ACCENT, "5,3", "Proposed path"),
     "unresolved": (SOFT, "2,3", "Unconfirmed path"),
 }
+LINK_LEGEND = "Chip under a component: a connection to a component drawn in another view (→ to it, ← from it)"
+CHIP_LEGEND = "Chip on a node: attached to the aggregate shown with that tag (route tables)"
 
 # Node type -> (icon path under aws-icons/, category colour, short tag). Types are collect.py's `service.kind` and
 # CloudFormation `AWS::Service::Type`. Unknown types fall back to the service prefix, then to a grey tag.
@@ -206,16 +227,24 @@ CFN_TO_TYPE = {
 }
 
 
+
+
 # ---------------------------------------------------------------------------
 # Text measurement and wrapping (no font available at render time; widths are estimates for Ember/Helvetica metrics)
 # ---------------------------------------------------------------------------
+NBSP = "\u00a0"
+BREAKS = "-_/"     # an over-long word may be split after one of these
+MIN_PIECE = 4      # ... never leaving a piece shorter than this
+RAW_ID = re.compile(r"^(?:i|igw|nat|vpce|eni|vol|sg|rtb|subnet|vpc|eipalloc|eipassoc|tgw|tgw-attach|acl|ami|snap|lt|pcx|vgw|cgw|dopt|fl)-[0-9a-f]{8,17}$")
+
+
 def char_width(ch, size):
     o = ord(ch)
     if 0x1100 <= o <= 0x11FF or 0x3000 <= o <= 0x9FFF or 0xAC00 <= o <= 0xD7AF or 0xF900 <= o <= 0xFAFF or 0xFF00 <= o <= 0xFFEF:
         return size * 1.0
     if ch in "iljtfr.,:;|!'’`":
         return size * 0.32
-    if ch == " ":
+    if ch in " " + NBSP:
         return size * 0.28
     if ch.isdigit():
         return size * 0.58
@@ -226,45 +255,111 @@ def char_width(ch, size):
     return size * 0.5
 
 
-def text_width(text, size):
-    return sum(char_width(c, size) for c in text) * 1.03
+def text_width(text, size, bold=False):
+    return sum(char_width(c, size) for c in text) * (1.07 if bold else 1.03)
 
 
-def wrap(text, size, width, max_lines):
-    """Lines that fit `width`, breaking at spaces and after separators; a word longer than the line is cut by characters.
-    Returns (lines, truncated)."""
+def split_word(word, ok):
+    """The longest head of `word` that ends after - _ or /, leaves at least MIN_PIECE characters on both sides and
+    passes `ok`; None when there is none."""
+    best = None
+    for i in range(MIN_PIECE, len(word) - MIN_PIECE + 1):
+        if word[i - 1] in BREAKS and ok(word[:i]):
+            best = i
+    return word[:best] if best else None
+
+
+def cut_word(word, fits):
+    """A word with no usable separator, cut by characters (the last resort), still leaving MIN_PIECE characters."""
+    cut = len(word)
+    while cut > 1 and not fits(word[:cut]):
+        cut -= 1
+    if 0 < len(word) - cut < MIN_PIECE:
+        cut = max(1, len(word) - MIN_PIECE)
+    return word[:cut]
+
+
+def place_long(word, current, fits):
+    """(finished lines, open line) after placing a word wider than a whole line: split at - _ / (else by characters),
+    its head on the current line only when that saves a line, so a long name otherwise starts on a line of its own."""
+    def run(line):
+        done, rest = [], word
+        while rest:
+            prefix = f"{line} " if line else ""
+            head = split_word(rest, lambda h: fits(prefix + h))
+            if head is None and line:
+                done.append(line)
+                line = ""
+                continue
+            if head is None:
+                head = cut_word(rest, fits)
+            rest = rest[len(head):]
+            line = prefix + head
+            if rest:
+                done.append(line)
+                line = ""
+                if fits(rest):
+                    line, rest = rest, ""
+        return done, line
+    done, line = run("")
+    alone = (([current] if current else []) + done, line)
+    shared = run(current) if current else alone
+    return shared if len(shared[0]) < len(alone[0]) else alone
+
+
+def wrap(text, size, width, max_lines, bold=False):
+    """Lines that fit `width`. Breaks at spaces first; a word wider than a whole line is split after - _ or / (only
+    there, and never leaving a piece shorter than four characters); a word without such a place is cut by characters.
+    A middle dot stays at the end of the line before a break, "× 4" stays together, and a last line shorter than four
+    characters takes the word before it. Returns (lines, truncated)."""
     text = " ".join(str(text or "").split())
     if not text:
         return [], False
-    tokens = re.findall(r"[^\s·/\-_,]+[·/\-_,]*\s*|\s+", text)
+
+    def fits(s):
+        return text_width(s, size, bold) <= width
+    text = re.sub(r"× (?=\d)", "×" + NBSP, text.replace(" · ", NBSP + "· "))
     lines, current = [], ""
-    for token in tokens:
-        piece = token
-        if text_width(current + piece, size) <= width or not current.strip():
-            if text_width(current + piece, size) <= width:
-                current += piece
-                continue
-            # a single token wider than the line: cut it
-            while piece:
-                cut = len(piece)
-                while cut > 1 and text_width(current + piece[:cut], size) > width:
-                    cut -= 1
-                current += piece[:cut]
-                piece = piece[cut:]
-                if piece:
-                    lines.append(current.rstrip()); current = ""
-            continue
-        lines.append(current.rstrip()); current = piece.lstrip() if not piece.strip() else piece
-    if current.strip():
-        lines.append(current.rstrip())
-    truncated = False
-    if len(lines) > max_lines:
-        lines, truncated = lines[:max_lines], True
+    for word in text.split(" "):
+        trial = f"{current} {word}" if current else word
+        if fits(trial):
+            current = trial
+        elif fits(word):
+            lines.append(current)
+            current = word
+        else:
+            done, current = place_long(word, current, fits)
+            lines += done
+    if current:
+        lines.append(current)
+    if len(lines) >= 2 and len(lines[-1].replace(NBSP, " ").strip()) < MIN_PIECE and " " in lines[-2]:
+        head, moved = lines[-2].rsplit(" ", 1)
+        if fits(f"{moved} {lines[-1]}"):
+            lines[-2:] = [head, f"{moved} {lines[-1]}"]
+    lines = [line.replace(NBSP, " ") for line in lines]
+    truncated = len(lines) > max_lines
+    if truncated:
+        lines = lines[:max_lines]
         last = lines[-1]
-        while last and text_width(last + "…", size) > width:
+        while last and text_width(last + "…", size, bold) > width:
             last = last[:-1]
-        lines[-1] = last.rstrip() + "…"
+        lines[-1] = last.rstrip(" ·-_/,") + "…"
     return lines, truncated
+
+
+def visible_detail(text, label=""):
+    """The detail line without raw resource ids (i-0f7..., nat-08a...) and, under a label that already counts the
+    resources ("Security groups × 11"), without the word "Aggregated". Both stay in the node's <title>."""
+    parts = [p for p in str(text or "").split(" · ") if p.strip() and not RAW_ID.match(p.strip())]
+    if "×" in str(label) and parts and parts[0].strip().lower() == "aggregated":
+        parts = parts[1:]
+    return " · ".join(parts)
+
+
+def fit_line(text, size, width, bold=False):
+    """`text` on one line, shortened with "…" when it is wider than `width`."""
+    lines, _ = wrap(text, size, width, 1, bold)
+    return lines[0] if lines else ""
 
 
 # ---------------------------------------------------------------------------
@@ -315,9 +410,13 @@ class IconSet:
         return result
 
 
-def icon_for(node):
+def node_type(node):
     kind = node.get("type") or ""
-    kind = CFN_TO_TYPE.get(kind, kind)
+    return CFN_TO_TYPE.get(kind, kind)
+
+
+def icon_for(node):
+    kind = node_type(node)
     if kind in ICONS:
         return ICONS[kind]
     prefix = kind.split(".")[0].split("::")[0].lower()
@@ -332,32 +431,46 @@ def icon_for(node):
 # ---------------------------------------------------------------------------
 # Layout: the arrangement an architect draws by hand
 # ---------------------------------------------------------------------------
-# Region: VPCs side by side, then the regional-services group, then loose nodes. VPC: Availability Zones as columns
-# (subnets stacked inside, public first), then one band per subnet span (resources deployed in several subnets), then
-# the VPC-level nodes (gateways, endpoints, aggregates) in a row. Other groups: a grid. Sizes are computed bottom-up,
-# positions top-down; connectors are orthogonal with ports spread along each side.
+# Region: VPCs side by side, then the regional-services group, then the other groups and loose nodes, in rows. VPC: the
+# gateways on top, Availability Zones as columns of one width (subnets stacked in tiers aligned across the columns,
+# public first), then one band per subnet span (resources deployed in several subnets), then the VPC-level nodes in a
+# row. Other groups: a grid. Sizes are computed bottom-up, positions top-down, every value on the GRID; then arrange()
+# picks each group's column count and member order and slides rows under what they connect to (align_rows).
 def esc(value):
     return (str(value).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;"))
 
 
 def node_lines(node, width=TEXT_W):
-    label, t1 = wrap(node.get("label", ""), LABEL_SIZE, width, MAX_LABEL_LINES)
-    detail, t2 = wrap(node.get("detail", ""), NODE_DETAIL_SIZE, width, MAX_DETAIL_LINES)
+    label, t1 = wrap(node.get("label", ""), LABEL_SIZE, width, MAX_LABEL_LINES, True)
+    detail, t2 = wrap(visible_detail(node.get("detail", ""), node.get("label", "")), NODE_DETAIL_SIZE, width, MAX_DETAIL_LINES)
     return label, detail, t1 or t2
 
 
-BADGE_ROW = 18
-GAP = 40           # between siblings, vertically; leaves a corridor for two or three connectors
+BADGE_ROW = 16     # a row of route-table chips under the node text
+LINK_ROW = 24      # one chip per connector to a component of another view
+LINK_MAX_W = 224   # a node cell widens up to this to show the name on such a chip
+GAP = 48           # between siblings, vertically: a corridor for three or four connectors
 GAP_X = 96         # between siblings, horizontally: room for an arrow and a short label between two cells
 MAX_ROW_W = 1400   # a row of groups wraps beyond this width, so a drawing stays readable at page width
 PAD = 16           # inside a group, left/right/bottom
 HEAD = 40          # inside a group, top: the title band (24) and a free row a connector can turn in before it leaves the group
+WRAP_PAD = 8       # inside a security group frame, target group or Auto Scaling group container
+WRAP_HEAD = 24     # its title band (40 when it shows a detail line)
+STRETCH = 0.6      # groups side by side get the row's height when they are at least this share of it
+_SIZES = {}
 
 
-def node_size(node, badges=0):
-    label, detail, _ = node_lines(node)
-    text_h = len(label) * LABEL_LH + (len(detail) * NODE_DETAIL_LH + 3 if detail else 0)
-    return NODE_W, NODE_TOP + ICON + 6 + text_h + 4 + (BADGE_ROW if badges else 0)
+def snap(value, step=GRID):
+    return int(math.ceil(value / step - 1e-9)) * step
+
+
+def node_size(node, badges=0, links=0):
+    key = (node.get("label"), node.get("detail"), badges, links)
+    if key not in _SIZES:
+        label, detail, _ = node_lines(node)
+        text_h = len(label) * LABEL_LH + (len(detail) * NODE_DETAIL_LH + 3 if detail else 0)
+        _SIZES[key] = (NODE_W, snap(NODE_TOP + ICON + 6 + text_h + 4 + (BADGE_ROW if badges else 0) + LINK_ROW * links))
+    return _SIZES[key]
 
 
 def icon_box(box):
@@ -377,29 +490,35 @@ def subnet_order(group):
 
 
 def grid(items, columns):
-    """Place (id, w, h) items in rows of `columns`; returns ({id: (x, y)}, w, h) relative to the content origin."""
-    pos, x, y, row_h, width = {}, 0, 0, 0, 0
+    """Place (id, w, h) items in rows of `columns`; returns ({id: (x, y)}, width, height, [[ids] per row])."""
+    pos, lines, x, y, row_h, width = {}, [], 0, 0, 0, 0
     for i, (iid, w, h) in enumerate(items):
         if i and i % columns == 0:
             x, y, row_h = 0, y + row_h + GAP, 0
+        if x == 0:
+            lines.append([])
+        lines[-1].append(iid)
         pos[iid] = (x, y)
         x += w + GAP_X
         row_h = max(row_h, h)
         width = max(width, x - GAP_X)
-    return pos, width, (y + row_h) if items else 0
+    return pos, width, (y + row_h) if items else 0, lines
 
 
 def rows(items, max_width=MAX_ROW_W):
     """Place (id, w, h) items left to right, starting a new row when the next one would pass `max_width`."""
-    pos, x, y, row_h, width = {}, 0, 0, 0, 0
+    pos, lines, x, y, row_h, width = {}, [], 0, 0, 0, 0
     for iid, w, h in items:
         if x and x + w > max_width:
             x, y, row_h = 0, y + row_h + GAP, 0
+        if x == 0:
+            lines.append([])
+        lines[-1].append(iid)
         pos[iid] = (x, y)
         x += w + GAP_X
         row_h = max(row_h, h)
         width = max(width, x - GAP_X)
-    return pos, width, (y + row_h) if items else 0
+    return pos, width, (y + row_h) if items else 0, lines
 
 
 def columns_for(n, kind):
@@ -412,6 +531,15 @@ def columns_for(n, kind):
     if n <= 4:
         return max(1, n)
     return min(5, -(-n // 2)) if n <= 10 else 5
+
+
+def column_options(n, kind):
+    """Column counts worth trying for a grid of n items."""
+    if n < 2 or kind == "az":
+        return []
+    fit = max(1, (MAX_ROW_W + GAP_X) // (NODE_W + GAP_X))
+    out = {1, 2, 3, -(-n // 2), -(-n // 3), columns_for(n, kind), min(n, fit)}
+    return sorted(c for c in out if 1 <= c <= min(n, fit))
 
 
 GATEWAYS = {"ec2.internet-gateway", "ec2.vpn-gateway", "ec2.egress-only-internet-gateway", "ec2.transit-gateway-attachment"}
@@ -440,10 +568,14 @@ def flow_order(ids, edges):
 
 
 class Layout:
-    def __init__(self, graph):
+    """Boxes of every group and node. `cols` overrides a group's column count, `order` the order of its members (nodes
+    and the frames around them); arrange() searches both."""
+
+    def __init__(self, graph, cols=None, order=None):
         self.graph = graph
         self.groups = {g["id"]: g for g in graph.get("groups", [])}
         self.nodes = {n["id"]: n for n in graph["nodes"]}
+        self.cols, self.order = cols or {}, order or {}
         self.children = {gid: [] for gid in self.groups}      # child group ids
         self.members = {gid: [] for gid in self.groups}       # node ids directly in the group
         self.roots = []
@@ -452,89 +584,202 @@ class Layout:
         self.loose = []
         for n in graph["nodes"]:
             (self.members[n["group"]] if n.get("group") in self.groups else self.loose).append(n["id"])
+        refs = {**graph.get("refs", {}), **self.nodes}
         self.badges = {}
         for e in graph["edges"]:
-            if is_badge_edge(e, self.nodes):
+            if is_badge_edge(e, refs):
                 self.badges[e["source"]] = self.badges.get(e["source"], 0) + 1
-        self.size = {}      # id -> (w, h)
-        self.rel = {}       # id -> (x, y) relative to the parent's content origin
-        self.boxes = {}     # id -> (x, y, w, h) absolute
+        self.links = {nid: len(v) for nid, v in graph.get("links", {}).items()}
+        self.size, self.rel, self.boxes = {}, {}, {}
+        self.title_lines = {}  # group id -> lines of its title (1 or 2)
+        self.lines = {}        # group id -> rows of movable units (nodes, frames) that align_rows may slide
+        self.units = {}        # group id -> its movable units in drawing order
+        self.used_cols = {}    # group id -> columns of its grid
+
+    def kind(self, gid):
+        return self.groups[gid].get("kind") or "other"
+
+    def is_wrap(self, gid):
+        return gid in self.groups and self.kind(gid) in WRAP_KINDS
+
+    def movable(self, iid):
+        return iid in self.nodes or self.is_wrap(iid)
+
+    def pad(self, gid):
+        return WRAP_PAD if self.is_wrap(gid) else PAD
+
+    def head(self, gid):
+        if self.is_wrap(gid):
+            return WRAP_HEAD + (16 if self.groups[gid].get("detail") else 0)
+        return HEAD + TITLE_LH * (self.title_lines.get(gid, 1) - 1)
+
+    def contents(self, iid):
+        """The item and everything inside it."""
+        out = [iid]
+        if iid in self.groups:
+            for c in self.children[iid]:
+                out += self.contents(c)
+            out += self.members[iid]
+        return out
+
+    def unit_in(self, gid, item):
+        """The direct member of `gid` (node or child group) that holds `item`, or None."""
+        while item is not None:
+            parent = self.nodes[item].get("group") if item in self.nodes else self.groups[item].get("parent") if item in self.groups else None
+            if parent == gid:
+                return item
+            item = parent if parent in self.groups else None
+        return None
+
+    def unit_order(self, gid):
+        units = [c for c in self.children[gid] if self.is_wrap(c)] + self.members[gid]
+        if gid in self.order and sorted(self.order[gid]) == sorted(units):
+            return list(self.order[gid])
+        edges = []
+        for e in self.graph["edges"]:
+            a, b = self.unit_in(gid, e["source"]), self.unit_in(gid, e["target"])
+            if a and b and a != b:
+                edges.append({"source": a, "target": b})
+        return flow_order(units, edges)
 
     def measure_node(self, nid):
-        self.size[nid] = node_size(self.nodes[nid], self.badges.get(nid, 0))
+        w, h = node_size(self.nodes[nid], self.badges.get(nid, 0), self.links.get(nid, 0))
+        refs = self.graph.get("refs", {})
+        for link in self.graph.get("links", {}).get(nid, []):  # a chip to another view widens the cell to show the name
+            name = str((refs.get(link["far"]) or {}).get("label") or link["far"])
+            w = max(w, min(LINK_MAX_W, snap(text_width(name, 9) + text_width(f"{NBSP}· View {link['view']}", 9, True) + 40)))
+        self.size[nid] = (w, h)
         return self.size[nid]
+
+    def stretch(self, lines):
+        """Groups side by side in a row get the row's height, so a row of zones reads as one band."""
+        for line in lines:
+            groups = [i for i in line if i in self.groups and not self.is_wrap(i)]
+            if len(line) > 1 and groups:
+                top = max(self.size[i][1] for i in line)
+                lanes = len(groups) == len(line) and len({self.kind(i) for i in groups}) == 1 and not any(self.children[i] for i in groups)
+                for i in groups:
+                    if lanes or self.size[i][1] >= STRETCH * top:  # a much shorter zone stays short rather than half empty; lanes line up
+                        self.size[i] = (self.size[i][0], top)
 
     def measure_group(self, gid):
         g = self.groups[gid]
-        kind = g.get("kind") or "other"
+        kind = self.kind(gid)
         for cid in self.children[gid]:
             self.measure_group(cid)
         for nid in self.members[gid]:
             self.measure_node(nid)
-        label_w = text_width(str(g.get("label", "")), GROUP_LABEL_SIZE) + 44
+        wrapped = self.is_wrap(gid)
         if kind == "vpc":
             w, h = self.arrange_vpc(gid)
         elif kind == "region":
             w, h = self.arrange_region(gid)
         else:
-            kids = sorted(self.children[gid], key=lambda c: subnet_order(self.groups[c])) if kind == "az" else list(self.children[gid])
-            members = flow_order(self.members[gid], self.graph["edges"])
-            items = [(cid, *self.size[cid]) for cid in kids] + [(nid, *self.size[nid]) for nid in members]
-            cols = 1 if kind == "az" else columns_for(len(items), kind)
-            pos, w, h = grid(items, cols)
+            fixed = [c for c in self.children[gid] if not self.is_wrap(c)]
+            if kind == "az":
+                fixed.sort(key=lambda c: subnet_order(self.groups[c]))
+            units = self.unit_order(gid)
+            items = fixed + units
+            cols = 1 if kind == "az" else max(1, self.cols.get(gid) or columns_for(len(items), kind))
+            pos, w, h, lines = grid([(i, *self.size[i]) for i in items], cols)
             self.rel.update(pos)
-        w = max(w, label_w, 120)
-        self.size[gid] = (w + 2 * PAD, h + HEAD + PAD)
+            self.stretch(lines)
+            self.units[gid], self.used_cols[gid] = units, cols
+            self.lines[gid] = [line for line in lines if all(self.movable(i) for i in line)]
+        if not wrapped:  # a long title takes two lines rather than widening the group far beyond its content (a frame's is shortened)
+            need = text_width(str(g.get("label", "")), GROUP_LABEL_SIZE, True) + 44
+            w = max(w, 120, need if need <= max(w, TITLE_MIN_W) else max(TITLE_MIN_W, need / 2 + 40))
+            self.title_lines[gid] = len(group_title(g, snap(w + 2 * PAD))[0])
+        self.size[gid] = (snap(w + 2 * self.pad(gid)), snap(h + self.head(gid) + self.pad(gid)))
         return self.size[gid]
 
     def arrange_region(self, gid):
         kids = self.children[gid]
-        vpcs = [c for c in kids if (self.groups[c].get("kind") or "") == "vpc"]
-        services = [c for c in kids if (self.groups[c].get("kind") or "") == "services"]
-        rest = [c for c in kids if c not in vpcs and c not in services]
-        order = vpcs + services + rest
-        pos, w, h = rows([(cid, *self.size[cid]) for cid in order], max(MAX_ROW_W, max([self.size[c][0] for c in order] or [0])))
+        vpcs = [c for c in kids if self.kind(c) == "vpc"]
+        services = [c for c in kids if self.kind(c) == "services"]
+        rest = [c for c in kids if c not in vpcs and c not in services and not self.is_wrap(c)]
+        units = self.unit_order(gid)
+        items = [(i, *self.size[i]) for i in vpcs + services + rest + units]
+        pos, w, h, lines = rows(items, max([MAX_ROW_W] + [i[1] for i in items]))
         self.rel.update(pos)
-        if self.members[gid]:
-            items = [(nid, *self.size[nid]) for nid in self.members[gid]]
-            pos, pw, ph = grid(items, 1 if order else columns_for(len(items), "other"))
-            for nid, (px, py) in pos.items():
-                self.rel[nid] = (px + (w + GAP_X if order else 0), py)
-            w = w + GAP_X + pw if order else pw
-            h = max(h, ph)
+        self.stretch(lines)
+        self.units[gid], self.used_cols[gid] = units, max([len(line) for line in lines] or [1])
+        self.lines[gid] = [line for line in lines if all(self.movable(i) for i in line)]
         return w, h
+
+    def equalize_azs(self, azs):
+        """Subnets of one tier sit at the same height in every AZ column (public tiers first, then private, matched by
+        position), and every AZ column has one width."""
+        columns = {}
+        for az in azs:
+            subs = self.children[az]
+            if self.members[az] or any(self.kind(s) != "subnet" for s in subs):
+                return
+            public = sorted([s for s in subs if is_public_subnet(self.groups[s])], key=lambda s: str(self.groups[s].get("label", "")).lower())
+            private = sorted([s for s in subs if not is_public_subnet(self.groups[s])], key=lambda s: str(self.groups[s].get("label", "")).lower())
+            columns[az] = [((0, i), s) for i, s in enumerate(public)] + [((1, i), s) for i, s in enumerate(private)]
+        if len(columns) < 2:
+            return
+        keys = sorted({k for col in columns.values() for k, _ in col})
+        tier_h = {k: max(self.size[s][1] for col in columns.values() for kk, s in col if kk == k) for k in keys}
+        inner = max([self.size[s][0] for col in columns.values() for _, s in col] + [self.size[az][0] - 2 * PAD for az in azs])
+        for az in azs:
+            have, y = dict(columns[az]), 0
+            for k in keys:
+                if k in have:
+                    self.rel[have[k]] = (0, y)
+                    self.size[have[k]] = (inner, tier_h[k])
+                y += tier_h[k] + GAP
+            self.size[az] = (inner + 2 * PAD, snap(y - GAP + HEAD + PAD))
 
     def arrange_vpc(self, gid):
         kids = self.children[gid]
-        azs = sorted([c for c in kids if (self.groups[c].get("kind") or "") == "az"], key=lambda c: str(self.groups[c].get("az") or self.groups[c].get("label")))
-        spans = [c for c in kids if (self.groups[c].get("kind") or "") == "subnet-span"]
-        others = [c for c in kids if c not in azs and c not in spans]
-        gates = [n for n in self.members[gid] if (self.nodes[n].get("type") or "") in GATEWAYS]
-        y0 = 0
+        azs = sorted([c for c in kids if self.kind(c) == "az"], key=lambda c: str(self.groups[c].get("az") or self.groups[c].get("label")))
+        spans = [c for c in kids if self.kind(c) == "subnet-span"]
+        others = [c for c in kids if c not in azs and c not in spans and not self.is_wrap(c)]
+        units = self.unit_order(gid)
+        gates = [u for u in units if u in self.nodes and node_type(self.nodes[u]) in GATEWAYS]
+        rest = [u for u in units if u not in gates]
+        self.equalize_azs(azs)
+        y, width, lines = 0, 0, []
         if gates:  # the internet and VPN gateways sit on top, next to the public subnets, as in the official diagrams
-            pos, gw, gh = rows([(nid, *self.size[nid]) for nid in gates])
-            self.rel.update(pos); y0 = gh + GAP
-        top = [(cid, *self.size[cid]) for cid in azs + others]
-        pos, width, row_h = rows(top, max(MAX_ROW_W, sum(self.size[c][0] + GAP_X for c in azs)))  # the AZ columns stay side by side
-        self.rel.update({k: (x, y + y0) for k, (x, y) in pos.items()})
-        row_h += y0
-        width = max(width, gw if gates else 0)
-        y = row_h + (GAP if row_h else 0)
+            pos, gw, gh, gl = rows([(nid, *self.size[nid]) for nid in gates])
+            self.rel.update(pos); y = gh + GAP; width = gw; lines += gl
+        top = azs + others
+        top_lines = []
+        if top:
+            pos, tw, th, top_lines = rows([(c, *self.size[c]) for c in top], max(MAX_ROW_W, sum(self.size[c][0] + GAP_X for c in azs)))  # the AZ columns stay side by side
+            self.rel.update({k: (x, py + y) for k, (x, py) in pos.items()})
+            self.stretch(top_lines)
+            th = max(self.size[c][1] + self.rel[c][1] - y for c in top)
+            y += th + GAP; width = max(width, tw)
         for cid in spans:
             cw, ch = self.size[cid]
             self.rel[cid] = (0, y); y += ch + GAP; width = max(width, cw)
-        rest = [n for n in flow_order(self.members[gid], self.graph["edges"]) if n not in gates]
+        cols = 1
         if rest:
             items = [(nid, *self.size[nid]) for nid in rest]
-            cols = max(1, min(len(items), (max(width, NODE_W) + GAP_X) // (NODE_W + GAP_X))) if width else columns_for(len(items), "other")
-            pos, pw, ph = grid(items, cols)
+            cols = self.cols.get(gid) or (max(1, min(len(items), (max(width, NODE_W) + GAP_X) // (NODE_W + GAP_X))) if width else columns_for(len(items), "other"))
+            pos, pw, ph, rl = grid(items, cols)
             for nid, (px, py) in pos.items():
                 self.rel[nid] = (px, py + y)
-            width = max(width, pw); y += ph + GAP
-        # widen span bands to the VPC content width so they read as bands across the AZ columns
+            width = max(width, pw); y += ph + GAP; lines += rl
+        width = snap(width)
+        # span bands run across the whole VPC; AZ columns widen to fill it
         for cid in spans:
-            cw, ch = self.size[cid]
-            self.size[cid] = (max(cw, width), ch)
+            self.size[cid] = (width, self.size[cid][1])
+        if azs and not others and len(top_lines) == 1:
+            row_w = sum(self.size[c][0] for c in azs) + GAP_X * (len(azs) - 1)
+            add = (width - row_w) // len(azs) // GRID * GRID
+            if add > 0:
+                x = 0
+                for az in azs:
+                    w, h = self.size[az]
+                    self.size[az] = (w + add, h); self.rel[az] = (x, self.rel[az][1]); x += w + add + GAP_X
+                    for s in self.children[az]:
+                        self.size[s] = (w + add - 2 * PAD, self.size[s][1])
+        self.units[gid], self.used_cols[gid] = units, cols
+        self.lines[gid] = [line for line in lines if all(self.movable(i) for i in line)]
         return width, max(y - GAP, 0)
 
     def place(self, iid, ox, oy):
@@ -543,10 +788,11 @@ class Layout:
         ax, ay = ox + x, oy + y
         self.boxes[iid] = (ax, ay, w, h)
         if iid in self.groups:
+            pad, head = self.pad(iid), self.head(iid)
             for cid in self.children[iid]:
-                self.place(cid, ax + PAD, ay + HEAD)
+                self.place(cid, ax + pad, ay + head)
             for nid in self.members[iid]:
-                self.place(nid, ax + PAD, ay + HEAD)
+                self.place(nid, ax + pad, ay + head)
 
     def run(self):
         for gid in self.roots:
@@ -554,11 +800,363 @@ class Layout:
         for nid in self.loose:
             self.measure_node(nid)
         items = [(gid, *self.size[gid]) for gid in self.roots] + [(nid, *self.size[nid]) for nid in self.loose]
-        pos, w, h = rows(items, max(MAX_ROW_W, max([i[1] for i in items] or [0]))) if self.roots else grid(items, columns_for(len(items), "other"))
+        if self.roots:
+            pos, w, h, _ = rows(items, max(MAX_ROW_W, max([i[1] for i in items] or [0])))
+        else:
+            pos, w, h, _ = grid(items, columns_for(len(items), "other"))
         self.rel.update(pos)
         for iid in [i for i, _, _ in items]:
             self.place(iid, 0, 0)
         return self.boxes
+
+    def shift(self, boxes, iid, dx):
+        for i in self.contents(iid):
+            x, y, w, h = boxes[i]
+            boxes[i] = (x + dx, y, w, h)
+
+
+# ---------------------------------------------------------------------------
+# Grouping resources drawn around what they apply to
+# ---------------------------------------------------------------------------
+WRAPPER_TYPES = {"elbv2.target-group": "target-group", "autoscaling.group": "autoscaling", "eks.nodegroup": "autoscaling",
+                 "ec2.security-group": "security-group"}
+
+
+def wrap_groups(graph, say=lambda text: text):
+    """The view graph with grouping resources turned into containers. A target group (or Auto Scaling group, or node
+    group) whose members all sit in one zone becomes a dashed container around them inside that zone: the container
+    carries the resource's node id, connectors to the resource end at its border, and the membership edges are drawn by
+    the containment (their ids are on the container). A security group attachment becomes a red dashed frame around the
+    attached component, carrying the attachment edge's id; the security group node itself stays where it is. Anything
+    that cannot be drawn this way keeps the plain drawing."""
+    nodes = {n["id"]: dict(n) for n in graph["nodes"]}
+    known = {**graph.get("refs", {}), **nodes}
+    groups = [dict(g) for g in graph.get("groups", [])]
+    parent_of = {g["id"]: g.get("parent") for g in groups}
+    edges = [dict(e) for e in graph["edges"]]
+    links = graph.get("links", {})
+    carried, taken = {}, set()
+
+    def kind_of(n):
+        return WRAPPER_TYPES.get(node_type(n or {}))
+
+    def ancestry(gid):
+        out = set()
+        while gid:
+            out.add(gid); gid = parent_of.get(gid)
+        return out
+    badge_sources = {e["source"] for e in edges if is_badge_edge(e, known)}
+    for wid in [n["id"] for n in graph["nodes"]]:
+        w = nodes.get(wid)
+        kind = kind_of(w)
+        if kind not in {"target-group", "autoscaling"} or links.get(wid) or wid in badge_sources:
+            continue
+        if kind == "target-group":
+            mine = [e for e in edges if e["source"] == wid and e["target"] in nodes and not kind_of(nodes[e["target"]])]
+        else:
+            mine = [e for e in edges if wid in (e["source"], e["target"]) and node_type(nodes.get(e["target"] if e["source"] == wid else e["source"]) or {}) == "ec2.instance"]
+        mine = [e for e in mine if e["id"] not in taken]
+        members = list(dict.fromkeys(e["target"] if e["source"] == wid else e["source"] for e in mine))
+        homes = {nodes[m].get("group") for m in members}
+        if not members or len(homes) != 1:
+            continue
+        home = homes.pop()
+        if home is None or (w.get("group") and w["group"] not in ancestry(home)):
+            continue
+        gid = "~wrap:" + wid
+        groups.append({"id": gid, "kind": kind, "label": w.get("label", ""), "detail": visible_detail(w.get("detail"), w.get("label", "")), "parent": home,
+                       "wraps": wid, "state": w.get("state") or "observed", "title": " ".join(filter(None, [w.get("label"), w.get("detail")]))})
+        parent_of[gid] = home
+        for m in members:
+            nodes[m]["group"] = gid
+        carried[gid] = mine
+        taken |= {e["id"] for e in mine}
+        del nodes[wid]
+        for e in edges:
+            if e["id"] not in taken:
+                e["source"] = gid if e["source"] == wid else e["source"]
+                e["target"] = gid if e["target"] == wid else e["target"]
+    framed = {}
+    for e in edges:
+        if e["id"] not in taken and e["source"] in nodes and kind_of(known.get(e["target"])) == "security-group" and is_badge_edge(e, known):
+            framed.setdefault(e["source"], []).append(e)
+    for src, mine in framed.items():
+        sg = known.get(mine[0]["target"]) or {}
+        single = len(mine) == 1 and len(sg.get("resource_ids") or []) <= 1 and "×" not in str(sg.get("label", ""))
+        gid = "~frame:" + src
+        groups.append({"id": gid, "kind": "security-group", "label": sg.get("label") if single and sg.get("label") else say("Security group"),
+                       "parent": nodes[src].get("group"), "frame_for": src})
+        parent_of[gid] = nodes[src].get("group")
+        nodes[src]["group"] = gid
+        carried[gid] = mine
+        taken |= {e["id"] for e in mine}
+    return dict(graph, nodes=[nodes[n["id"]] for n in graph["nodes"] if n["id"] in nodes], groups=groups,
+                edges=[e for e in edges if e["id"] not in taken], carried=carried)
+
+
+# ---------------------------------------------------------------------------
+# Arrangement search: column counts, member order, rows slid under what they connect to
+# ---------------------------------------------------------------------------
+def anchor(boxes, iid, node_ids):
+    x, y, w, h = boxes[iid]
+    return (x + w / 2, y + NODE_TOP + ICON / 2) if iid in node_ids else (x + w / 2, y + h / 2)
+
+
+def neighbours(edges):
+    out = {}
+    for e in edges:
+        out.setdefault(e["source"], []).append(e["target"]); out.setdefault(e["target"], []).append(e["source"])
+    return out
+
+
+def align_line(lay, boxes, line, x0, x1, nbr, node_ids):
+    """Slide one row of nodes (and frames) sideways, keeping their order: each under the mean position of what it
+    connects to outside the row, the others centred, GAP_X apart at least, inside [x0, x1]."""
+    units = sorted(line, key=lambda u: boxes[u][0])
+    packed = sum(boxes[u][2] for u in units) + GAP_X * (len(units) - 1)
+    if packed > x1 - x0 + 0.5:
+        return
+    inside = {u: set(lay.contents(u)) for u in units}
+    in_row = set().union(*inside.values())
+    desired, x = {}, x0 + (x1 - x0 - packed) / 2 // GRID * GRID
+    for u in units:
+        others = [o for i in inside[u] for o in nbr.get(i, ()) if o not in in_row and o in boxes]
+        if others:
+            centre = sum(anchor(boxes, o, node_ids)[0] for o in others) / len(others)
+            desired[u] = round((centre - boxes[u][2] / 2) / GRID) * GRID
+        else:
+            desired[u] = x
+        x += boxes[u][2] + GAP_X
+    seq = units  # the order is reorder()'s choice; here the row only slides
+    pos = [desired[u] for u in seq]
+    widths = [boxes[u][2] for u in seq]
+    for i in range(len(seq)):
+        pos[i] = max(pos[i], x0 if i == 0 else pos[i - 1] + widths[i - 1] + GAP_X)
+    for i in reversed(range(len(seq))):
+        pos[i] = min(pos[i], x1 - widths[i] if i == len(seq) - 1 else pos[i + 1] - GAP_X - widths[i])
+    if pos[0] < x0 - 0.5:
+        return
+    for u, p in zip(seq, pos):
+        if abs(p - boxes[u][0]) > 0.1:
+            lay.shift(boxes, u, p - boxes[u][0])
+
+
+def align_rows(lay, boxes, edges, passes=2):
+    node_ids = set(lay.nodes)
+    nbr = neighbours(edges)
+    order = sorted(lay.groups, key=lambda g: group_depth(lay.groups, g))
+    for _ in range(passes):
+        for gid in order:
+            if gid not in boxes:
+                continue
+            gx, gy, gw, gh = boxes[gid]
+            for line in lay.lines.get(gid, []):
+                align_line(lay, boxes, line, gx + lay.pad(gid), gx + gw - lay.pad(gid), nbr, node_ids)
+
+
+def segments_cross(a, b, c, d):
+    def orient(p, q, r):
+        v = (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0])
+        return 0 if abs(v) < 1e-9 else (1 if v > 0 else -1)
+    return orient(a, b, c) * orient(a, b, d) < 0 and orient(c, d, a) * orient(c, d, b) < 0
+
+
+def segment_meets_box(a, b, box):
+    """True when the straight segment a-b passes through `box` (Liang-Barsky clipping)."""
+    x, y, w, h = box
+    t0, t1 = 0.0, 1.0
+    dx, dy = b[0] - a[0], b[1] - a[1]
+    for p, q in ((-dx, a[0] - x), (dx, x + w - a[0]), (-dy, a[1] - y), (dy, y + h - a[1])):
+        if abs(p) < 1e-9:
+            if q < 0:
+                return False
+        else:
+            t = q / p
+            if p < 0:
+                t0 = max(t0, t)
+            else:
+                t1 = min(t1, t)
+            if t0 > t1:
+                return False
+    return True
+
+
+def layout_cost(lay, boxes, edges):
+    """A quick estimate of how hard the connectors will be to follow: straight-line length between the ends, crossings
+    between those lines, components in their way, and the drawing's size."""
+    node_ids = set(lay.nodes)
+    lines = [(e["source"], e["target"], anchor(boxes, e["source"], node_ids), anchor(boxes, e["target"], node_ids)) for e in edges]
+    length = sum(abs(a[0] - b[0]) + abs(a[1] - b[1]) for _, _, a, b in lines)
+    crossings = sum(1 for i in range(len(lines)) for j in range(i + 1, len(lines))
+                    if not {lines[i][0], lines[i][1]} & {lines[j][0], lines[j][1]} and segments_cross(lines[i][2], lines[i][3], lines[j][2], lines[j][3]))
+    blockers = 0
+    inner = {i: set(lay.contents(i)) for s, t, _, _ in lines for i in (s, t) if i in lay.groups}
+    for s, t, a, b in lines:
+        skip = {s, t} | inner.get(s, set()) | inner.get(t, set())
+        for nid in node_ids:
+            if nid not in skip:
+                x, y, w, h = boxes[nid]
+                blockers += segment_meets_box(a, b, (x + 8, y + 8, w - 16, h - 16))
+    xs = [b[0] for b in boxes.values()] + [b[0] + b[2] for b in boxes.values()]
+    ys = [b[1] for b in boxes.values()] + [b[1] + b[3] for b in boxes.values()]
+    width, height = max(xs) - min(xs), max(ys) - min(ys)
+    return length + 220 * crossings + 160 * blockers + size_cost(width, height)
+
+
+def size_cost(width, height):
+    """What a drawing's size costs its reader: height and area (empty space between groups), more when it is taller than
+    4:3 landscape (it scrolls at page width) or wider than SPLIT_W (its text shrinks)."""
+    return (height + 0.25 * width + AREA * width * height + ASPECT * max(0, height - 0.75 * width)
+            + 20 * max(0, width - SPLIT_W))
+
+
+def reorder(lay, boxes, edges):
+    """Each group's members sorted by the mean position of what they connect to (rows by height, then left to right);
+    a member with no connection keeps its place. Ties keep the current order, so the result is deterministic."""
+    node_ids = set(lay.nodes)
+    nbr = neighbours(edges)
+    order = {}
+    for gid, units in lay.units.items():
+        if len(units) < 2:
+            continue
+        keyed = []
+        for i, u in enumerate(units):
+            inside = set(lay.contents(u))
+            others = [o for x in inside for o in nbr.get(x, ()) if o not in inside and o in boxes]
+            if others:
+                pts = [anchor(boxes, o, node_ids) for o in others]
+                keyed.append(((sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts)), i, u))
+            else:
+                keyed.append((anchor(boxes, u, node_ids), i, u))
+        cols = max(1, lay.used_cols.get(gid, len(units)))
+        if cols >= len(units):
+            new = [u for _, _, u in sorted(keyed, key=lambda k: (k[0][0], k[1]))]
+        else:
+            by_y = sorted(keyed, key=lambda k: (k[0][1], k[1]))
+            new = []
+            for r in range(0, len(by_y), cols):
+                new += [u for _, _, u in sorted(by_y[r:r + cols], key=lambda k: (k[0][0], k[1]))]
+        order[gid] = new
+    return order
+
+
+FINALISTS = 6   # arrangements with the lowest estimate that are routed in full before one is chosen
+AREA, ASPECT = 1 / 1000, 4
+
+
+def arrange(graph, badge_ids, finalists=None):
+    """Boxes of the drawing: for every group the column count and member order, found by a deterministic local search
+    (barycentre ordering passes, then each group's column options in turn) on a quick estimate (layout_cost), with rows
+    slid under what they connect to. The FINALISTS best arrangements are then routed in full and the one whose
+    connectors are easiest to follow (route_score) wins; besides the lowest estimates, the best arrangement of every
+    column choice for a family of sibling groups (a pipeline's stages as lanes, two wide, ...) is routed too, since an
+    estimate cannot see bends. `finalists=0` returns the best estimate. Returns (Layout, boxes)."""
+    tried = {}
+
+    def build(cols, order):
+        key = json.dumps([sorted(cols.items()), sorted((k, v) for k, v in order.items())])
+        if key not in tried:
+            lay = Layout(graph, cols, order)
+            boxes = lay.run()
+            routed = [e for e in graph["edges"] if e["id"] not in badge_ids and e["source"] in boxes and e["target"] in boxes and e["source"] != e["target"]]
+            align_rows(lay, boxes, routed)
+            tried[key] = (layout_cost(lay, boxes, routed), cols, order, lay, boxes, routed, len(tried))
+        return tried[key]
+    def polish(start):
+        """`start` after barycentre reordering passes, while they lower the estimate."""
+        for _ in range(4):
+            new = reorder(start[3], start[4], start[5])
+            if new == start[2]:
+                break
+            trial = build(start[1], new)
+            if trial[0] >= start[0] - 0.5:
+                break
+            start = trial
+        return start
+    best = build({}, {})
+    if not best[5]:
+        return best[3], best[4]
+    for _ in range(2):
+        improved = False
+        trial = polish(best)
+        if trial is not best:
+            best, improved = trial, True
+        lay = best[3]
+        for family in sibling_families(lay):  # stages of a pipeline: all as columns, or all two wide
+            for c in (1, 2):
+                trial = polish(build(dict(best[1], **{gid: c for gid in family}), best[2]))
+                if trial[0] < best[0] - 0.5:
+                    best, improved = trial, True
+        lay = best[3]
+        for gid in [g for g in lay.groups if lay.kind(g) not in {"az", "region"} and gid_items(lay, g) >= 2]:
+            current = lay.used_cols.get(gid)
+            for c in column_options(gid_items(lay, gid), lay.kind(gid)):
+                if c == current:
+                    continue
+                trial = build(dict(best[1], **{gid: c}), best[2])
+                if trial[0] < best[0] - 0.5:
+                    best, improved, current = trial, True, c
+        if not improved:
+            break
+    ranked = sorted(tried.values(), key=lambda t: (t[0], t[6]))
+    if finalists == 0:
+        return ranked[0][3], ranked[0][4]
+    chosen, families = ranked[:FINALISTS if finalists is None else finalists], sibling_families(best[3])
+    for t in ranked:
+        key = [t[3].used_cols.get(g) for family in families for g in family]
+        if len(chosen) < FINALISTS + 3 and all([c.used_cols.get(g) for family in families for g in family] != key for c in [x[3] for x in chosen]):
+            chosen.append(t)
+    scored = [(route_score(graph, t[4], route_edges(graph, t[4], badge_ids)), t[6], t) for t in chosen]
+    chosen = min(scored, key=lambda s: (s[0], s[1]))[2]
+    return chosen[3], chosen[4]
+
+
+def route_score(graph, boxes, routes):
+    """How hard the routed connectors are to follow, in the units of layout_cost: length, crossings, overlaps, bends,
+    connectors no path was found for, and the drawing's size."""
+    fallback = len(routes.get("__fallback__", []))
+    lines = [pts for eid, (pts, _) in ((k, v) for k, v in routes.items() if k != "__fallback__")]
+    length = sum(abs(a[0] - b[0]) + abs(a[1] - b[1]) for pts in lines for a, b in zip(pts, pts[1:]))
+    bends = sum(max(0, len(pts) - 2) for pts in lines)
+    segs = [[(a, b) for a, b in zip(pts, pts[1:]) if abs(a[0] - b[0]) + abs(a[1] - b[1]) > 0.5] for pts in lines]
+    crossings = overlaps = 0
+    for i in range(len(segs)):
+        for j in range(i + 1, len(segs)):
+            for a, b in segs[i]:
+                for c, d in segs[j]:
+                    kind = segment_relation(a, b, c, d)
+                    crossings += kind == "cross"; overlaps += kind == "overlap"
+    xs = [b[0] for b in boxes.values()] + [b[0] + b[2] for b in boxes.values()]
+    ys = [b[1] for b in boxes.values()] + [b[1] + b[3] for b in boxes.values()]
+    width, height = max(xs) - min(xs), max(ys) - min(ys)
+    return length + 220 * crossings + 300 * overlaps + 40 * bends + 5000 * fallback + size_cost(width, height)
+
+
+def sibling_families(lay):
+    """Groups of three or more sibling groups of nodes only (the stages of a pipeline, the tiers of a region)."""
+    out = []
+    for parent in list(lay.groups) + [None]:
+        kids = lay.children[parent] if parent else lay.roots
+        family = [k for k in kids if not lay.children[k] and lay.members[k] and lay.kind(k) not in {"az", "subnet"} | WRAP_KINDS]
+        if len(family) >= 3:
+            out.append(family)
+    return out
+
+
+def gid_items(lay, gid):
+    """How many items the group's grid holds (the VPC: its row of VPC-level nodes)."""
+    if lay.kind(gid) == "vpc":
+        return len([u for u in lay.units.get(gid, []) if not (u in lay.nodes and node_type(lay.nodes[u]) in GATEWAYS)])
+    return len([c for c in lay.children[gid] if not lay.is_wrap(c)]) + len(lay.units.get(gid, []))
+
+
+# ---------------------------------------------------------------------------
+# Connectors
+# ---------------------------------------------------------------------------
+def group_title(group, width):
+    """The lines of a zone's title in a box `width` wide (beside the badge when it has one), two at most."""
+    badge = zone_style(group)[1][2]
+    return wrap(group.get("label", ""), GROUP_LABEL_SIZE, width - (32 if badge else 8) - 8, 2, True)
 
 
 def group_headers(graph, boxes):
@@ -568,151 +1166,222 @@ def group_headers(graph, boxes):
         if g["id"] not in boxes:
             continue
         x, y, w, h = boxes[g["id"]]
-        width = min(w, 34 + text_width(str(g.get("label") or ""), GROUP_LABEL_SIZE) + 10)
-        out.append((x, y, width, 24))
+        if (g.get("kind") or "") in WRAP_KINDS:
+            badge = 22 if ZONES.get(g.get("kind"), ZONES["other"])[2] else 6
+            label_w = text_width(str(g.get("label") or ""), WRAP_LABEL_SIZE, True)
+            detail_w = text_width(str(g.get("detail") or ""), DETAIL_SIZE) if g.get("detail") else 0
+            out.append((x, y, min(w, badge + max(label_w, detail_w) + 10), 34 if g.get("detail") else 18))
+        else:
+            lines, _ = group_title(g, w)
+            out.append((x, y, min(w, 34 + max([text_width(line, GROUP_LABEL_SIZE, True) for line in lines] or [0]) + 10), 24 + TITLE_LH * (max(1, len(lines)) - 1)))
     return out
 
 
-def route_edges(graph, boxes, badge_ids, cell=8):
-    """Orthogonal connectors that go around nodes. Each edge leaves its source on the side facing the target (ports
-    spread along the side), then an A* search on a grid finds the shortest path that avoids node boxes, with a penalty
-    for every turn and for cells other connectors already use. Returns {edge id: (points, label point)}."""
-    import heapq
-    if not boxes:
-        return {}
-    min_x = min(b[0] for b in boxes.values()) - 3 * cell; min_y = min(b[1] for b in boxes.values()) - 3 * cell
-    max_x = max(b[0] + b[2] for b in boxes.values()) + 3 * cell; max_y = max(b[1] + b[3] for b in boxes.values()) + 3 * cell
-    cols, rows = int((max_x - min_x) // cell) + 1, int((max_y - min_y) // cell) + 1
-    node_ids = {n["id"] for n in graph["nodes"]}
+TURN = 10       # a bend costs as much as this many cells of length: one-bend routes win over stairs
+CROSS = 14      # crossing another connector
+OVERLAP = 80    # running on top of another connector
+NEAR = 3        # running in the cell right beside another connector
+HALO = 2        # running in the cell right beside a component
+BORDER = 3      # running along, or crossing, a group border
+TITLE = 400     # crossing a group title (only when there is no other way; the QA then fails the render)
+INTERIOR = 2    # running through a group that holds neither end (a connector keeps to the corridors between groups)
+GREED = 1.4     # the A* heuristic is weighted: a route within a few percent of the cheapest, found much faster
+INF = float("inf")
+SIDES = {"right": 0, "left": 1, "bottom": 2, "top": 3}
+DX, DY, REVERSE = (1, -1, 0, 0), (0, 0, 1, -1), (1, 0, 3, 2)
 
-    def to_cell(x, y):
-        return (min(cols - 1, max(0, int((x - min_x) // cell))), min(rows - 1, max(0, int((y - min_y) // cell))))
+
+def route_edges(graph, boxes, badge_ids, cell=GRID):
+    """Orthogonal connectors that go around nodes. Edges are routed shortest first; each one is an A* search on a grid
+    of `cell`-px cells from every free port of the source (four sides, ports spread along the icon) to every free port of
+    the target, so the search picks the sides and ports that need the fewest bends. Bends, crossings, running beside or
+    on top of another connector, hugging a component and crossing group borders or titles all cost extra. Connectors to
+    a container (a target group drawn around its members) end at its border. Returns {edge id: (points, None)} and
+    "__fallback__": the edges no path was found for (drawn straight; the QA fails them)."""
+    routes = {"__fallback__": []}
+    node_ids = {n["id"] for n in graph["nodes"] if n["id"] in boxes}
+    edges = [e for e in graph["edges"] if e["id"] not in badge_ids and e["source"] in boxes and e["target"] in boxes and e["source"] != e["target"]]
+    if not edges:
+        return routes
+    min_x = math.floor((min(b[0] for b in boxes.values()) - 4 * cell) / cell) * cell - cell / 2
+    min_y = math.floor((min(b[1] for b in boxes.values()) - 4 * cell) / cell) * cell - cell / 2
+    max_x = max(b[0] + b[2] for b in boxes.values()) + 4 * cell
+    max_y = max(b[1] + b[3] for b in boxes.values()) + 4 * cell
+    cols, nrows = int((max_x - min_x) // cell) + 1, int((max_y - min_y) // cell) + 1
+    size = cols * nrows
+    blocked, toll = bytearray(size), [0] * size
+    used_h, used_v = bytearray(size), bytearray(size)
+
+    def cell_of(x, y):
+        return (min(cols - 1, max(0, int((x - min_x) // cell))), min(nrows - 1, max(0, int((y - min_y) // cell))))
 
     def centre(c):
-        return (min_x + (c[0] + 0.5) * cell, min_y + (c[1] + 0.5) * cell)
-    blocked = set()
-    node_boxes = [boxes[nid] for nid in node_ids]
-    inflate = 3
-    for nid in node_ids:
-        x, y, w, h = boxes[nid]
-        c0, c1 = to_cell(x - inflate, y - inflate), to_cell(x + w + inflate, y + h + inflate)
-        for cx in range(c0[0], c1[0] + 1):
-            for cy in range(c0[1], c1[1] + 1):
-                blocked.add((cx, cy))
-    used = {}
-    toll = {}  # cells that cost extra: group borders (a connector should not run along one) and group titles (crossed only when there is no other way)
+        return (min_x + (c % cols + 0.5) * cell, min_y + (c // cols + 0.5) * cell)
+
+    def raise_toll(cx, cy, value):
+        if 0 <= cx < cols and 0 <= cy < nrows:
+            toll[cy * cols + cx] = max(toll[cy * cols + cx], value)
     for g in graph.get("groups", []):
         if g["id"] not in boxes:
             continue
         x, y, w, h = boxes[g["id"]]
-        c0, c1 = to_cell(x, y), to_cell(x + w, y + h)
-        for cx in range(c0[0], c1[0] + 1):
-            for cy in (c0[1], c1[1]):
-                toll[(cx, cy)] = max(toll.get((cx, cy), 0), 4)
-        for cy in range(c0[1], c1[1] + 1):
-            for cx in (c0[0], c1[0]):
-                toll[(cx, cy)] = max(toll.get((cx, cy), 0), 4)
-    for x, y, w, h in group_headers(graph, boxes):
-        c0, c1 = to_cell(x, y), to_cell(x + w, y + h)
-        for cx in range(c0[0], c1[0] + 1):
-            for cy in range(c0[1], c1[1] + 1):
-                toll[(cx, cy)] = 400
-    plan = {}
-    for e in graph["edges"]:
-        if e["id"] in badge_ids or e["source"] not in boxes or e["target"] not in boxes:
-            continue
-        sx, sy, sw, sh = boxes[e["source"]]; tx, ty, tw, th = boxes[e["target"]]
-        scx, scy, tcx, tcy = sx + sw / 2, sy + sh / 2, tx + tw / 2, ty + th / 2
-        if abs(tcx - scx) * 0.8 >= abs(tcy - scy) or (tx >= sx + sw or tx + tw <= sx):
-            plan[e["id"]] = ("right", "left") if tcx >= scx else ("left", "right")
-        else:
-            plan[e["id"]] = ("bottom", "top") if tcy >= scy else ("top", "bottom")
-    use = {}
-    for e in graph["edges"]:
-        if e["id"] in plan:
-            s_side, t_side = plan[e["id"]]
-            use.setdefault((e["source"], s_side), []).append((e["id"], e["target"]))
-            use.setdefault((e["target"], t_side), []).append((e["id"], e["source"]))
-    ports, reach = {}, {}
-    for (nid, side), entries in use.items():
+        (c0x, c0y), (c1x, c1y) = cell_of(x, y), cell_of(x + w, y + h)
+        for cx in range(c0x, c1x + 1):
+            raise_toll(cx, c0y, BORDER); raise_toll(cx, c1y, BORDER)
+        for cy in range(c0y, c1y + 1):
+            raise_toll(c0x, cy, BORDER); raise_toll(c1x, cy, BORDER)
+    for nid in node_ids:
         x, y, w, h = boxes[nid]
-        ix, iy, iw, ih = icon_box(boxes[nid])
-        key = (lambda o: boxes[o][1] + boxes[o][3] / 2) if side in {"left", "right"} else (lambda o: boxes[o][0] + boxes[o][2] / 2)
-        entries.sort(key=lambda t: key(t[1]))
-        n = len(entries)
-        for i, (eid, _) in enumerate(entries):
-            frac = (i + 1) / (n + 1)
-            # the connector leaves the cell at the icon's height (sides) or across the icon's width (top, bottom), and
-            # runs on to the icon itself through the empty space beside it
-            ports[(eid, nid)] = {"right": (x + w, iy + ih * frac), "left": (x, iy + ih * frac), "bottom": (ix + iw * frac, y + h), "top": (ix + iw * frac, y)}[side]
-            reach[(eid, nid)] = {"right": (ix + iw, iy + ih * frac), "left": (ix, iy + ih * frac), "bottom": None, "top": None}[side]
-    STEP = {"right": (1, 0), "left": (-1, 0), "bottom": (0, 1), "top": (0, -1)}
-    DIRS = ((1, 0), (-1, 0), (0, 1), (0, -1))
-
-    def outside(port, side):
-        """First free cell outside the inflated box in the port's direction."""
-        c = to_cell(*port)
-        dx, dy = STEP[side]
-        for _ in range(12):
-            if c not in blocked:
-                return c
-            c = (c[0] + dx, c[1] + dy)
-        return c
-
-    def search(start, goal, start_dir):
-        best = {}
-        heap = [(abs(start[0] - goal[0]) + abs(start[1] - goal[1]), 0, start, start_dir, None)]
-        parents = {}
-        while heap:
-            _, g, c, d, parent = heapq.heappop(heap)
-            if (c, d) in best:
-                continue
-            best[(c, d)] = g
-            parents[(c, d)] = parent
-            if c == goal:
-                path = []
-                key = (c, d)
-                while key:
-                    path.append(key[0]); key = parents[key]
-                return path[::-1]
-            for nd in DIRS:
-                nc = (c[0] + nd[0], c[1] + nd[1])
-                if not (0 <= nc[0] < cols and 0 <= nc[1] < rows) or (nc in blocked and nc != goal):
-                    continue
-                cost = g + 1 + (5 if nd != d else 0) + used.get(nc, 0) + toll.get(nc, 0)
-                if (nc, nd) not in best:
-                    heapq.heappush(heap, (cost + abs(nc[0] - goal[0]) + abs(nc[1] - goal[1]), cost, nc, nd, (c, d)))
-        return None
-    routes = {}
-    fallback = []
-    for e in graph["edges"]:
-        if e["id"] not in plan:
+        (c0x, c0y), (c1x, c1y) = cell_of(x - 3, y - 3), cell_of(x + w + 3, y + h + 3)
+        for cy in range(c0y, c1y + 1):
+            for cx in range(c0x, c1x + 1):
+                blocked[cy * cols + cx] = 1
+        for cx in range(c0x - 1, c1x + 2):
+            raise_toll(cx, c0y - 1, HALO); raise_toll(cx, c1y + 1, HALO)
+        for cy in range(c0y - 1, c1y + 2):
+            raise_toll(c0x - 1, cy, HALO); raise_toll(c1x + 1, cy, HALO)
+    for x, y, w, h in group_headers(graph, boxes):
+        (c0x, c0y), (c1x, c1y) = cell_of(x, y), cell_of(x + w, y + h)
+        for cy in range(c0y, c1y + 1):
+            for cx in range(c0x, c1x + 1):
+                toll[cy * cols + cx] = TITLE
+    # the innermost group around each cell (security group frames aside), to keep connectors out of unrelated groups
+    groups = {g["id"]: g for g in graph.get("groups", []) if g["id"] in boxes}
+    index = {gid: i for i, gid in enumerate(groups)}
+    owner = [-1] * size
+    for gid in sorted(groups, key=lambda g: group_depth(groups, g)):
+        if (groups[gid].get("kind") or "") == "security-group":
             continue
-        s_side, t_side = plan[e["id"]]
-        a, b = ports[(e["id"], e["source"])], ports[(e["id"], e["target"])]
-        ca, cb = outside(a, s_side), outside(b, t_side)
-        cells = search(ca, cb, STEP[s_side])
-        if not cells:
-            pts = [a, b]
-            fallback.append(e["id"])
+        x, y, w, h = boxes[gid]
+        (c0x, c0y), (c1x, c1y) = cell_of(x + 1, y + 1), cell_of(x + w - 1, y + h - 1)
+        for cy in range(c0y, c1y + 1):
+            owner[cy * cols + c0x: cy * cols + c1x + 1] = [index[gid]] * (c1x - c0x + 1)
+    parent_of = {n["id"]: n.get("group") for n in graph["nodes"]}
+    parent_of.update({gid: g.get("parent") for gid, g in groups.items()})
+
+    def around(item):
+        out, item = set(), item if item in groups else parent_of.get(item)
+        while item in groups:
+            out.add(index[item]); item = parent_of.get(item)
+        return out
+    taken = {}  # (item, side) -> slot coordinates in use
+
+    def slots(item, side):
+        """(coordinate along the side, cost) of the ports of one side: on a node across the middle of the icon, on a
+        container along the middle of its side; the middle first."""
+        x, y, w, h = boxes[item]
+        if item in node_ids:
+            ix, iy, iw, ih = icon_box(boxes[item])
+            lo, hi = (iy + 8, iy + ih - 8) if side in {"left", "right"} else (ix + 8, ix + iw - 8)
         else:
-            mid = [centre(c) for c in cells]
-            # Orthogonal stubs between each port and the first/last grid cell: along the side's axis first, then across.
-            first, last = mid[0], mid[-1]
-            head = [a, (first[0], a[1])] if s_side in {"left", "right"} else [a, (a[0], first[1])]
-            tail = [(last[0], b[1]), b] if t_side in {"left", "right"} else [(b[0], last[1]), b]
-            pts = head + mid + tail
-            if reach.get((e["id"], e["source"])):
-                pts = [reach[(e["id"], e["source"])]] + pts
-            if reach.get((e["id"], e["target"])):
-                pts = pts + [reach[(e["id"], e["target"])]]
-            for c in cells:
-                used[c] = used.get(c, 0) + 10
-                for nx, ny in ((c[0] + 1, c[1]), (c[0] - 1, c[1]), (c[0], c[1] + 1), (c[0], c[1] - 1)):
-                    used[(nx, ny)] = used.get((nx, ny), 0) + 2  # keeps parallel connectors a cell apart
-        pts = simplify(pts)
-        routes[e["id"]] = (pts, None)
-    routes["__fallback__"] = fallback
+            lo, hi = (y + 32, y + h - 12) if side in {"left", "right"} else (x + w * 0.25, x + w * 0.75)
+        origin = min_y if side in {"left", "right"} else min_x
+        k0, k1 = math.ceil((lo - origin) / cell - 0.5), math.floor((hi - origin) / cell - 0.5)
+        mid = (lo + hi) / 2
+        values = sorted((origin + (k + 0.5) * cell for k in range(k0, k1 + 1)), key=lambda v: (abs(v - mid), v))
+        used = taken.get((item, side), set())
+        return [(v, 0.6 * i) for i, v in enumerate(values[:9]) if v not in used]
+
+    def port(item, side, v):
+        """(point on the box, point on the icon or None, first free cell outside)."""
+        x, y, w, h = boxes[item]
+        p = {"left": (x, v), "right": (x + w, v), "top": (v, y), "bottom": (v, y + h)}[side]
+        reach = None
+        if item in node_ids:
+            ix, iy, iw, ih = icon_box(boxes[item])
+            reach = {"left": (ix, v), "right": (ix + iw, v), "top": (v, iy), "bottom": None}[side]
+        d = SIDES[side]
+        cx, cy = cell_of(p[0] + DX[d] * (cell / 2 + 1), p[1] + DY[d] * (cell / 2 + 1))
+        for _ in range(16):
+            if not blocked[cy * cols + cx]:
+                break
+            cx, cy = min(cols - 1, max(0, cx + DX[d])), min(nrows - 1, max(0, cy + DY[d]))
+        return p, reach, cy * cols + cx
+
+    def search(starts, goals, allowed):
+        gxs, gys = [c % cols for c in goals], [c // cols for c in goals]
+        gx0, gx1, gy0, gy1 = min(gxs), max(gxs), min(gys), max(gys)
+
+        def h(c):
+            cx, cy = c % cols, c // cols
+            dx = gx0 - cx if cx < gx0 else cx - gx1 if cx > gx1 else 0
+            dy = gy0 - cy if cy < gy0 else cy - gy1 if cy > gy1 else 0
+            return (dx + dy + (TURN if dx and dy else 0)) * GREED
+        heap, best, parent, finals, origin = [], [INF] * (size * 4), {}, [], {}
+        for c, d, g0, info in starts:
+            key = c * 4 + d
+            if g0 < best[key]:
+                best[key], parent[key], origin[key] = g0, None, info
+                heapq.heappush(heap, (g0 + h(c), g0, key))
+        while heap:
+            f, g, key = heapq.heappop(heap)
+            if key < 0:
+                last, info = finals[-key - 1]
+                path = []
+                while last is not None:
+                    path.append(last); first = last; last = parent[last]
+                return [k // 4 for k in reversed(path)], origin[first], info
+            if g > best[key]:
+                continue
+            c, d = divmod(key, 4)
+            for inward, info, cost in goals.get(c, ()):
+                total = g + cost + (0 if d == inward else TURN)
+                finals.append((key, info))
+                heapq.heappush(heap, (total, total, -len(finals)))
+            cx, cy = c % cols, c // cols
+            for nd in range(4):
+                if nd == REVERSE[d]:
+                    continue
+                nx, ny = cx + DX[nd], cy + DY[nd]
+                if not (0 <= nx < cols and 0 <= ny < nrows):
+                    continue
+                nc = ny * cols + nx
+                if blocked[nc] and nc not in goals:
+                    continue
+                step = 1 + toll[nc] + (TURN if nd != d else 0) + (INTERIOR if owner[nc] >= 0 and owner[nc] not in allowed else 0)
+                if nd < 2:
+                    step += OVERLAP if used_h[nc] else CROSS if used_v[nc] else 0
+                    if (ny > 0 and used_h[nc - cols]) or (ny < nrows - 1 and used_h[nc + cols]):
+                        step += NEAR
+                else:
+                    step += OVERLAP if used_v[nc] else CROSS if used_h[nc] else 0
+                    if (nx > 0 and used_v[nc - 1]) or (nx < cols - 1 and used_v[nc + 1]):
+                        step += NEAR
+                ng, nkey = g + step, nc * 4 + nd
+                if ng < best[nkey]:
+                    best[nkey], parent[nkey] = ng, key
+                    heapq.heappush(heap, (ng + h(nc), ng, nkey))
+        return None
+
+    def mid(item):
+        x, y, w, h = boxes[item]
+        return (x + w / 2, y + h / 2)
+    edges.sort(key=lambda e: (abs(mid(e["source"])[0] - mid(e["target"])[0]) + abs(mid(e["source"])[1] - mid(e["target"])[1])))
+    for e in edges:
+        s, t = e["source"], e["target"]
+        starts, goals = [], {}
+        for side, d in SIDES.items():
+            for v, cost in slots(s, side):
+                p, reach, c = port(s, side, v)
+                starts.append((c, d, cost, (side, v, p, reach)))
+            for v, cost in slots(t, side):
+                p, reach, c = port(t, side, v)
+                goals.setdefault(c, []).append((REVERSE[d], (side, v, p, reach), cost))
+        found = search(starts, goals, around(s) | around(t)) if starts and goals else None
+        if not found:
+            a, b = mid(s), mid(t)
+            routes[e["id"]] = ([a, b], None)
+            routes["__fallback__"].append(e["id"])
+            continue
+        cells, (s_side, s_v, a, a_reach), (t_side, t_v, b, b_reach) = found
+        for i in range(len(cells) - 1):
+            horizontal = abs(cells[i + 1] - cells[i]) == 1
+            for c in (cells[i], cells[i + 1]):
+                (used_h if horizontal else used_v)[c] = 1
+        taken.setdefault((s, s_side), set()).add(s_v)
+        taken.setdefault((t, t_side), set()).add(t_v)
+        pts = ([a_reach] if a_reach else []) + [a] + [centre(c) for c in cells] + [b] + ([b_reach] if b_reach else [])
+        routes[e["id"]] = (simplify(pts), None)
     return routes
 
 
@@ -730,21 +1399,7 @@ def simplify(pts):
     return out
 
 
-def label_point(pts, obstacles=()):
-    """Middle of the longest segment whose middle is not over a node, lifted a little off the line."""
-    def inside(pt):
-        return any(x - 2 <= pt[0] <= x + w + 2 and y - 2 <= pt[1] <= y + h + 2 for x, y, w, h in obstacles)
-    segments = sorted(zip(pts, pts[1:]), key=lambda ab: -(abs(ab[0][0] - ab[1][0]) + abs(ab[0][1] - ab[1][1])))
-    for a, b in segments:
-        mid = ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
-        if not inside(mid):
-            return (mid[0], mid[1] - 4) if abs(a[0] - b[0]) >= abs(a[1] - b[1]) else (mid[0] + 4, mid[1])
-    a, b = segments[0]
-    return ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2 - 4)
-
-
-LABEL_W = 170       # an edge label wraps at this width, two lines at most
-LABEL_LH_EDGE = 11
+LABEL_FORMS = ((170, 2), (124, 3), (84, 3), (72, 4))   # (wrap width, lines): an edge label tries the widest form first
 
 
 def boxes_meet(a, b, pad=0):
@@ -760,68 +1415,89 @@ def segment_hits(box, a, b):
 
 
 def place_labels(graph, routes, boxes, badge_ids, headers, extent, first=1):
-    """A position for every edge label that covers no node, no group title and no other label, preferring spots no
-    other connector crosses. A label that fits nowhere becomes a numbered marker on its connector, explained under the
-    legend. Returns ({edge id: placement}, [(number, text)])."""
+    """A position for every edge label that covers no node, no group title and no other label and that no other
+    connector crosses, beside its own line (wrapped narrower when that fits a gap). A label that fits nowhere becomes a
+    numbered marker on its connector, explained under the legend. Returns ({edge id: placement}, [(number, text)])."""
     node_boxes = [boxes[n["id"]] for n in graph["nodes"] if n["id"] in boxes]
     segments = {eid: list(zip(pts, pts[1:])) for eid, (pts, _) in routes.items()}
     placed, keyed, out = [], [], {}
     x0, y0, x1, y1 = extent
+
     def free(box):
         if box[0] < x0 or box[1] < y0 or box[0] + box[2] > x1 or box[1] + box[3] > y1:
             return False
-        return not any(boxes_meet(box, b, 3) for b in node_boxes) and not any(boxes_meet(box, h, 1) for h in headers) and not any(boxes_meet(box, b, 2) for b in placed)
-    def crossings(box, eid):
-        return sum(1 for other, segs in segments.items() if other != eid for a, b in segs if segment_hits(box, a, b))
+        return not any(boxes_meet(box, b, 2) for b in node_boxes) and not any(boxes_meet(box, h, 1) for h in headers) and not any(boxes_meet(box, b, 2) for b in placed)
+
+    def crossed(box, eid):
+        return any(segment_hits(box, a, b) for other, segs in segments.items() if other != eid for a, b in segs)
+    borders = []  # group outlines: a label sitting on one reads as the group's caption
+    for g in graph.get("groups", []):
+        if g["id"] in boxes:
+            gx, gy, gw, gh = boxes[g["id"]]
+            borders += [((gx, gy), (gx + gw, gy)), ((gx, gy + gh), (gx + gw, gy + gh)), ((gx, gy), (gx, gy + gh)), ((gx + gw, gy), (gx + gw, gy + gh))]
+
+    def on_border(box):
+        return any(segment_hits(box, a, b) for a, b in borders)
     edges = [e for e in graph["edges"] if e["id"] in routes and e["id"] not in badge_ids and " ".join(str(e.get("label") or "").split())]
-    for e in sorted(edges, key=lambda e: -len(str(e.get("label")))):
+    for e in sorted(edges, key=lambda e: (-len(str(e.get("label"))), e["id"])):
         text = " ".join(str(e["label"]).split())
-        lines, cut = wrap(text, DETAIL_SIZE, LABEL_W, 2)
-        w = max(text_width(l, DETAIL_SIZE) for l in lines) + 8
-        h = len(lines) * LABEL_LH_EDGE + 4
-        best = None
         segs = sorted(segments[e["id"]], key=lambda ab: -(abs(ab[0][0] - ab[1][0]) + abs(ab[0][1] - ab[1][1])))
-        for a, b in segs if not cut else []:
-            horizontal = abs(a[1] - b[1]) < 0.5
-            for frac in (0.5, 0.35, 0.65, 0.2, 0.8):
-                px, py = a[0] + (b[0] - a[0]) * frac, a[1] + (b[1] - a[1]) * frac
-                spots = ([(px - w / 2, py - h - 2), (px - w / 2, py + 2)] if horizontal else [(px + 4, py - h / 2), (px - 4 - w, py - h / 2)])
-                for bx, by in spots:
-                    box = (bx, by, w, h)
-                    if free(box):
-                        score = crossings(box, e["id"])
-                        if best is None or score < best[0]:
-                            best = (score, box)
-                if best and best[0] == 0:
-                    break
-            if best and best[0] == 0:
-                break
-        if best and best[0] == 0:  # beside its own line and crossed by no other: anything else reads as another line's label
-            placed.append(best[1])
-            out[e["id"]] = {"lines": lines, "box": best[1]}
+        longest_word = max(text_width(word, DETAIL_SIZE) for word in text.split(" "))
+        forms = []
+        for width, max_lines in LABEL_FORMS:
+            lines, cut = wrap(text, DETAIL_SIZE, width, max_lines)
+            if not cut and width >= longest_word:  # a narrower form may not cut a word
+                forms.append((lines, snap(max(text_width(line, DETAIL_SIZE) for line in lines) + 8, 2), len(lines) * EDGE_LABEL_LH + 5))
+
+        def find(strict):
+            for lines, w, h in forms:
+                for a, b in segs:
+                    horizontal = abs(a[1] - b[1]) < 0.5
+                    if abs(a[0] - b[0]) + abs(a[1] - b[1]) < (24 if horizontal else 16):
+                        continue
+                    for frac in (0.5, 0.35, 0.65, 0.2, 0.8):
+                        px, py = a[0] + (b[0] - a[0]) * frac, a[1] + (b[1] - a[1]) * frac
+                        for bx, by in ([(px - w / 2, py - h - 3), (px - w / 2, py + 3)] if horizontal else [(px + 5, py - h / 2), (px - 5 - w, py - h / 2)]):
+                            box = (bx, by, w, h)
+                            if free(box) and not crossed(box, e["id"]) and not (strict and on_border(box)):
+                                return {"lines": lines, "box": box}
+            return None
+        spot = find(True) or find(False)
+        if spot:  # beside its own line and crossed by no other: anything else reads as another line's label
+            placed.append(spot["box"])
+            out[e["id"]] = spot
             continue
-        # A numbered marker on the connector; the text goes under the legend.
         number = first + len(keyed)
-        spot = None
+        centre = None
         for a, b in segs:
             for frac in (0.5, 0.3, 0.7, 0.15, 0.85):
                 cx, cy = a[0] + (b[0] - a[0]) * frac, a[1] + (b[1] - a[1]) * frac
-                box = (cx - 8, cy - 8, 16, 16)
-                if free(box):
-                    spot = (cx, cy); break
-            if spot:
+                if free((cx - 8, cy - 8, 16, 16)):
+                    centre = (cx, cy); break
+            if centre:
                 break
-        if spot is None:
+        if centre is None:
             a, b = segs[0]
-            spot = ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
-        placed.append((spot[0] - 8, spot[1] - 8, 16, 16))
+            centre = ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
+        placed.append((centre[0] - 8, centre[1] - 8, 16, 16))
         keyed.append((number, text))
-        out[e["id"]] = {"marker": number, "center": spot}
+        out[e["id"]] = {"marker": number, "center": centre}
     return out, keyed
 
 
-def points_to_path(pts):
-    return "M " + " L ".join(f"{x:.1f} {y:.1f}" for x, y in pts)
+def points_to_path(pts, radius=6):
+    """An orthogonal polyline with rounded bends (quadratic corners of `radius`, smaller on short runs)."""
+    if len(pts) < 3:
+        return "M " + " L ".join(f"{x:.1f} {y:.1f}" for x, y in pts)
+    out = [f"M {pts[0][0]:.1f} {pts[0][1]:.1f}"]
+    for a, p, b in zip(pts, pts[1:], pts[2:]):
+        la, lb = abs(p[0] - a[0]) + abs(p[1] - a[1]), abs(b[0] - p[0]) + abs(b[1] - p[1])
+        r = min(radius, la / 2, lb / 2)
+        ux, uy = ((p[0] - a[0]) / la, (p[1] - a[1]) / la) if la else (0, 0)
+        vx, vy = ((b[0] - p[0]) / lb, (b[1] - p[1]) / lb) if lb else (0, 0)
+        out.append(f"L {p[0] - ux * r:.1f} {p[1] - uy * r:.1f} Q {p[0]:.1f} {p[1]:.1f} {p[0] + vx * r:.1f} {p[1] + vy * r:.1f}")
+    out.append(f"L {pts[-1][0]:.1f} {pts[-1][1]:.1f}")
+    return " ".join(out)
 
 
 # ---------------------------------------------------------------------------
@@ -844,7 +1520,7 @@ def zone_style(group):
 
 def group_depth(groups, gid):
     depth = 0
-    while groups[gid].get("parent"):
+    while groups[gid].get("parent") in groups:
         gid = groups[gid]["parent"]; depth += 1
     return depth
 
@@ -852,8 +1528,8 @@ def group_depth(groups, gid):
 def renderer_words():
     """The renderer's own English words (legend lines, state tags, the legend heading), for a drawing in another
     language: the localizer translates these with the graph's labels and redraws."""
-    out = ["Legend", "Connections", "Architecture", "View", "In other views", "Chip on a node: attached to the aggregate shown with that tag (security groups, route tables)",
-           "proposed", "changed", "removal candidate", "unconfirmed", "declared"]
+    out = ["Legend", "Connections", "Architecture", "View", LINK_LEGEND, CHIP_LEGEND]
+    out += list(STATE_TAGS.values())
     out += [v[3] for v in STATES.values()] + [v[2] for v in EDGE_STATES.values()] + [v[3] for v in ZONES.values()]
     return list(dict.fromkeys(out))
 
@@ -889,9 +1565,9 @@ def translated_graph(graph, translate):
 # Views: a drawing with too many components is cut into views along its top-level groups
 # ---------------------------------------------------------------------------
 SPLIT_NODES = 24           # more components than this, or a layout beyond SPLIT_W x SPLIT_H, is drawn as two or three views
-SPLIT_W, SPLIT_H = 1500, 1400
+SPLIT_W, SPLIT_H = 1500, 1800
 SPLIT_CROSS = 0.3          # ... unless every cut leaves more than this share of the connectors running between views
-PART_GAP, PART_HEAD = 44, 30
+PART_GAP, PART_HEAD = 48, 32
 WRAPPERS = {"region", "cloud", "account"}
 
 
@@ -936,7 +1612,8 @@ def plan_views(graph, badge_ids):
     parent, level, trees, owner = view_sections(graph)
     if len(level) < 2:
         return None
-    trial = Layout(graph).run()
+    wrapped = wrap_groups(graph)
+    trial = arrange(wrapped, {e["id"] for e in wrapped["edges"] if is_badge_edge(e, {**wrapped.get("refs", {}), **{x["id"]: x for x in wrapped["nodes"]}})}, 0)[1]
     width = max(b[0] + b[2] for b in trial.values()) - min(b[0] for b in trial.values())
     height = max(b[1] + b[3] for b in trial.values()) - min(b[1] for b in trial.values())
     if n <= SPLIT_NODES and width <= SPLIT_W and height <= SPLIT_H:
@@ -960,14 +1637,14 @@ def plan_views(graph, badge_ids):
     _, bounds, view_of = best
     cross = sum(1 for e in edges if view_of[owner[e["source"]]] != view_of[owner[e["target"]]])
     if cross > max(4, SPLIT_CROSS * len(edges)):
-        return None  # the parts are too entangled: two views would repeat most components as stubs
+        return None  # the parts are too entangled: two views would turn most connectors into chips
     views = [level[bounds[v]:bounds[v + 1]] for v in range(len(bounds) - 1)]
     return parent, views, {nid: view_of[i] for nid, i in owner.items()}, trees
 
 
 def view_graph(graph, parent, sections, trees, node_view, index, badge_ids, say):
-    """The part of the graph one view draws. A connector to a component of another view ends at a small copy of that
-    component (same icon and name, dotted outline, "View N"), grouped as "In other views", so no line crosses views."""
+    """The part of the graph one view draws. A connector to a component of another view is not a line: it is a chip
+    under the component of this view ("→ Secrets Manager · View 2"), and the edge keeps its id on the first chip drawn."""
     groups = {g["id"]: g for g in graph.get("groups", [])}
     nodes = {n["id"]: n for n in graph["nodes"]}
     keep, gid = set(), parent
@@ -977,7 +1654,7 @@ def view_graph(graph, parent, sections, trees, node_view, index, badge_ids, say)
         keep |= trees[section]
     mine = [n for n in graph["nodes"] if node_view.get(n["id"], 0) == index]
     ids = {n["id"] for n in mine}
-    edges, stubs, refs = [], {}, {}
+    edges, refs, links = [], {}, {}
     for e in graph["edges"]:
         s_in, t_in = e["source"] in ids, e["target"] in ids
         if e["id"] in badge_ids:
@@ -987,26 +1664,22 @@ def view_graph(graph, parent, sections, trees, node_view, index, badge_ids, say)
         if s_in and t_in:
             edges.append(e)
         elif s_in or t_in:
-            far = e["target"] if s_in else e["source"]
-            stub = "~" + far
-            if stub not in stubs:
-                stubs[stub] = dict({k: v for k, v in nodes[far].items() if k not in {"group", "state", "detail"}}, id=stub, stub_of=far,
-                                   detail=f"{say('View')} {node_view.get(far, 0) + 1}", state="elsewhere", group="~views")
-            edges.append(dict(e, source=e["source"] if s_in else stub, target=stub if s_in else e["target"]))
-    out_groups = [g for g in graph.get("groups", []) if g["id"] in keep]
-    if stubs:
-        out_groups.append({"id": "~views", "kind": "external", "label": say("In other views"), **({"parent": parent} if parent else {})})
+            here, far = (e["source"], e["target"]) if s_in else (e["target"], e["source"])
+            refs[far] = nodes.get(far) or {}
+            links.setdefault(here, []).append({"edge": e, "dir": "out" if s_in else "in", "far": far, "view": node_view.get(far, 0) + 1})
     labels = [str(groups[c].get("label") or "") for c in sections]
-    return {"title": graph.get("title"), "groups": out_groups, "nodes": mine + list(stubs.values()), "edges": edges, "refs": refs,
-            "heading": f"{say('View')} {index + 1}: " + " · ".join(l for l in labels if l)}
+    return {"title": graph.get("title"), "groups": [g for g in graph.get("groups", []) if g["id"] in keep], "nodes": mine, "edges": edges,
+            "refs": refs, "links": links, "heading": f"{say('View')} {index + 1}: " + " · ".join(l for l in labels if l)}
 
 
-def layout_view(graph, first=1):
-    """Geometry of one drawing: node and group boxes, routed connectors, edge labels (numbered from `first`)."""
+def layout_view(graph, first=1, say=None):
+    """Geometry of one drawing: grouping resources turned into containers, node and group boxes, routed connectors,
+    edge labels (numbered from `first`)."""
+    graph = wrap_groups(graph, say or (lambda text: text))
     nodes_by_id = {**graph.get("refs", {}), **{n["id"]: n for n in graph["nodes"]}}
     badge_edges = [e for e in graph["edges"] if is_badge_edge(e, nodes_by_id)]
     badge_ids = {e["id"] for e in badge_edges}
-    boxes = Layout(graph).run()
+    lay, boxes = arrange(graph, badge_ids)
     routes = route_edges(graph, boxes, badge_ids)
     straight = routes.pop("__fallback__", [])
     missing = [i for i in [g["id"] for g in graph.get("groups", [])] + [n["id"] for n in graph["nodes"]] if i not in boxes]
@@ -1017,12 +1690,18 @@ def layout_view(graph, first=1):
     headers = group_headers(graph, boxes)
     labels, keyed = place_labels(graph, routes, boxes, badge_ids, headers, extent, first)
     return {"graph": graph, "nodes": nodes_by_id, "badge_edges": badge_edges, "badge_ids": badge_ids, "boxes": boxes, "routes": routes,
-            "straight": straight, "extent": extent, "headers": headers, "labels": labels, "keyed": keyed}
+            "straight": straight, "extent": extent, "headers": headers, "labels": labels, "keyed": keyed, "layout": lay}
 
 
-def draw_view(view, dx, dy, icon_set, say, notes, drawn=None):
+def edge_title(e, nodes):
+    label = " ".join(str(e.get("label") or "").split())
+    ends = f'{(nodes.get(e["source"]) or {}).get("label") or e["source"]} → {(nodes.get(e["target"]) or {}).get("label") or e["target"]}'
+    return f"{label}: {ends}" if label else ends
+
+
+def draw_view(view, dx, dy, icon_set, say, notes, drawn=None, all_nodes=None):
     """SVG fragments of one laid-out drawing, shifted by (dx, dy): groups, connectors, nodes, then edge labels on top.
-    `drawn` holds the group and edge ids an earlier view already carries: a repeat (the region around every view, a
+    `drawn` holds the ids an earlier view already carries: a repeat (the region around every view, the second chip of a
     connector between views) is marked data-*-repeat, so each graph id appears once as data-*-id, as the audit expects."""
     drawn = set() if drawn is None else drawn
 
@@ -1036,30 +1715,60 @@ def draw_view(view, dx, dy, icon_set, say, notes, drawn=None):
     graph, boxes, routes, labels = view["graph"], view["boxes"], view["routes"], view["labels"]
     groups = {g["id"]: g for g in graph.get("groups", [])}
     nodes_by_id, badge_edges = view["nodes"], view["badge_edges"]
+    names = {**(all_nodes or {}), **nodes_by_id}
+    carried = graph.get("carried", {})
     out, top = [], []
-    for gid in sorted(groups, key=lambda g: group_depth(groups, g)):
+    for gid in sorted(groups, key=lambda g: (group_depth(groups, g), list(groups).index(g))):
         g = groups[gid]
         x, y, w, h = boxes[gid]
         x += dx; y += dy
         kind, (color, dash, badge, legend) = zone_style(g)
         dash_attr = f' stroke-dasharray="{dash}"' if dash else ""
-        fill = f' fill="{color}" fill-opacity="0.035"' if kind in {"subnet", "public-subnet", "vpc"} else ' fill="none"'
-        marker = f'data-stub-group="{esc(gid)}"' if gid.startswith("~") else ident("group", gid)
-        out.append(f'<g {marker} data-kind="{esc(kind)}"><rect x="{x:.1f}" y="{y:.1f}" width="{w:.1f}" height="{h:.1f}" stroke="{color}" stroke-width="1.2"{dash_attr}{fill}/>')
+        if kind in WRAP_KINDS:
+            opener = "".join(f'<g {ident("edge", e["id"])} data-drawn-as="{esc(kind)}"><title>{esc(edge_title(e, names))}</title>' for e in carried.get(gid, []))
+            state = g.get("state") or "observed"
+            if g.get("wraps"):
+                marker = f'{ident("node", g["wraps"])} data-state="{esc(state)}" data-kind="{esc(kind)}"'
+            else:
+                marker = f'data-frame-for="{esc(g.get("frame_for") or "")}" data-kind="{esc(kind)}"'
+            title = g.get("title") or g.get("label") or ""
+            out.append(f'{opener}<g {marker}><title>{esc(title)}</title><rect x="{x:.1f}" y="{y:.1f}" width="{w:.1f}" height="{h:.1f}" rx="4" fill="none" stroke="{color}" stroke-width="1.2"{dash_attr}/>')
+            label_x = x + 6
+            icon = icon_set.inner(f"group/{badge}") if badge else None
+            if icon:
+                body, bw, _ = icon
+                out.append(f'<g transform="translate({x:.1f},{y:.1f}) scale({18 / bw:.4f})" aria-hidden="true">{body}</g>')
+                label_x = x + 24
+            line = fit_line(g.get("label", ""), WRAP_LABEL_SIZE, x + w - label_x - 6, True)
+            if line:
+                out.append(f'<text x="{label_x:.1f}" y="{y + 13:.1f}" font-size="{WRAP_LABEL_SIZE}" font-weight="600" fill="{color}">{esc(line)}</text>')
+            if g.get("detail"):
+                out.append(f'<text x="{label_x:.1f}" y="{y + 27:.1f}" font-size="{DETAIL_SIZE}" fill="{TEXT_2}">{esc(fit_line(g["detail"], DETAIL_SIZE, x + w - label_x - 6))}</text>')
+            if state in STATE_TAGS:
+                s_color = STATES.get(state, STATES["observed"])[0]
+                tag_text = say(STATE_TAGS[state])
+                tw = text_width(tag_text, 8, True) + 10
+                out.append(f'<rect x="{x + w - tw - 6:.1f}" y="{y - 7:.1f}" width="{tw:.1f}" height="14" rx="7" fill="{s_color}"/>'
+                           f'<text x="{x + w - tw / 2 - 6:.1f}" y="{y + 3.3:.1f}" font-size="8" font-weight="700" fill="{PAPER}" text-anchor="middle">{esc(tag_text)}</text>')
+            out.append("</g>" + "</g>" * len(carried.get(gid, [])))
+            continue
+        fill = FILLS.get(kind)
+        fill_attr = f' fill="{fill}"' if fill else ' fill="none"'
+        out.append(f'<g {ident("group", gid)} data-kind="{esc(kind)}"><rect x="{x:.1f}" y="{y:.1f}" width="{w:.1f}" height="{h:.1f}" stroke="{color}" stroke-width="1.2"{dash_attr}{fill_attr}/>')
         label_x = x + 8
         icon = icon_set.inner(f"group/{badge}") if badge else None
         if icon:
             body, bw, bh = icon
             out.append(f'<g transform="translate({x:.1f},{y:.1f}) scale({24 / bw:.4f})" aria-hidden="true">{body}</g>')
-            label_x = x + 30
+            label_x = x + 32
         elif badge:
             out.append(f'<rect x="{x:.1f}" y="{y:.1f}" width="24" height="24" fill="{color}"/>')
-            label_x = x + 30
-        lines, truncated = wrap(g.get("label", ""), GROUP_LABEL_SIZE, w - (label_x - x) - 8, 1)
+            label_x = x + 32
+        lines, truncated = group_title(g, w)
         if truncated:
             notes.append(f"group {gid}: label shortened to fit {w:.0f}px")
-        if lines:
-            out.append(f'<text x="{label_x:.1f}" y="{y + 16:.1f}" font-size="{GROUP_LABEL_SIZE}" font-weight="600" fill="{INK}">{esc(lines[0])}</text>')
+        for k, line in enumerate(lines):
+            out.append(f'<text x="{label_x:.1f}" y="{y + 16.5 + k * TITLE_LH:.1f}" font-size="{GROUP_LABEL_SIZE}" font-weight="600" fill="{INK}">{esc(line)}</text>')
         out.append("</g>")
     out.append(f'<g transform="translate({dx:.1f},{dy:.1f})" fill="none">')
     edge_states, missing_routes = set(), []
@@ -1074,23 +1783,24 @@ def draw_view(view, dx, dy, icon_set, say, notes, drawn=None):
         edge_states.add(state if state in EDGE_STATES else "observed_configuration")
         dash_attr = f' stroke-dasharray="{dash}"' if dash else ""
         marker = "arrow-accent" if color == ACCENT else "arrow-soft" if color == SOFT else "arrow"
-        label = " ".join(str(e.get("label") or "").split())
-        out.append(f'<g {ident("edge", e["id"])}><title>{esc(label)}</title><path d="{points_to_path(pts)}" stroke="{color}" stroke-width="1.4"{dash_attr} marker-end="url(#{marker})"/></g>')
+        width = 1.5 if not dash else 1.3
+        out.append(f'<g {ident("edge", e["id"])}><title>{esc(edge_title(e, names))}</title><path d="{points_to_path(pts)}" stroke="{color}" stroke-width="{width}"{dash_attr} stroke-linejoin="round" marker-end="url(#{marker})"/></g>')
     out.append("</g>")
     top.append(f'<g transform="translate({dx:.1f},{dy:.1f})">')
     for eid, spot in labels.items():
         if "lines" in spot:
             bx, by, bw, bh = spot["box"]
-            top.append(f'<g data-label-for="{esc(eid)}"><rect x="{bx:.1f}" y="{by:.1f}" width="{bw:.1f}" height="{bh:.1f}" rx="3" fill="{PAPER}" fill-opacity="0.92"/>')
+            top.append(f'<g data-label-for="{esc(eid)}"><rect x="{bx:.1f}" y="{by:.1f}" width="{bw:.1f}" height="{bh:.1f}" rx="3" fill="{PAPER}"/>')
             for k, line in enumerate(spot["lines"]):
-                top.append(f'<text x="{bx + bw / 2:.1f}" y="{by + 11 + k * LABEL_LH_EDGE:.1f}" font-size="{DETAIL_SIZE}" fill="{MUTED}" text-anchor="middle">{esc(line)}</text>')
+                top.append(f'<text x="{bx + bw / 2:.1f}" y="{by + 11 + k * EDGE_LABEL_LH:.1f}" font-size="{DETAIL_SIZE}" fill="{TEXT_2}" text-anchor="middle">{esc(line)}</text>')
             top.append("</g>")
         else:
             cx, cy = spot["center"]
-            top.append(f'<g data-label-for="{esc(eid)}"><circle cx="{cx:.1f}" cy="{cy:.1f}" r="8" fill="{INK}"/>'
+            top.append(f'<g data-label-for="{esc(eid)}"><circle cx="{cx:.1f}" cy="{cy:.1f}" r="8" fill="{INK}" stroke="{PAPER}" stroke-width="1.5"/>'
                        f'<text x="{cx:.1f}" y="{cy + 3.5:.1f}" font-size="9" font-weight="700" fill="{PAPER}" text-anchor="middle" font-family="{MONO}">{spot["marker"]}</text></g>')
     top.append("</g>")
     states = set()
+    links = graph.get("links", {})
     for n in graph["nodes"]:
         x, y, w, h = boxes[n["id"]]
         x += dx; y += dy
@@ -1098,14 +1808,13 @@ def draw_view(view, dx, dy, icon_set, say, notes, drawn=None):
         color, dash, sw, _ = STATES.get(state, STATES["observed"])
         states.add(state if state in STATES else "observed")
         label, detail, truncated = node_lines(n)
-        if truncated and not n.get("stub_of"):
+        if truncated:
             notes.append(f"node {n['id']}: text shortened to {MAX_LABEL_LINES}+{MAX_DETAIL_LINES} lines")
         title_text = " ".join(filter(None, [n.get("label"), n.get("detail")]))
-        node_attr = f'data-stub-of="{esc(n["stub_of"])}"' if n.get("stub_of") else f'data-node-id="{esc(n["id"])}"'
-        out.append(f'<g {node_attr} data-state="{esc(state)}"><title>{esc(title_text)}</title>')
+        out.append(f'<g data-node-id="{esc(n["id"])}" data-state="{esc(state)}"><title>{esc(title_text)}</title>')
         if state not in PLAIN_STATES:
             dash_attr = f' stroke-dasharray="{dash}"' if dash else ""
-            out.append(f'<rect x="{x:.1f}" y="{y:.1f}" width="{w:.1f}" height="{h:.1f}" rx="6" fill="{PAPER}" fill-opacity="0.6" stroke="{color}" stroke-width="{sw}"{dash_attr}/>')
+            out.append(f'<rect x="{x:.1f}" y="{y:.1f}" width="{w:.1f}" height="{h:.1f}" rx="6" fill="none" stroke="{color}" stroke-width="{sw}"{dash_attr}/>')
         icon_path, cat_color, tag = icon_for(n)
         ix, iy, _, _ = icon_box((x, y, w, h))
         icon = icon_set.inner(icon_path) if icon_path else None
@@ -1122,26 +1831,46 @@ def draw_view(view, dx, dy, icon_set, say, notes, drawn=None):
         ty += 3 - (LABEL_LH - NODE_DETAIL_LH) if detail else 0
         for line in detail:
             out.append(f'<text x="{cx_text:.1f}" y="{ty:.1f}" font-size="{NODE_DETAIL_SIZE}" fill="{MUTED}" text-anchor="middle">{esc(line)}</text>'); ty += NODE_DETAIL_LH
-        if state in {"proposed", "changed", "removal_candidate", "unresolved", "declared"}:
-            tag_text = say({"proposed": "proposed", "changed": "changed", "removal_candidate": "removal candidate", "unresolved": "unconfirmed", "declared": "declared"}[state])
-            tw = text_width(tag_text, 8) + 10
+        if state in STATE_TAGS:
+            tag_text = say(STATE_TAGS[state])
+            tw = text_width(tag_text, 8, True) + 10
             out.append(f'<rect x="{x + w - tw - 6:.1f}" y="{y - 7:.1f}" width="{tw:.1f}" height="14" rx="7" fill="{color}"/>'
                        f'<text x="{x + w - tw / 2 - 6:.1f}" y="{y + 3.3:.1f}" font-size="8" font-weight="700" fill="{PAPER}" text-anchor="middle">{esc(tag_text)}</text>')
         mine = [e for e in badge_edges if e["source"] == n["id"]]
+        my_links = links.get(n["id"], [])
         chips = []
         for e in mine:
             target = nodes_by_id.get(e["target"]) or {}
             _, chip_color, chip_tag = icon_for(target)
-            chips.append((e, target, chip_color, chip_tag, text_width(chip_tag, 8) + 10))
+            chips.append((e, target, chip_color, chip_tag, text_width(chip_tag, 8, True) + 10))
+        chip_y = y + h - LINK_ROW * len(my_links) - (BADGE_ROW - 2)
         cx = x + (w - (sum(c[4] for c in chips) + 4 * max(0, len(chips) - 1))) / 2
         for e, target, chip_color, chip_tag, cw in chips:
-            out.append(f'<g {ident("edge", e["id"])}><title>{esc(" ".join(str(e.get("label") or "").split()) + " → " + str(target.get("label") or e["target"]))}</title>'
-                       f'<rect x="{cx:.1f}" y="{y + h - 15:.1f}" width="{cw:.1f}" height="11" rx="2" fill="{chip_color}" fill-opacity="0.12" stroke="{chip_color}" stroke-width="0.8"/>'
-                       f'<text x="{cx + cw / 2:.1f}" y="{y + h - 6.8:.1f}" font-size="7.5" font-weight="700" fill="{chip_color}" text-anchor="middle" font-family="{MONO}">{esc(chip_tag)}</text></g>')
+            out.append(f'<g {ident("edge", e["id"])}><title>{esc(edge_title(e, names))}</title>'
+                       f'<rect x="{cx:.1f}" y="{chip_y:.1f}" width="{cw:.1f}" height="11" rx="2" fill="{chip_color}" fill-opacity="0.12" stroke="{chip_color}" stroke-width="0.8"/>'
+                       f'<text x="{cx + cw / 2:.1f}" y="{chip_y + 8.2:.1f}" font-size="7.5" font-weight="700" fill="{chip_color}" text-anchor="middle" font-family="{MONO}">{esc(chip_tag)}</text></g>')
             cx += cw + 4
+        for k, link in enumerate(my_links):
+            out.append(link_chip(link, x + 4, y + h - LINK_ROW * (len(my_links) - k) + 2, w - 8, names, say, ident))
+            edge_states.add(link["edge"].get("state") if link["edge"].get("state") in EDGE_STATES else "observed_configuration")
         out.append("</g>")
     kinds = [zone_style(groups[gid]) for gid in groups]
     return out, top, states, edge_states, kinds, missing_routes
+
+
+def link_chip(link, x, y, w, names, say, ident):
+    """A connector to a component of another view, as a pill under the component: the direction ("→" to it, "←" from
+    it), the other component's name (shortened to fit) and its view. The full text is in the <title>."""
+    e, far = link["edge"], names.get(link["far"]) or {}
+    color, dash, _ = EDGE_STATES.get(e.get("state") or "observed_configuration", EDGE_STATES["observed_configuration"])
+    arrow = "→" if link["dir"] == "out" else "←"
+    where = f"{NBSP}· {say('View')} {link['view']}"
+    name = fit_line(far.get("label") or link["far"], 9, w - 30 - text_width(where, 9, True))
+    dash_attr = f' stroke-dasharray="{dash}"' if dash else ""
+    return (f'<g {ident("edge", e["id"])} data-view-link="{link["view"]}"><title>{esc(edge_title(e, names))} ({esc(say("View"))} {link["view"]})</title>'
+            f'<rect x="{x:.1f}" y="{y:.1f}" width="{w:.1f}" height="19" rx="9.5" fill="{PAPER}" stroke="{color}" stroke-width="1"{dash_attr}/>'
+            f'<text x="{x + 11:.1f}" y="{y + 13.5:.1f}" font-size="11" font-weight="700" fill="{color}" text-anchor="middle">{arrow}</text>'
+            f'<text x="{x + 21:.1f}" y="{y + 13:.1f}" font-size="9" fill="{INK}">{esc(name)}<tspan fill="{TEXT_2}" font-weight="600">{esc(where)}</tspan></text></g>')
 
 
 def view_checks(view):
@@ -1186,6 +1915,68 @@ def view_checks(view):
             "through_nodes": through_nodes, "straight": view["straight"]}
 
 
+def readability(views, width, height):
+    """How easy the connectors are to follow: proper crossings between connectors, collinear overlaps, bends, total and
+    longest connector length (the longest as a share of the drawing's diagonal), the drawing size, and how many
+    connectors became numbered markers or chips to another view."""
+    crossings = overlaps = bends = count = 0
+    total = longest = 0.0
+    for view in views:
+        segs = []
+        for eid, (pts, _) in view["routes"].items():
+            if eid in view.get("badge_ids", ()):
+                continue
+            count += 1
+            bends += max(0, len(pts) - 2)
+            length = sum(abs(a[0] - b[0]) + abs(a[1] - b[1]) for a, b in zip(pts, pts[1:]))
+            total += length; longest = max(longest, length)
+            segs.append([(a, b) for a, b in zip(pts, pts[1:]) if abs(a[0] - b[0]) + abs(a[1] - b[1]) > 0.5])
+        for i in range(len(segs)):
+            for j in range(i + 1, len(segs)):
+                for a, b in segs[i]:
+                    for c, d in segs[j]:
+                        kind = segment_relation(a, b, c, d)
+                        crossings += kind == "cross"; overlaps += kind == "overlap"
+    diagonal = (width ** 2 + height ** 2) ** 0.5 or 1
+    return {"connectors": count, "crossings": crossings, "overlaps": overlaps, "bends": bends,
+            "bends_per_connector": round(bends / count, 2) if count else 0, "length": round(total),
+            "longest_share_of_diagonal": round(longest / diagonal, 3), "width": round(width), "height": round(height),
+            "numbered_labels": sum(len(v.get("keyed", [])) for v in views),
+            "view_links": sum(len(v["graph"].get("links", {}).get(n, [])) for v in views for n in v["graph"].get("links", {}))}
+
+
+def segment_relation(a, b, c, d, tol=0.5):
+    """'cross' when two orthogonal segments cross inside both, 'overlap' when they run on the same line for more than a
+    pixel, else None. Touching at an end (two connectors leaving one port) is neither."""
+    ah, ch = abs(a[1] - b[1]) < tol, abs(c[1] - d[1]) < tol
+    if ah != ch:
+        (h1, h2), (v1, v2) = ((a, b), (c, d)) if ah else ((c, d), (a, b))
+        x, y = v1[0], h1[1]
+        return "cross" if (min(h1[0], h2[0]) + tol < x < max(h1[0], h2[0]) - tol and min(v1[1], v2[1]) + tol < y < max(v1[1], v2[1]) - tol) else None
+    if ah and abs(a[1] - c[1]) < tol:
+        lo, hi = max(min(a[0], b[0]), min(c[0], d[0])), min(max(a[0], b[0]), max(c[0], d[0]))
+        return "overlap" if hi - lo > 1 else None
+    if not ah and abs(a[0] - c[0]) < tol:
+        lo, hi = max(min(a[1], b[1]), min(c[1], d[1])), min(max(a[1], b[1]), max(c[1], d[1]))
+        return "overlap" if hi - lo > 1 else None
+    return None
+
+
+def legend_block(items, x, y, width):
+    """Legend entries (swatch builder, text) in as many columns as fit `width`, filled column by column."""
+    if not items:
+        return [], 0
+    col_w = max(text_width(text, 10) for _, text in items) + 32 + 28
+    ncols = max(1, min(3, len(items), int((width + 28) // col_w)))
+    nrows = -(-len(items) // ncols)
+    out = []
+    for i, (swatch, text) in enumerate(items):
+        cx, cy = x + (i // nrows) * col_w, y + (i % nrows) * 16
+        out.append(swatch(cx, cy))
+        out.append(f'<text x="{cx + 30:.1f}" y="{cy:.1f}" font-size="10" fill="{TEXT_2}">{esc(text)}</text>')
+    return out, nrows * 16
+
+
 def render(graph, output, name, title=None, note=None, icons=None, language="en", words=None):
     """Write <name>.aws.svg, <name>.aws.html, <name>.render.json and diagram-qa.json; return the QA record. `words` maps
     the renderer's own English words (legend lines, state tags) to the drawing's language. A graph with more components
@@ -1202,7 +1993,7 @@ def render(graph, output, name, title=None, note=None, icons=None, language="en"
         graphs = [graph]
     views, first = [], 1
     for g in graphs:
-        view = layout_view(g, first)
+        view = layout_view(g, first, say)
         first += len(view["keyed"])
         views.append(view)
     qa = {"status": "pass", "checks": {}, "notes": []}
@@ -1213,69 +2004,65 @@ def render(graph, output, name, title=None, note=None, icons=None, language="en"
     for i, view in enumerate(views):
         x0, y0, x1, y1 = view["extent"]
         if len(views) > 1:
-            out.append(f'<g data-view="{i + 1}"><text x="{MARGIN}" y="{y + 14:.1f}" font-size="13" font-weight="700" fill="{INK}">{esc(view["graph"]["heading"])}</text>'
+            out.append(f'<g data-view="{i + 1}"><text x="{MARGIN}" y="{y + 14:.1f}" font-size="14" font-weight="700" fill="{INK}">{esc(view["graph"]["heading"])}</text>'
                        f'<line x1="{MARGIN}" y1="{y + 22:.1f}" x2="{width - MARGIN:.1f}" y2="{y + 22:.1f}" stroke="#D5DBDB" stroke-width="1"/></g>')
             y += PART_HEAD
-        o, t, st, es, kinds, mr = draw_view(view, MARGIN - x0, y - y0, icon_set, say, qa["notes"], drawn)
+        o, t, st, es, kinds, mr = draw_view(view, MARGIN - x0, y - y0, icon_set, say, qa["notes"], drawn, nodes_by_id)
         out += o; top += t; states |= st; edge_states |= es; missing_routes += mr; keyed += view["keyed"]
         for kind, style in kinds:
             if kind not in [k for k, _ in kinds_seen]:
                 kinds_seen.append((kind, style))
         y += (y1 - y0) + (PART_GAP if i < len(views) - 1 else 0)
-    # Legend
-    legend = []
-    lx = MARGIN
-    y_cursor = y + 28
-    legend.append(f'<text x="{MARGIN}" y="{y_cursor:.1f}" font-size="10" font-weight="700" fill="{INK}">{esc(say("Legend"))}</text>')
-    y_cursor += 14
-    row_items = [("node", s, STATES[s]) for s in sorted(states, key=lambda s: list(STATES).index(s))]
-    row_items += [("edge", s, EDGE_STATES[s]) for s in sorted(edge_states, key=lambda s: list(EDGE_STATES).index(s))]
-    for kind, item, style in row_items:
-        if kind == "node":
-            color, dash, sw, text = style
-            if item in PLAIN_STATES:
-                legend.append(f'<rect x="{lx + 5}" y="{y_cursor - 10:.1f}" width="12" height="12" rx="2" fill="#879196"/>')
-            else:
-                dash_attr = f' stroke-dasharray="{dash}"' if dash else ""
-                legend.append(f'<rect x="{lx}" y="{y_cursor - 9:.1f}" width="22" height="12" rx="3" fill="{PAPER}" stroke="{color}" stroke-width="{sw}"{dash_attr}/>')
+    # Legend, in columns
+    items = []
+    for s in sorted(states, key=lambda s: list(STATES).index(s)):
+        color, dash, sw, text = STATES[s]
+        if s in PLAIN_STATES:
+            items.append((lambda lx, ly: f'<rect x="{lx + 5}" y="{ly - 10:.1f}" width="12" height="12" rx="2" fill="#879196"/>', say(text)))
         else:
-            color, dash, text = style
-            dash_attr = f' stroke-dasharray="{dash}"' if dash else ""
-            legend.append(f'<line x1="{lx}" y1="{y_cursor - 3:.1f}" x2="{lx + 22}" y2="{y_cursor - 3:.1f}" stroke="{color}" stroke-width="1.3"{dash_attr} marker-end="url(#arrow)"/>')
-        legend.append(f'<text x="{lx + 28}" y="{y_cursor:.1f}" font-size="9.5" fill="{MUTED}">{esc(say(text))}</text>')
-        y_cursor += 15
+            items.append((lambda lx, ly, c=color, d=dash, w=sw: f'<rect x="{lx}" y="{ly - 9:.1f}" width="22" height="12" rx="3" fill="{PAPER}" stroke="{c}" stroke-width="{w}"'
+                          + (f' stroke-dasharray="{d}"' if d else "") + "/>", say(text)))
+    for s in sorted(edge_states, key=lambda s: list(EDGE_STATES).index(s)):
+        color, dash, text = EDGE_STATES[s]
+        marker = "arrow-accent" if color == ACCENT else "arrow-soft" if color == SOFT else "arrow"
+        items.append((lambda lx, ly, c=color, d=dash, m=marker: f'<line x1="{lx}" y1="{ly - 3:.1f}" x2="{lx + 22}" y2="{ly - 3:.1f}" stroke="{c}" stroke-width="1.4"'
+                      + (f' stroke-dasharray="{d}"' if d else "") + f' marker-end="url(#{m})"/>', say(text)))
     for kind, (color, dash, badge, text) in kinds_seen:
-        dash_attr = f' stroke-dasharray="{dash}"' if dash else ""
-        legend.append(f'<rect x="{lx}" y="{y_cursor - 9:.1f}" width="22" height="12" fill="none" stroke="{color}" stroke-width="1.2"{dash_attr}/>')
-        legend.append(f'<text x="{lx + 28}" y="{y_cursor:.1f}" font-size="9.5" fill="{MUTED}">{esc(say(text))}</text>')
-        y_cursor += 15
+        fill = FILLS.get(kind)
+        items.append((lambda lx, ly, c=color, d=dash, f=fill: f'<rect x="{lx}" y="{ly - 9:.1f}" width="22" height="12" fill="{f or "none"}" stroke="{c}" stroke-width="1.2"'
+                      + (f' stroke-dasharray="{d}"' if d else "") + "/>", say(text)))
     if any(v["badge_edges"] for v in views):
-        legend.append(f'<rect x="{lx}" y="{y_cursor - 9:.1f}" width="22" height="11" rx="2" fill="{RED}" fill-opacity="0.12" stroke="{RED}" stroke-width="0.8"/>'
-                      f'<text x="{lx + 11}" y="{y_cursor - 0.8:.1f}" font-size="7.5" font-weight="700" fill="{RED}" text-anchor="middle" font-family="{MONO}">SG</text>'
-                      f'<text x="{lx + 28}" y="{y_cursor:.1f}" font-size="9.5" fill="{MUTED}">{esc(say("Chip on a node: attached to the aggregate shown with that tag (security groups, route tables)"))}</text>')
-        y_cursor += 15
+        items.append((lambda lx, ly: f'<rect x="{lx}" y="{ly - 9:.1f}" width="22" height="11" rx="2" fill="{MUTED}" fill-opacity="0.12" stroke="{MUTED}" stroke-width="0.8"/>'
+                      f'<text x="{lx + 11}" y="{ly - 0.8:.1f}" font-size="7.5" font-weight="700" fill="{MUTED}" text-anchor="middle" font-family="{MONO}">RT</text>', say(CHIP_LEGEND)))
+    if any(v["graph"].get("links") for v in views):
+        items.append((lambda lx, ly: f'<rect x="{lx}" y="{ly - 10:.1f}" width="22" height="13" rx="6.5" fill="{PAPER}" stroke="{MUTED}" stroke-width="1"/>'
+                      f'<text x="{lx + 11}" y="{ly:.1f}" font-size="9" font-weight="700" fill="{MUTED}" text-anchor="middle">→</text>', say(LINK_LEGEND)))
+    legend = [f'<text x="{MARGIN}" y="{y + 28:.1f}" font-size="11" font-weight="700" fill="{INK}">{esc(say("Legend"))}</text>']
+    block, block_h = legend_block(items, MARGIN, y + 46, width - 2 * MARGIN)
+    legend += block
+    y_cursor = y + 46 + block_h
     if keyed:
-        y_cursor += 6
-        legend.append(f'<text x="{MARGIN}" y="{y_cursor:.1f}" font-size="10" font-weight="700" fill="{INK}">{esc(say("Connections"))}</text>')
-        y_cursor += 14
-        for number, text in keyed:
-            lines, _ = wrap(text, 9.5, max(400, width - 2 * MARGIN - 40), 3)
-            legend.append(f'<circle cx="{lx + 8}" cy="{y_cursor - 3.5:.1f}" r="7" fill="{INK}"/><text x="{lx + 8}" y="{y_cursor - 0.5:.1f}" font-size="8.5" font-weight="700" fill="{PAPER}" text-anchor="middle" font-family="{MONO}">{number}</text>')
-            for k, line in enumerate(lines):
-                legend.append(f'<text x="{lx + 22}" y="{y_cursor + k * 12:.1f}" font-size="9.5" fill="{MUTED}">{esc(line)}</text>')
-            y_cursor += 12 * len(lines) + 4
-    if note:
-        legend.append(f'<text x="{MARGIN}" y="{y_cursor + 4:.1f}" font-size="9.5" fill="{SOFT}">{esc(say(note))}</text>')
+        y_cursor += 10
+        legend.append(f'<text x="{MARGIN}" y="{y_cursor:.1f}" font-size="11" font-weight="700" fill="{INK}">{esc(say("Connections"))}</text>')
         y_cursor += 16
+        for number, text in keyed:
+            lines, _ = wrap(text, 10, max(400, width - 2 * MARGIN - 40), 3)
+            legend.append(f'<circle cx="{MARGIN + 8}" cy="{y_cursor - 3.5:.1f}" r="7" fill="{INK}"/><text x="{MARGIN + 8}" y="{y_cursor - 0.5:.1f}" font-size="8.5" font-weight="700" fill="{PAPER}" text-anchor="middle" font-family="{MONO}">{number}</text>')
+            for k, line in enumerate(lines):
+                legend.append(f'<text x="{MARGIN + 22}" y="{y_cursor + k * 13:.1f}" font-size="10" fill="{TEXT_2}">{esc(line)}</text>')
+            y_cursor += 13 * len(lines) + 4
+    if note:
+        legend.append(f'<text x="{MARGIN}" y="{y_cursor + 6:.1f}" font-size="10" fill="{MUTED}">{esc(say(note))}</text>')
+        y_cursor += 18
     height = y_cursor + MARGIN
     heading = say(title or graph.get("title") or "Architecture")
     subtitle = graph.get("subtitle") or ""
-    head = (f'<text x="{MARGIN}" y="30" font-size="18" font-weight="700" fill="{INK}">{esc(heading)}</text>'
-            + (f'<text x="{MARGIN}" y="48" font-size="11" fill="{MUTED}">{esc(subtitle)}</text>' if subtitle else ""))
+    head = (f'<text x="{MARGIN}" y="34" font-size="20" font-weight="700" fill="{INK}">{esc(heading)}</text>'
+            + (f'<text x="{MARGIN}" y="52" font-size="11" fill="{MUTED}">{esc(subtitle)}</text>' if subtitle else ""))
     defs = ('<defs>'
-            f'<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="{MUTED}"/></marker>'
-            f'<marker id="arrow-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="{ACCENT}"/></marker>'
-            f'<marker id="arrow-soft" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="{SOFT}"/></marker>'
+            f'<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="{MUTED}"/></marker>'
+            f'<marker id="arrow-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="{ACCENT}"/></marker>'
+            f'<marker id="arrow-soft" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="{SOFT}"/></marker>'
             '</defs>')
     svg = (f'<svg xmlns="http://www.w3.org/2000/svg" width="{width:.0f}" height="{height:.0f}" viewBox="0 0 {width:.0f} {height:.0f}" role="img" lang="{esc(language)}" aria-labelledby="dg-title dg-desc" data-renderer="aws_diagram" data-views="{len(views)}">'
            f'<title id="dg-title">{esc(heading)}</title><desc id="dg-desc">{esc(subtitle or note or heading)}</desc>{defs}'
@@ -1289,7 +2076,7 @@ def render(graph, output, name, title=None, note=None, icons=None, language="en"
     qa["checks"] = {"nodes_inside_their_group": {"status": "pass" if not merged["outside"] else "fail", "outside": merged["outside"]},
                     "labels_clear": {"status": "pass" if not (merged["covered"] or merged["clashing"]) else "fail", "over_nodes_or_titles": merged["covered"],
                                      "over_each_other": merged["clashing"], "numbered": [n for n, _ in keyed]},
-                    "group_titles_clear": {"status": "pass" if not merged["through_titles"] else "warn", "crossed_by": sorted(set(merged["through_titles"]))},
+                    "group_titles_clear": {"status": "pass" if not merged["through_titles"] else "fail", "crossed_by": sorted(set(merged["through_titles"]))},
                     "connectors_clear_of_nodes": {"status": "pass" if not merged["through_nodes"] else "fail", "through": sorted(set(merged["through_nodes"]))},
                     "readable_width": {"status": "pass" if width <= 2400 else "warn", "width": round(width),
                                        "note": "embedded at page width a drawing wider than 2400 px shows text below 6 px"},
@@ -1302,8 +2089,10 @@ def render(graph, output, name, title=None, note=None, icons=None, language="en"
                     "icons": {"source": str(icon_set.root) if icon_set.root else None,
                               "status": "official" if icon_set.root else "service_tags",
                               "nodes_without_icon": [n["id"] for n in graph["nodes"] if not (icon_for(n)[0] and icon_set.inner(icon_for(n)[0]))]}}
-    if merged["outside"] or merged["overlaps"] or merged["loose"] or missing_routes or merged["straight"] or merged["covered"] or merged["clashing"] or merged["through_nodes"]:
+    if (merged["outside"] or merged["overlaps"] or merged["loose"] or missing_routes or merged["straight"] or merged["covered"] or merged["clashing"]
+            or merged["through_nodes"] or merged["through_titles"]):
         qa["status"] = "fail"
+    qa["readability"] = readability(views, width, height)
     qa["size"] = {"width": round(width), "height": round(height), "nodes": len(graph["nodes"]), "groups": len(graph.get("groups", [])), "edges": len(graph["edges"]),
                   "badge_edges": len(badge_ids), "views": len(views)}
     qa["files"] = {"svg": f"{name}.aws.svg", "html": f"{name}.aws.html", "render": f"{name}.render.json"}

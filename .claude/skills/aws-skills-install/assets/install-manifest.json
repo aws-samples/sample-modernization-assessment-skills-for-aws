@@ -274,10 +274,10 @@
     {
       "name": "aws-architecture-review",
       "source": "skills/aws-architecture-review",
-      "digest": "d019029a4a676d2827a3f56655ebd8138945c645ff7671d83a884bba341eb6a5",
+      "digest": "beb018d2d68dfcbdfd898be5c8379da293f416aaba4e865e45c868126a3fdd2d",
       "stamp": {
         "package": "moda-skills",
-        "sha256": "d019029a4a676d2827a3f56655ebd8138945c645ff7671d83a884bba341eb6a5"
+        "sha256": "beb018d2d68dfcbdfd898be5c8379da293f416aaba4e865e45c868126a3fdd2d"
       },
       "files": [
         {
@@ -302,8 +302,8 @@
         },
         {
           "path": "references/diagram-workflow.md",
-          "bytes": 7219,
-          "sha256": "f28f863a277495f5f4b74f2edcdb1ca662bc15648dac972498bcc76716f186a6"
+          "bytes": 8210,
+          "sha256": "f5e1fca8e08cd45176f6f290ce89753dcaedd25036a240855e0b1ea208b74cb5"
         },
         {
           "path": "references/review-method.md",
@@ -317,8 +317,8 @@
         },
         {
           "path": "scripts/aws_diagram.py",
-          "bytes": 81011,
-          "sha256": "20589cfb644a27273ff641b2fd5be2c7dab8fb4b727468b614f6e1f9a7d54e98"
+          "bytes": 123643,
+          "sha256": "912208cbf61e928e9aeedbccdf1962087b93f6cbea62173a5562fa8b853e741b"
         },
         {
           "path": "scripts/diagram.py",
