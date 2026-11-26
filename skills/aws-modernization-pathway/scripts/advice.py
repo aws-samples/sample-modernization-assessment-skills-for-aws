@@ -5,8 +5,8 @@ Five Specialist SA Agents (sub-agents that take the role of an AWS specialist SA
 has no sub-agent tool) each look at
 the workload through one domain and write advice with a focused architecture diagram:
 
-  containers  Container & Serverless Specialist SA Agent   container, serverless, cloud-native (messaging options)
-  database    Database Specialist SA Agent                 managed-database
+  containers  Container & Serverless Specialist SA Agent   container, serverless, managed-services, cloud-native (messaging options)
+  database    Database Specialist SA Agent                 managed-database, open-source
   analytics   Data Analytics Specialist SA Agent           managed-analytics
   genai       GenAI Specialist SA Agent                    genai (AI options)
   devops      DevOps Specialist SA Agent                   modern-devops (observability options)
@@ -34,12 +34,12 @@ sys.path.insert(0, str(HERE))
 import report_kit as kit  # noqa: E402
 
 SPECIALISTS = {
-    "containers": {"role": "Container & Serverless Specialist SA Agent", "pathways": ("container", "serverless", "cloud-native"),
-                   "types": ("ecs.", "eks.", "ec2.instance", "autoscaling.", "elbv2.", "lambda.", "apigateway", "sqs.", "sns.", "events.", "stepfunctions.", "ecr.", "cloudfront."),
+    "containers": {"role": "Container & Serverless Specialist SA Agent", "pathways": ("container", "serverless", "managed-services", "cloud-native"),
+                   "types": ("ecs.", "eks.", "ec2.instance", "autoscaling.", "elbv2.", "lambda.", "apigateway", "sqs.", "sns.", "events.", "stepfunctions.", "ecr.", "cloudfront.", "ssm."),
                    "rules": r"^(ECS_|EKS_|EC2_|ASG|ELB_|ALB_|LAMBDA|SQS|SNS|CONTAINER_|GRAVITON|COMPUTE_OPTIMIZER_FINDING|CUSTOMER_INGRESS|SUS_|PERF_)"},
-    "database": {"role": "Database Specialist SA Agent", "pathways": ("managed-database",),
+    "database": {"role": "Database Specialist SA Agent", "pathways": ("managed-database", "open-source"),
                  "types": ("rds.", "elasticache.", "dynamodb.", "secretsmanager.", "backup."),
-                 "rules": r"^(RDS_|AURORA_|ELASTICACHE_|CACHE_|DB_|DYNAMODB|BACKUP_|SECRET_|STACK_DATA_|REL_RESTORE|DATA_SG_|SCOPE_DYNAMODB)"},
+                 "rules": r"^(RDS_|AURORA_|ELASTICACHE_|CACHE_|DB_|DYNAMODB|BACKUP_|SECRET_|STACK_DATA_|REL_RESTORE|DATA_SG_|SCOPE_DYNAMODB|COMMERCIAL_LICENSE)"},
     "analytics": {"role": "Data Analytics Specialist SA Agent", "pathways": ("managed-analytics",),
                   "types": ("rds.", "dynamodb.", "s3.", "athena.", "glue.", "redshift.", "opensearch.", "kinesis.", "firehose.", "quicksight."),
                   "rules": r"^(ANALYTICS|ATHENA|GLUE|REDSHIFT|OPENSEARCH|KINESIS|S3_|AURORA_SINGLE|SCOPE_DYNAMODB|COST_WORKLOAD)"},
@@ -54,6 +54,7 @@ ORDER = tuple(SPECIALISTS)
 PATHWAY_OWNER = {p: sid for sid, s in SPECIALISTS.items() for p in s["pathways"]}
 EFFORT = ("setting", "days", "weeks", "quarter")
 COST = ("up", "neutral", "down", "measure_first")
+KINDS = ("move", "improve")  # optional; the report's top recommendations put moves to a modern target first
 STATES = {"retained", "proposed", "changed", "removal_candidate", "unresolved"}
 REFERENCE_HOSTS = {"docs.aws.amazon.com", "aws.amazon.com", "repost.aws"}
 ID_PREFIX = {"containers": "ct-", "database": "db-", "analytics": "da-", "genai": "ai-", "devops": "do-"}
@@ -309,7 +310,7 @@ def brief_text(ctx, sid):
     drafts = drafts.get("candidates", drafts) if isinstance(drafts, dict) else drafts
     mine = [c for c in drafts if c.get("pathway") in spec["pathways"]]
     skeleton = {"schema_version": "1.0", "specialist": sid, "summary": "", "current_state": [{"text": "", "refs": []}],
-                "recommendations": [{"title": "", "pathway": spec["pathways"][0], "current": "", "change": "", "benefit": "", "refs": [], "effort": "days", "cost_direction": "neutral",
+                "recommendations": [{"title": "", "pathway": spec["pathways"][0], "current": "", "change": "", "benefit": "", "refs": [], "kind": "move", "effort": "days", "cost_direction": "neutral",
                                      "list_prices": [], "before_deciding": [], "alternatives": [], "rollback": ""}],
                 "not_now": [], "handoffs": [], "diagram": {"svg": "diagram.aws.svg", "caption": ""}, "references": []}
     scope_lines = [f"- Environment: **{context.get('environment', 'unknown')}**; operator: **{context.get('operator', 'unknown')}**; support plan: **{context.get('support_plan', 'unknown')}**; "
@@ -521,6 +522,8 @@ def validate_advice(ctx, sid, advice, price_ids):
             errors.append(f"recommendations[{i}].pathway must be one of {', '.join(spec['pathways'])}")
         if rec.get("effort") not in EFFORT or rec.get("cost_direction") not in COST:
             errors.append(f"recommendations[{i}] needs effort ({'/'.join(EFFORT)}) and cost_direction ({'/'.join(COST)})")
+        if rec.get("kind") is not None and rec.get("kind") not in KINDS:
+            errors.append(f"recommendations[{i}].kind must be {' or '.join(KINDS)} (move = the component runs somewhere or on something new; improve = the current setup gets better)")
         if not rec.get("refs") or any(not ctx.known(r) for r in rec.get("refs") or []):
             errors.append(f"recommendations[{i}].refs must cite existing findings, evidence or resources")
         if not isinstance(rec.get("alternatives"), list) or not [a for a in rec.get("alternatives") or [] if nonempty(a)]:
@@ -699,7 +702,9 @@ def merge(ctx, allow_missing=False):
                 owners.setdefault(ref, set()).add(sid)
     import recommend  # noqa: E402
     covered = {c["pathway"] for c in fragments}
-    combined = fragments + [c for c in recommend.bootstrap() if c["pathway"] not in covered]
+    evidence = recommend.evidence_context(ctx.inventory, ctx.findings.get("checks", []), ctx.scope_ids, ctx.run, ctx.snapshot, specialists)
+    combined = fragments + [recommend.inserted_pathway(c["pathway"], evidence) if c["pathway"] in recommend.ADDED_PATHWAYS else c
+                            for c in recommend.bootstrap() if c["pathway"] not in covered]
     combined.sort(key=lambda c: list(recommend.PATHWAYS).index(c["pathway"]))
     out = ctx.run / "05-modernization"
     prices_path.parent.mkdir(parents=True, exist_ok=True)

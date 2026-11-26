@@ -33,10 +33,13 @@ from urllib.parse import urlparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import report_kit as kit  # noqa: E402
+import recommend  # noqa: E402  (pathway catalog: the seven directions and the two foundations)
 
 PILLARS = ("Operational Excellence", "Security", "Reliability", "Performance Efficiency", "Cost Optimization", "Sustainability")
-PATHWAYS = {"container": "Containers", "serverless": "Serverless", "managed-database": "Managed database", "managed-analytics": "Managed analytics",
-            "genai": "Generative AI", "cloud-native": "Cloud-native structure", "modern-devops": "Modern DevOps"}
+PATHWAYS = {"container": "Containers", "serverless": "Serverless", "managed-services": "Managed services", "managed-database": "Managed database",
+            "managed-analytics": "Managed analytics", "genai": "Generative AI", "open-source": "Open source",
+            "modern-devops": "Modern DevOps", "cloud-native": "Cloud-native structure"}
+DIRECTIONS, FOUNDATIONS = recommend.DIRECTIONS, recommend.FOUNDATIONS
 STATUS_ORDER = {"FAIL": 0, "WARN": 1, "UNKNOWN": 2, "PASS": 3, "NOT_APPLICABLE": 4}
 SEVERITY_ORDER = {"HIGH": 0, "MEDIUM": 1, "LOW": 2, "INFO": 3}
 CONFIDENCE_LABEL = {"configuration": "API configuration", "template_declared": "Template declaration", "source_declared": "Source declaration",
@@ -611,31 +614,45 @@ def question_groups(checks, context=None):
     return out
 
 
+def reason_text(c):
+    """The reason a direction carries in the report: why not, for a direction the evidence argues against; otherwise its rationale."""
+    return c["problem"] if c["status"] == "not_recommended" else c["rationale"]
+
+
 def pathway_cards(pathways):
     """Cards for the directions worth acting on; directions that are not recommended or not assessed yet collapse into one
-    short table (what it would take, when the evidence allows saying), so the reader does not page through 'nothing to do'."""
+    short table (what it would take, when the evidence allows saying), so the reader does not page through 'nothing to do'.
+    The seven directions come first, then the foundations, each anchored as dir-<pathway> for the summary tiles."""
     out, rest = [], []
-    for c in pathways:
+    for c in recommend.ordered(pathways):
         if c["status"] not in {"candidate", "conditional"}:
             rest.append(c)
             continue
         services = "".join(f"<li>{kit.esc(s)}</li>" for s in c["target_services"][:4])
         headline = {"candidate": "Recommended", "conditional": "Recommended when conditions are met"}[c["status"]]
-        out.append(f'<div class="pathcard" style="border-top-color:{kit.PATHWAY_STATUS[c["status"]][1]}"><h3><span>{kit.esc(PATHWAYS[c["pathway"]])}</span><span>{kit.pathway_chip(c["status"])}</span></h3>'
+        foundation = kit.chip("Foundation", kit.INK) if c["pathway"] in FOUNDATIONS else ""
+        out.append(f'<div class="pathcard" id="dir-{kit.esc(c["pathway"])}" style="border-top-color:{kit.PATHWAY_STATUS[c["status"]][1]}"><h3><span>{kit.esc(PATHWAYS[c["pathway"]])}</span><span>{foundation}{kit.pathway_chip(c["status"])}</span></h3>'
                    f'<p><b>{kit.esc(headline)}.</b> {kit.esc(c["rationale"])}</p>' + (f'<ul>{services}</ul>' if services else "")
                    + f'<p class="small">Related findings <code>{kit.esc(", ".join(c["finding_ids"]) or "-")}</code></p></div>')
     legend = ('<p class="small"><b>Recommended</b> = the evidence supports it now; <b>Recommended when conditions are met</b> = worth doing once the conditions on the card hold. '
               'The order of work is left to the conversation with the workload owner.</p>')
     table = ""
     if rest:
-        rows = "".join(f'<tr><td><b>{kit.esc(PATHWAYS[c["pathway"]])}</b></td><td>{kit.pathway_chip(c["status"])}</td>'
-                       f'<td>{kit.esc(c["problem"] if c["status"] == "not_recommended" else c["rationale"])}'
-                       + (f'<div class="small"><b>Before deciding:</b> {kit.esc(join_sentences(c["prerequisites"]))}</div>' if c["status"] == "not_assessed" and c.get("prerequisites") else "")
-                       + '</td></tr>' for c in rest)
+        def row(c):
+            return (f'<tr id="dir-{kit.esc(c["pathway"])}"><td><b>{kit.esc(PATHWAYS[c["pathway"]])}</b></td><td>{kit.pathway_chip(c["status"])}</td>'
+                    f'<td>{kit.esc(reason_text(c))}'
+                    + (f'<div class="small"><b>Before deciding:</b> {kit.esc(join_sentences(c["prerequisites"]))}</div>' if c["status"] == "not_assessed" and c.get("prerequisites") else "")
+                    + '</td></tr>')
+        moves = "".join(row(c) for c in rest if c["pathway"] not in FOUNDATIONS)
+        base = "".join(row(c) for c in rest if c["pathway"] in FOUNDATIONS)
+        rows = moves + (f'<tr class="group-row"><td colspan="3">{kit.esc(FOUNDATIONS_LABEL)}</td></tr>{base}' if base else "")
         table = (f'<h3>Not recommended now or not assessed yet ({len(rest)})</h3><p class="small"><b>Not recommended</b> = the evidence argues against it for this workload today; '
                  f'<b>Not assessed</b> = the evidence needed to judge it is missing, and the row says what would decide it.</p>'
                  f'<table><thead><tr><th>Direction</th><th>Status</th><th>Reason</th></tr></thead><tbody>{rows}</tbody></table>')
     return (('<div class="grid g3">' + "".join(out) + "</div>" + legend) if out else '<p class="small">No direction is recommended yet.</p>') + table
+
+
+FOUNDATIONS_LABEL = "Foundations: the delivery and operations practices that make the moves safe"
 
 
 def load_specialists(run, checks, screener, manifest, inventory, prices):
@@ -671,12 +688,35 @@ def ref_links(refs, finding_ids):
     return " ".join(out)
 
 
+def split_lead(text):
+    """(first sentence, the rest) of a paragraph. The compact views show the first sentence and fold the rest away; nothing
+    is cut, and the same first sentence in the summary and in section 4 is one string, translated once."""
+    text = " ".join(str(text or "").split())
+    m = re.match(r"(.+?[.!?])\s+(\S.*)$", text)
+    return (m.group(1), m.group(2)) if m else (text, "")
+
+
+def lead_and_rest_html(text):
+    """The whole paragraph with its first sentence as its own text, so a translation reuses the compact view's sentence."""
+    first, rest = split_lead(text)
+    return kit.esc(first) + (f'<span class="cont"> {kit.esc(rest)}</span>' if rest else "")
+
+
+def point_html(item, finding_ids):
+    """One observation of a specialist (what we see now, not now): the first sentence, the rest and the references folded."""
+    first, rest = split_lead(item.get("text", ""))
+    refs = ref_links(item.get("refs"), finding_ids)
+    if not rest:
+        return f'<li><span>{kit.esc(first)}</span> <span class="small">{refs}</span></li>'
+    return (f'<li><span>{kit.esc(first)}</span><details class="more"><summary>More</summary><p>{kit.esc(rest)} <span class="small">{refs}</span></p></details></li>')
+
+
 def specialist_html(s, statuses, finding_ids, run, by_id=None):
     sid = s["specialist"]
     by_id = by_id or {}
     chips = "".join(kit.pathway_chip(statuses[p]) for p in s.get("pathways", []) if p in statuses)
-    state = "".join(f'<li>{kit.esc(i["text"])} <span class="small">{ref_links(i.get("refs"), finding_ids)}</span></li>' for i in s.get("current_state") or [])
-    later = "".join(f'<li>{kit.esc(i["text"])} <span class="small">{ref_links(i.get("refs"), finding_ids)}</span></li>' for i in s.get("not_now") or []) or '<li class="small">nothing set aside</li>'
+    state = "".join(point_html(i, finding_ids) for i in s.get("current_state") or [])
+    later = "".join(point_html(i, finding_ids) for i in s.get("not_now") or []) or '<li class="small">nothing set aside</li>'
     recs = [rec_fields_html(n, r, s, by_id, finding_ids) for n, r in enumerate(s.get("recommendations") or [], 1)]
     import advice  # noqa: E402  (same folder)
     handoffs = "".join(f'<li><b>{kit.esc(advice.SPECIALISTS.get(h["to"], {}).get("role", h["to"]))}</b> · {kit.esc(h["text"])}</li>' for h in s.get("handoffs") or [])
@@ -690,20 +730,37 @@ def specialist_html(s, statuses, finding_ids, run, by_id=None):
     refs = "".join(f'<li><a href="{kit.esc(r["url"])}" target="_blank" rel="noopener">{kit.esc(r["title"])}</a></li>' for r in s.get("references") or [])
     return (f'<article class="specialist" id="sp-{kit.esc(sid)}"><h3>{kit.esc(s["role"])} <span class="chips">{chips}</span></h3>'
             f'<p class="lead">{kit.esc(s["summary"])}</p>'
-            f'<div class="grid g2"><div><h4>What we see now</h4><ul class="plain">{state}</ul></div><div><h4>Not now</h4><ul class="plain">{later}</ul></div></div>'
+            f'<div class="sp-cols"><div><h4>What we see now</h4><ul class="points">{state}</ul></div><div class="sp-later"><h4>Not now</h4><ul class="points">{later}</ul></div></div>'
             + (f'<h4>Recommendations</h4>{"".join(recs)}' if recs else '<p class="small">No change recommended in this area for now; the reasons are under "Not now".</p>')
             + (f'<p class="small"><b>Depends on other areas</b></p><ul class="plain small">{handoffs}</ul>' if handoffs else "")
             + figure + (f'<div class="small"><b>References</b><ul>{refs}</ul></div>' if refs else "") + '</article>')
 
 
+def direction_owner(pathway, specialists):
+    """(role of the Specialist SA Agent that covers a direction, whether its review in this run covered it)."""
+    import advice  # noqa: E402  (same folder)
+    sid = advice.PATHWAY_OWNER.get(pathway)
+    role = advice.SPECIALISTS[sid]["role"] if sid else "-"
+    reviewed = any(sp.get("specialist") == sid and pathway in (sp.get("pathways") or []) for sp in specialists or [])
+    return role, reviewed
+
+
 def pathway_table(pathways, specialists):
-    owner = {p: s["role"] for s in specialists for p in s.get("pathways", [])}
-    rows = "".join(f'<tr><td><b>{kit.esc(PATHWAYS[c["pathway"]])}</b></td><td>{kit.pathway_chip(c["status"])}</td><td class="small">{kit.esc(owner.get(c["pathway"], "-"))}</td>'
-                   f'<td>{kit.esc(c["rationale"] if c["status"] in {"candidate", "conditional", "not_assessed"} else c["problem"])}</td></tr>' for c in pathways)
+    def row(c):
+        role, reviewed = direction_owner(c["pathway"], specialists)
+        who = kit.esc(role) + ("" if reviewed else f'<div class="dir-nr">{kit.esc(NOT_REVIEWED_LABEL)}</div>')
+        return (f'<tr id="dir-{kit.esc(c["pathway"])}"><td><b>{kit.esc(PATHWAYS[c["pathway"]])}</b></td><td>{kit.pathway_chip(c["status"])}</td><td class="small">{who}</td>'
+                f'<td>{kit.esc(reason_text(c))}</td></tr>')
+    listed = recommend.ordered(pathways)
+    rows = ("".join(row(c) for c in listed if c["pathway"] not in FOUNDATIONS)
+            + f'<tr class="group-row"><td colspan="4">{kit.esc(FOUNDATIONS_LABEL)}</td></tr>' + "".join(row(c) for c in listed if c["pathway"] in FOUNDATIONS))
     return ('<table><thead><tr><th>Direction</th><th>Status</th><th>Reviewed by</th><th>Reason</th></tr></thead>'
             f'<tbody>{rows}</tbody></table><p class="small"><b>Recommended</b> = the evidence supports it now; <b>Recommended when conditions are met</b> = '
             'worth doing once the conditions hold; <b>Not recommended</b> = the evidence argues against it today; <b>Not assessed</b> = the evidence needed to judge '
             'it is missing. The order of work is left to the conversation with the workload owner.</p>')
+
+
+NOT_REVIEWED_LABEL = "not reviewed in this run"
 
 
 def specialist_markdown(s, statuses, by_id=None):
@@ -1494,8 +1551,16 @@ def rec_evidence_rows(rec):
     return rows
 
 
+def rec_figures(rec, limit=3):
+    """The first counts and dates benefits.py computed for a recommendation, for the compact view (the table has them all)."""
+    return [(m, v) for m, v, _, k in rec_evidence_rows(rec) if k in {"count", "date", "duration"}][:limit]
+
+
 def rec_fields_html(n, rec, specialist, by_id, finding_ids):
-    """One recommendation as the fixed four fields: current state, proposal, quantitative evidence, prerequisites."""
+    """One recommendation: a compact view (now, proposed, the first figures) and, folded, the fixed four fields: current state,
+    proposal, quantitative evidence, prerequisites."""
+    sid = specialist.get("specialist", "")
+    current = rec_current(rec, specialist, by_id)
     evidence = rec_evidence_rows(rec)
     if evidence:
         ev = ('<table class="inner"><thead><tr><th>Metric</th><th>Value</th><th>Source</th></tr></thead><tbody>'
@@ -1507,11 +1572,17 @@ def rec_fields_html(n, rec, specialist, by_id, finding_ids):
     pre = (f'<p><b>Before deciding</b> {kit.esc(join_sentences(rec.get("before_deciding")))}</p>' if rec.get("before_deciding") else "")
     pre += (f'<p class="small"><b>Alternatives</b> {kit.esc(join_sentences(rec.get("alternatives")))}</p>'
             f'<p class="small"><b>How to undo</b> {kit.esc(rec["rollback"])}</p>')
-    return (f'<div class="rec"><h4>{n}. {kit.esc(rec["title"])} <span class="chips">{issue_chips(rec)}</span></h4><table class="fields">'
-            f'<tr><th>Current state</th><td>{kit.esc(rec_current(rec, specialist, by_id))}</td></tr>'
-            f'<tr><th>Proposal</th><td><p><b>What changes</b> {kit.esc(rec["change"])}</p><p><b>What it gives</b> {kit.esc(rec["benefit"])}</p></td></tr>'
+    figures = "".join(f'<li><span>{kit.esc(m)}</span> <b>{kit.esc(v)}</b></li>' for m, v in rec_figures(rec))
+    return (f'<div class="rec" id="rec-{kit.esc(sid)}-{n}"><h4>{n}. {kit.esc(rec["title"])} <span class="chips">{issue_chips(rec)}</span></h4>'
+            f'<div class="rec-flow"><div class="rec-now"><span class="rec-label">Now</span><p>{kit.esc(split_lead(current)[0])}</p></div>'
+            f'<div class="rec-arrow" aria-hidden="true">→</div>'
+            f'<div class="rec-to"><span class="rec-label">Proposed change</span><p>{kit.esc(split_lead(rec["change"])[0])}</p></div></div>'
+            + (f'<ul class="rec-figs">{figures}</ul>' if figures else "")
+            + f'<details class="rec-more"><summary>Full detail: current state, proposal, quantitative evidence, prerequisites</summary><table class="fields">'
+            f'<tr><th>Current state</th><td>{lead_and_rest_html(current)}</td></tr>'
+            f'<tr><th>Proposal</th><td><p><b>What changes</b> {lead_and_rest_html(rec["change"])}</p><p><b>What it gives</b> {kit.esc(rec["benefit"])}</p></td></tr>'
             f'<tr><th>Quantitative evidence</th><td>{ev}</td></tr>'
-            f'<tr><th>Prerequisites</th><td>{pre}</td></tr></table>'
+            f'<tr><th>Prerequisites</th><td>{pre}</td></tr></table></details>'
             f'<div class="ref">Based on {ref_links(rec.get("refs"), finding_ids)}</div></div>')
 
 
@@ -1710,6 +1781,136 @@ def specialist_overview_html(specialists, statuses):
             f'<tbody>{"".join(rows)}</tbody></table>')
 
 
+# ---------------------------------------------------------------------------
+# Executive summary: the modernization directions and the top recommendations, built only from pathways.json, the
+# specialist reviews and the rows benefits.py computed
+# ---------------------------------------------------------------------------
+GLANCE_LEAD = ("The seven modernization directions compared against the evidence: each tile gives the status, the reason in one line and the "
+               "Specialist SA Agent that covers it. The detail is in section 4.")
+FOUNDATIONS_LEAD = "The delivery and operations practices that make the moves safe; they are not counted among the seven directions."
+TOP_LEAD = ("Up to five Specialist SA Agent recommendations, picked by a fixed rule: the seven directions before the foundations, moves to a modern target "
+            "before improvements of the current setup, candidate directions before conditional ones, then smaller work, then cost down or neutral, then more findings addressed.")
+NO_SPECIALISTS = ("No Specialist SA Agent reviews were run for this assessment, so there are no specialist recommendations to pick from. "
+                  "The directions above come from the pathway assessment.")
+EFFORT_ORDER = {"setting": 0, "days": 1, "weeks": 2, "quarter": 3}
+
+
+def recommended_directions(pathways):
+    """The seven directions (not the foundations) whose status is candidate or conditional."""
+    return [c for c in recommend.ordered(pathways) if c["pathway"] in DIRECTIONS and c["status"] in {"candidate", "conditional"}]
+
+
+def glance_tile(c, specialists, small=False):
+    label, color = kit.PATHWAY_STATUS[c["status"]]
+    role, reviewed = direction_owner(c["pathway"], specialists)
+    who = f'<span class="dir-who">{kit.esc(role)}</span>' + ("" if reviewed else f' <span class="dir-who dir-nr">{kit.esc(NOT_REVIEWED_LABEL)}</span>')
+    return (f'<div class="dir-tile{" small" if small else ""}" id="glance-{kit.esc(c["pathway"])}" style="border-top-color:{color}">'
+            f'<div class="dir-head"><b>{kit.esc(PATHWAYS[c["pathway"]])}</b>{kit.pathway_chip(c["status"])}</div>'
+            f'<p class="dir-reason">{kit.esc(first_sentence(reason_text(c)))}</p>'
+            f'<div class="dir-foot">{who}<a href="#dir-{kit.esc(c["pathway"])}" class="dir-link">Details →</a></div></div>')
+
+
+def modernization_glance_html(pathways, specialists):
+    """Seven tiles (the directions, in the catalog order) and, in a smaller row, the two foundations."""
+    by = {c["pathway"]: c for c in pathways}
+    tiles = "".join(glance_tile(by[k], specialists) for k in DIRECTIONS if k in by)
+    base = "".join(glance_tile(by[k], specialists, small=True) for k in FOUNDATIONS if k in by)
+    return (f'<section id="modernization-glance" class="sub"><h3>Modernization at a glance</h3><p class="lead">{kit.esc(GLANCE_LEAD)}</p>'
+            f'<div class="dir-grid">{tiles}</div>'
+            + (f'<h4>Foundations</h4><p class="small">{kit.esc(FOUNDATIONS_LEAD)}</p><div class="dir-grid small">{base}</div>' if base else "")
+            + '</section>')
+
+
+def findings_addressed(rec):
+    """The failed or warned findings a recommendation addresses, as benefits.py counted them (its first count row)."""
+    row = next((e for e in rec.get("evidence") or [] if isinstance(e, dict) and e.get("metric") == "Findings this change addresses"), None)
+    m = re.match(r"\s*(\d+)", str((row or {}).get("value", "")))
+    return int(m.group(1)) if m else 0
+
+
+MOVE_WORDS = re.compile(r"\b(move|moving|migrat\w*|consolidat\w*|replac\w*|re-?platform\w*|containeri[sz]\w*|convert\w*|adopt\w*|switch\w*|"
+                        r"rehost\w*|refactor\w*|retir\w*)\b", re.I)
+
+
+def is_move(rec):
+    """A recommendation that changes where or how a component runs (to containers, serverless, a managed service or
+    database, another engine or license, a new AI capability), as opposed to improving the current setup. The
+    specialist's `kind` decides; reviews written before `kind` existed fall back to the verb of the title."""
+    if rec.get("kind") in {"move", "improve"}:
+        return rec["kind"] == "move"
+    return bool(MOVE_WORDS.search(str(rec.get("title") or "")))
+
+
+def top_recommendations(specialists, statuses, limit=5):
+    """[(specialist, number, recommendation)] in a fixed order: the seven modernization directions before the
+    foundations; moves before improvements; candidate directions, then conditional, then the rest; smaller effort; cost
+    down or neutral before measure first or up; more findings addressed; then the specialist order and its own order."""
+    import advice  # noqa: E402  (same folder)
+    ranked = []
+    for sp in specialists or []:
+        place = advice.ORDER.index(sp["specialist"]) if sp.get("specialist") in advice.ORDER else len(advice.ORDER)
+        for n, rec in enumerate(sp.get("recommendations") or [], 1):
+            key = (0 if rec.get("pathway") in DIRECTIONS else 1, 0 if is_move(rec) else 1,
+                   {"candidate": 0, "conditional": 1}.get(statuses.get(rec.get("pathway")), 2), EFFORT_ORDER.get(rec.get("effort"), 9),
+                   0 if rec.get("cost_direction") in {"down", "neutral"} else 1, -findings_addressed(rec), place, n)
+            ranked.append((key, sp, n, rec))
+    ranked.sort(key=lambda t: t[0])
+    return [(sp, n, rec) for _, sp, n, rec in ranked[:limit]]
+
+
+def rec_count_line(rec, limit=2):
+    """(metric, value) of the first count rows benefits.py computed for a recommendation."""
+    return [(m, v) for m, v, _, k in rec_evidence_rows(rec) if k == "count"][:limit]
+
+
+def top_recommendations_html(specialists, statuses, by_id):
+    if not specialists:
+        return (f'<section id="top-modernization" class="sub"><h3>Top modernization recommendations</h3>'
+                f'<div class="callout"><p>{kit.esc(NO_SPECIALISTS)}</p></div></section>')
+    cards = []
+    for k, (sp, n, rec) in enumerate(top_recommendations(specialists, statuses), 1):
+        line = " · ".join(f'<span>{kit.esc(m)}</span> <b>{kit.esc(v)}</b>' for m, v in rec_count_line(rec))
+        direction = PATHWAYS.get(rec.get("pathway"), rec.get("pathway"))
+        cards.append(f'<article class="toprec"><header><h4><span class="toprec-n">{k}</span>{kit.esc(rec["title"])}</h4>'
+                     f'<div class="chips">{kit.chip(direction, kit.INK)}{issue_chips(rec)}</div></header>'
+                     f'<div class="rec-flow"><div class="rec-now"><span class="rec-label">Now</span><p>{kit.esc(split_lead(rec_current(rec, sp, by_id))[0])}</p></div>'
+                     f'<div class="rec-arrow" aria-hidden="true">→</div>'
+                     f'<div class="rec-to"><span class="rec-label">Proposed change</span><p>{kit.esc(split_lead(rec["change"])[0])}</p></div></div>'
+                     + (f'<p class="small toprec-ev">{line}</p>' if line else "")
+                     + f'<p class="small toprec-foot">{kit.esc(sp["role"])} · <a href="#rec-{kit.esc(sp["specialist"])}-{n}">Details →</a></p></article>')
+    body = "".join(cards) or f'<p class="small">{kit.esc("The Specialist SA Agents recommended no change for now; the reasons are in section 4.")}</p>'
+    return (f'<section id="top-modernization" class="sub"><h3>Top modernization recommendations</h3><p class="lead">{kit.esc(TOP_LEAD)}</p>'
+            f'<div class="toprecs">{body}</div></section>')
+
+
+def modernization_summary_markdown(pathways, specialists, statuses, by_id):
+    """The same two blocks for assessment.md: the directions with the foundations after them, then the top recommendations."""
+    by = {c["pathway"]: c for c in pathways}
+
+    def row(k):
+        c = by[k]
+        role, reviewed = direction_owner(k, specialists)
+        who = role if reviewed else f"{role} ({NOT_REVIEWED_LABEL})"
+        return f"| {PATHWAYS[k]} | {kit.PATHWAY_STATUS[c['status']][0]} | {first_sentence(reason_text(c)).replace('|', '/')} | {who} |"
+    md = ["### Modernization at a glance", "", GLANCE_LEAD, "", "| Direction | Status | Reason | Specialist SA Agent |", "|---|---|---|---|"]
+    md += [row(k) for k in DIRECTIONS if k in by]
+    if any(k in by for k in FOUNDATIONS):
+        md += ["", "**Foundations** " + FOUNDATIONS_LEAD, "", "| Foundation | Status | Reason | Specialist SA Agent |", "|---|---|---|---|"]
+        md += [row(k) for k in FOUNDATIONS if k in by]
+    md += ["", "### Top modernization recommendations", ""]
+    if not specialists:
+        return md + [NO_SPECIALISTS, ""]
+    md += [TOP_LEAD, ""]
+    for k, (sp, n, rec) in enumerate(top_recommendations(specialists, statuses), 1):
+        tags = [PATHWAYS.get(rec.get("pathway"), rec.get("pathway")), EFFORT[rec["effort"]][0], COST_DIRECTION[rec["cost_direction"]][0]]
+        md += [f"{k}. **{rec['title']}** ({' · '.join(tags)}) - {sp['role']}",
+               f"   - Now: {split_lead(rec_current(rec, sp, by_id))[0]}", f"   - Proposed change: {split_lead(rec['change'])[0]}"]
+        line = "; ".join(f"{m}: {v}" for m, v in rec_count_line(rec))
+        if line:
+            md.append(f"   - {line}")
+    return md + [""]
+
+
 USAGE_SENTENCE = "Read from the AI tool's own session records when the report was written and again after the final turn; nothing is estimated."
 
 
@@ -1788,6 +1989,13 @@ def render(args):
     prices = load_list_prices(run)
     issues = load_key_issues(args.key_issues, finding_ids, prices)
     specialists = load_specialists(run, checks, screener, manifest, inventory, prices)
+    # A pathways.json written before Managed services and Open source joined the catalog: the two are shown as not
+    # assessed with what the evidence says (recommend.py inserts them the same way when it runs again).
+    missing = [k for k in recommend.ADDED_PATHWAYS if k not in {c["pathway"] for c in pathways}]
+    if missing:
+        evidence = recommend.evidence_context(inventory, checks, scope_ids, run, as_is, specialists)
+        pathways = pathways + [dict(recommend.inserted_pathway(k, evidence), score=None, known_weight_percent=0, rank=None, rank_eligible=False) for k in missing]
+    pathways = recommend.ordered(pathways)
     statuses = {c["pathway"]: c["status"] for c in pathways}
     by_id = {c["id"]: c for c in checks + screener}
     for issue in issues:
@@ -1806,6 +2014,7 @@ def render(args):
     status_counts = Counter(c["status"] for c in checks)
     worst = [p for p in PILLARS if grades[p][0] == "critical"] or [p for p in PILLARS if grades[p][0] == "weak"]
     recommended = [c for c in pathways if c["status"] in {"candidate", "conditional"}]
+    moves = recommended_directions(pathways)  # the seven directions only; the foundations are not counted
     draft = not (as_is_svg and (to_be_svg or not recommended)) or not diagram_ok
     status = "Final" if not draft else ("Draft - diagram does not cover every collected resource" if as_is_svg and not diagram_ok else "Draft - diagrams pending")
     anchors = {p: anchor(p) for p in PILLARS}
@@ -1828,7 +2037,8 @@ def render(args):
             + kit.kpi(status_counts["FAIL"], "failed checks", "fail", listing("FAIL"))
             + kit.kpi(status_counts["WARN"], "warnings", "warn", listing("WARN"))
             + kit.kpi(len(open_groups), "open questions", "unknown", [(f"#q-{members[0]['id']}", f"{members[0]['id']} · {text}") for text, members in open_groups])
-            + kit.kpi(len(recommended), "recommended directions", "accent", [("#directions", f"{PATHWAYS[c['pathway']]} · {kit.PATHWAY_STATUS[c['status']][0]}") for c in recommended]))
+            + kit.kpi(f"{len(moves)} of {len(DIRECTIONS)}", "Modernization directions recommended", "accent",
+                      [(f"#glance-{c['pathway']}", f"{PATHWAYS[c['pathway']]} · {kit.PATHWAY_STATUS[c['status']][0]}") for c in moves] or None))
     evidence_rows = evidence_index(manifest, checks, screener, specialists)
     worst_text = (f"Most urgent pillars: {', '.join(worst)}." if worst else "No pillar is graded critical or weak.")
     to_be_block = (zoom_figure("zoom-to-be", to_be_svg, "directions", f'Proposed target architecture · retained, proposed and unresolved parts are distinguished in the legend · click the diagram to enlarge · {open_full(args.to_be_diagram, run)}', args.to_be_diagram) if to_be_svg
@@ -1846,18 +2056,16 @@ def render(args):
                   f'{len(inventory["resources"])} resources in {", ".join(inventory["regions"])}. Host internals, database contents, traffic and cost were not collected. '
                   f'Account-level services and the query scope are in <a href="#account">the appendix</a>.</p>')
     scope_text = scope_sentence(args.workload, inventory, scope_doc, scope_ids, scope_context)
-    headline = []
-    for sp in specialists:
-        recs = sp.get("recommendations") or []
-        headline.append(f'<li><a href="#sp-{kit.esc(sp["specialist"])}"><b>{kit.esc(sp["role"])}</b></a> · {kit.esc(recs[0]["title"]) if recs else "no change recommended for now"}</li>')
     pages = {}
     pages["p-summary"] = (
         f'<h2>1 · Executive summary</h2><p class="lead">{kit.esc(scope_text)}</p>{environment_note(inventory, scope_ids, scope_context)}'
-        f'<div class="kpis">{kpis}</div>{radar_html(scores, grades)}<p class="small">{kit.esc(worst_text)} Counts grow with the number of resources checked; they are an index, not a verdict.</p>'
-        f'<h3>How this report was produced</h3><p class="small">{kit.esc(USAGE_SENTENCE)}</p>{kit.usage_block_html(run_meta)}'
-        f'<h3>Key improvements</h3><p class="lead">The changes worth deciding on first, in order. Each links to its full description under its pillar.</p>{improvements_html(issues, by_id)}'
-        f'{live_signals_html(checks)}<h3>Where to start</h3>{quick_wins_html(issues, checks)}{matrix_html(issues, specialists)}'
-        + (f'<h3>Modernization in one line per area</h3><ul class="plain">{"".join(headline)}</ul>' if headline else ""))
+        f'<div class="kpis">{kpis}</div>'
+        f'{modernization_glance_html(pathways, specialists)}{top_recommendations_html(specialists, statuses, by_id)}'
+        f'<section id="wa-review" class="sub"><h3>Well-Architected review</h3>{radar_html(scores, grades)}'
+        f'<p class="small">{kit.esc(worst_text)} Counts grow with the number of resources checked; they are an index, not a verdict.</p>'
+        f'<h4>Key improvements</h4><p class="lead">The changes worth deciding on first, in order. Each links to its full description under its pillar.</p>{improvements_html(issues, by_id)}'
+        f'{live_signals_html(checks)}<h4>Where to start</h4>{quick_wins_html(issues, checks)}{matrix_html(issues, specialists)}</section>'
+        f'<section id="how-produced" class="sub"><h3>How this report was produced</h3><p class="small">{kit.esc(USAGE_SENTENCE)}</p>{kit.usage_block_html(run_meta)}</section>')
     pages["p-asis"] = (
         f'<h2>2 · AS-IS architecture</h2><p class="lead">{kit.esc(scope_text)}</p>{as_is_block}{collection}{resource_mix_html(inventory, scope_ids)}')
     pages["p-pillars"] = (
@@ -1872,14 +2080,15 @@ def render(args):
     if specialists:
         pages["p-modern"] = (
             f'<h2>4 · Modernization recommendations</h2><p class="lead">{len(specialists)} Specialist SA Agents, AI agents that each take the role of an AWS specialist '
-            f'solutions architect, reviewed the evidence in their area. Every recommendation has the same four fields: current state, proposal, quantitative evidence '
-            f'(counts, dates, pipeline history and the account bill computed from the evidence, list prices from the AWS Price List API, and the one figure only the owner '
-            f'can provide) and prerequisites.</p>{specialist_overview_html(specialists, statuses)}<div id="directions"></div>'
+            f'solutions architect, reviewed the evidence in their area. Each recommendation shows what is there now, what is proposed and its first figures; '
+            f'the same four fields for every recommendation open under Full detail: current state, proposal, quantitative evidence (counts, dates, pipeline history and the '
+            f'account bill computed from the evidence, list prices from the AWS Price List API, and the one figure only the owner can provide) and prerequisites.</p>'
+            f'{specialist_overview_html(specialists, statuses)}<div id="directions"></div>'
             + "".join(specialist_html(sp, statuses, finding_ids, run, by_id) for sp in specialists)
-            + f'<h3>Combined target architecture</h3>{to_be_block}<h3>Seven directions</h3>{pathway_table(pathways, specialists)}')
+            + f'<h3>Combined target architecture</h3>{to_be_block}<h3>Seven directions and the foundations</h3>{pathway_table(pathways, specialists)}')
     else:
-        pages["p-modern"] = (f'<h2>4 · Modernization directions</h2><p class="lead">Seven directions were compared against the evidence. Each card states '
-                             f'whether it is recommended, under what conditions, or why not.</p><div id="directions"></div>{pathway_cards(pathways)}<h3>Proposed target architecture</h3>{to_be_block}')
+        pages["p-modern"] = (f'<h2>4 · Modernization directions</h2><p class="lead">The seven modernization directions and the two foundations were compared against the evidence. '
+                             f'Each card states whether it is recommended, under what conditions, or why not.</p><div id="directions"></div>{pathway_cards(pathways)}<h3>Proposed target architecture</h3>{to_be_block}')
     pages["p-appendix"] = (
         f'<h2>Appendix</h2><p class="lead">What the four sections rest on. Links from the sections above open the matching part here.</p>'
         f'<h3 id="evidence"><span class="appendix-letter">A</span>Evidence</h3>{evidence_html(evidence_rows)}'
@@ -1901,13 +2110,14 @@ def render(args):
     head = [f"- Account `{inventory['account_id']}` · {', '.join(inventory['regions'])} · collected {str(manifest.get('completed_at', ''))[:16]} · {status}",
             f"- {len(checks) + len(screener)} checks · {status_counts['FAIL']} failed · {status_counts['WARN']} warnings · {len(open_groups)} open questions", ""]
     md = [f"# AWS modernization assessment - {args.workload}", ""] + head
-    md += ["## 1. Executive summary", "", scope_text, "", worst_text, "", "| Pillar | Grade | Score | Counts |", "|---|---|---:|---|"]
+    md += ["## 1. Executive summary", "", scope_text, "", f"- Modernization directions recommended: {len(moves)} of {len(DIRECTIONS)}", ""]
+    md += modernization_summary_markdown(pathways, specialists, statuses, by_id)
+    md += ["### Well-Architected review", "", worst_text, "", "| Pillar | Grade | Score | Counts |", "|---|---|---:|---|"]
     for p_ in PILLARS:
         k, info = grades[p_]
         sc = (scores.get(p_) or {}).get("score")
         md.append(f"| {p_} | {kit.GRADES[k][0]} | {sc if sc is not None else '-'} | {kit.grade_counts_text(info)} |")
-    md += ["", "### How this report was produced", "", USAGE_SENTENCE, "", kit.usage_block_markdown(run_meta)]
-    md += ["", "### Key improvements", ""]
+    md += ["", "#### Key improvements", ""]
     if issues:
         for n, i in enumerate(issues, 1):
             tags = [URGENCY_LABEL[i["urgency"]]] + [EFFORT[i["effort"]][0] for _ in [0] if i.get("effort") in EFFORT] + \
@@ -1915,8 +2125,7 @@ def render(args):
             md.append(f"{n}. **{i['title']}** ({' · '.join(tags)}) {first_sentence(i['action'])}")
     else:
         md.append("Key issues were not authored for this run (key-issues.json missing).")
-    if specialists:
-        md += ["", "### Modernization in one line per area", ""] + [f"- **{sp['role']}** {(sp.get('recommendations') or [{'title': 'no change recommended for now'}])[0]['title']}" for sp in specialists]
+    md += ["", "### How this report was produced", "", USAGE_SENTENCE, "", kit.usage_block_markdown(run_meta), ""]
     md += ["", "## 2. AS-IS architecture", "", scope_text, "",
            f"Evidence: {manifest['coverage'].get('ok', 0)} successful read-only queries, collection status {manifest['status']}, {len(inventory['resources'])} resources. "
            "Host internals, database contents, traffic and cost were not collected.", ""]
@@ -1941,12 +2150,14 @@ def render(args):
         md += ["## 4. Modernization recommendations", ""]
         for sp in specialists:
             md += specialist_markdown(sp, statuses, by_id)
-        md += ["### Seven directions", ""]
+        md += ["### Seven directions and the foundations", ""]
     else:
         md += ["## 4. Modernization directions", ""]
     md += ["| Direction | Status | Reason |", "|---|---|---|"]
     for c in pathways:
-        md.append(f"| {PATHWAYS[c['pathway']]} | {kit.PATHWAY_STATUS[c['status']][0]} | {(c['rationale'] if c['status'] in {'candidate', 'conditional'} else c['problem']).replace('|', '/')} |")
+        if c["pathway"] == FOUNDATIONS[0]:
+            md.append(f"| **{FOUNDATIONS_LABEL}** | | |")
+        md.append(f"| {PATHWAYS[c['pathway']]} | {kit.PATHWAY_STATUS[c['status']][0]} | {reason_text(c).replace('|', '/')} |")
     md += ["", "## Appendix", "", "### A. Evidence", "", CODES_SENTENCE + " Raw responses stay in the run directory.", "",
            "| ID | Call | Target / locator | Kind | Collected (UTC) | Used by |", "|---|---|---|---|---|---|"]
     md += [f"| {r['id']} | `{r['what']}` | {r['target']} | {r['kind']} | {r['when']} | {', '.join(r['findings'][:6])}{' +' + str(len(r['findings']) - 6) if len(r['findings']) > 6 else ''} |" for r in evidence_rows]
@@ -1985,7 +2196,8 @@ def render(args):
         "key_issues": issues, "iac_changes": changes, "diagram_coverage": (diagram_audit or {}).get("coverage", {}).get("status", "not_run"),
         "imported_findings": {"count": len(screener), "tool": "Service Screener" if upstream_manifest else None,
                               "input_sha256": upstream_manifest.get("input_sha256") if upstream_manifest else None},
-        "recommended_directions": [c["pathway"] for c in recommended], "wall_clock_minutes": run_minutes(inventory),
+        "recommended_directions": [c["pathway"] for c in recommended], "modernization_directions_recommended": [c["pathway"] for c in moves],
+        "wall_clock_minutes": run_minutes(inventory),
         "specialists": [{"specialist": sp["specialist"], "role": sp["role"], "recommendations": len(sp.get("recommendations") or []),
                          "pathways": {p: statuses.get(p) for p in sp.get("pathways", [])}, "diagram": (sp.get("diagram") or {}).get("svg")} for sp in specialists],
         "run_metadata": run_meta}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

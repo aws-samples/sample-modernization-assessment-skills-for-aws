@@ -43,8 +43,9 @@
   변경을 다이어그램으로 그립니다. 제언에는 대상 리소스, 대안(현재 구성을 유지하면서 개선하는 방법도 포함), 원래대로
   되돌리는 방법, 판단 근거가 함께 들어가며, 지금은 바꾸지 않는 편이 낫다는 결론도 가능합니다. 존재하지 않는 근거를
   인용하거나, 출처 없는 금액·일정·개선 효과 수치를 쓰거나, 홍보성 표현이 들어간 제언은 검증 단계에서 걸러집니다. 이
-  검토를 바탕으로 일곱 가지 현대화 방향(컨테이너, 서버리스, 관리형 데이터베이스, 관리형 분석, 생성형 AI, 클라우드 네이티브,
-  모던 DevOps)마다 권고, 조건부 권고, 권고하지 않음, 평가 전 중 하나로 판단합니다.
+  검토를 바탕으로 일곱 가지 현대화 방향(컨테이너, 서버리스, 관리형 서비스, 관리형 데이터베이스, 관리형 분석, 생성형 AI,
+  오픈 소스)과 이 전환을 안전하게 받쳐 주는 두 가지 기반 역량(모던 DevOps, 클라우드 네이티브)마다 권고, 조건부 권고,
+  권고하지 않음, 평가 전 중 하나로 판단합니다.
 - **비용은 공개 요금만 씁니다.** 비용은 AWS Price List API의 공개 온디맨드 요금을 산정 기준과 함께 보여 드리며, 청구액
   예측이 아닙니다. 절감액, 일정, 인일(人日) 같은 추정치는 쓰지 않습니다.
 - **기본은 읽기 전용입니다.** describe, list, get 호출과 IAM 정책 시뮬레이터, CloudTrail 이벤트 조회 같은 읽기 호출만
@@ -76,7 +77,7 @@ artifacts/<workload>/<UTC run id>/
 6. 영역별 점검 결과와 영역별 확인 질문
 7. 보안 권고: 자체 점검 결과와 가져온 [Service Screener](skills/aws-architecture-review/references/service-screener.md) 결과를 함께 표시
 8. Specialist SA Agent 제언: 분야별 아키텍처 다이어그램 포함
-9. 종합 목표 아키텍처와 일곱 가지 현대화 방향
+9. 종합 목표 아키텍처, 일곱 가지 현대화 방향과 두 가지 기반 역량
 10. 참고 자료와 용어
 11. 근거(접힌 상태), 그리고 방법·점수·작성 정보를 담은 부록
 
@@ -101,7 +102,7 @@ artifacts/<workload>/<UTC run id>/
 | 2 | [aws-mcp-setup](skills/aws-mcp-setup/SKILL.md) | AWS Knowledge MCP, 함께 쓰는 스킬, 렌더링 도구, 작성 정보 |
 | 3 | [aws-as-is-analysis](skills/aws-as-is-analysis/SKILL.md) | 태그가 붙은 모든 서비스 탐색(Resource Groups Tagging API), 기본 서비스와 새로 발견한 서비스의 인벤토리, 계정 수준 현황(Security Hub, GuardDuty, Config, Inspector, Access Analyzer, Compute Optimizer, Trusted Advisor, Health, Organizations, 서비스별 Cost Explorer 비용), 원본 근거, 템플릿과 소스 코드, 선택 사항인 SSH/SSM 호스트 점검 |
 | 4 | [aws-architecture-review](skills/aws-architecture-review/SKILL.md) | 6개 영역 점검(엔진·Kubernetes·런타임·OS 지원 종료일, 이전 세대 인스턴스 유형, Classic Load Balancer, 시작 구성, 상용 라이선스, 스택 드리프트 같은 수명 주기 점검과 Flow Logs·CloudFront·ACM 같은 경계 구간 점검 포함), 등급, AWS 스타일의 현재 구성 다이어그램 |
-| 5 | [aws-modernization-pathway](skills/aws-modernization-pathway/SKILL.md) | 다섯 Specialist SA Agent의 검토와 다이어그램, 일곱 가지 현대화 방향, AI·관측성·메시징 서비스 적합성, 종합 목표 다이어그램, 통합 보고서 |
+| 5 | [aws-modernization-pathway](skills/aws-modernization-pathway/SKILL.md) | 다섯 Specialist SA Agent의 검토와 다이어그램, 일곱 가지 현대화 방향과 두 가지 기반 역량, AI·관측성·메시징 서비스 적합성, 종합 목표 다이어그램, 통합 보고서 |
 
 각 스킬은 에이전트가 따르는 `SKILL.md`, `scripts/` 아래의 헬퍼 스크립트, `references/` 아래의 참고 문서로 이루어져
 있습니다. 단계마다 계정과 실행 ID가 앞 단계와 같은지 확인합니다. 함께 쓰는 스킬인 `aws-diagram-design`과

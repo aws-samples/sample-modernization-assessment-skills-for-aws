@@ -52,9 +52,10 @@ procedure fixed so that the result depends less on who runs it.
   the change back, and the evidence. A specialist can also recommend no change for now. A
   validator rejects advice that cites references that do not exist, or that states amounts,
   schedules or improvement percentages without a source, or uses promotional wording. Based on
-  these reviews, the seven modernization directions (Container, Serverless, Managed Database,
-  Managed Analytics, GenAI, Cloud Native, Modern DevOps) are rated candidate, conditional, not
-  recommended or not assessed.
+  these reviews, the seven modernization directions (Container, Serverless, Managed Services,
+  Managed Database, Managed Analytics, GenAI, Open Source) and the two foundations that make the
+  moves safe (Modern DevOps, Cloud Native) are rated candidate, conditional, not recommended or
+  not assessed.
 - **Prices come from the AWS Price List API.** Costs are published On-Demand list prices with
   the basis they were calculated on. They are not a bill forecast, and the report does not
   estimate savings, dates or person-days.
@@ -89,7 +90,7 @@ The unified report has these sections, in this order:
 7. Security recommendations, with local checks shown next to imported
    [Service Screener](skills/aws-architecture-review/references/service-screener.md) results
 8. Specialist SA Agent recommendations, each with its own architecture diagram
-9. The combined target architecture and the seven directions
+9. The combined target architecture, the seven directions and the two foundations
 10. Reference material and terms
 11. Evidence (collapsed), and an appendix with the method, scores and run provenance
 
@@ -114,7 +115,7 @@ The report is written in the language of your request, and the English draft is 
 | 2 | [aws-mcp-setup](skills/aws-mcp-setup/SKILL.md) | AWS Knowledge MCP, companion skills, rendering tools, run metadata |
 | 3 | [aws-as-is-analysis](skills/aws-as-is-analysis/SKILL.md) | Discovery of every tagged service (Resource Groups Tagging API), inventory of the default and discovered services, account posture (Security Hub, GuardDuty, Config, Inspector, Access Analyzer, Compute Optimizer, Trusted Advisor, Health, Organizations, Cost Explorer spend by service), raw evidence, templates and source, optional SSH/SSM host inspection |
 | 4 | [aws-architecture-review](skills/aws-architecture-review/SKILL.md) | Findings for the six pillars, including lifecycle checks (engine, Kubernetes, runtime and OS support dates, previous-generation instance types, Classic Load Balancers, launch configurations, commercial licenses, stack drift) and edge checks (flow logs, CloudFront, ACM); grades; current-state diagram in AWS style |
-| 5 | [aws-modernization-pathway](skills/aws-modernization-pathway/SKILL.md) | Five Specialist SA Agent reviews with diagrams, the seven directions, fit for AI, observability and messaging services, the combined target diagram, and the unified report |
+| 5 | [aws-modernization-pathway](skills/aws-modernization-pathway/SKILL.md) | Five Specialist SA Agent reviews with diagrams, the seven directions and two foundations, fit for AI, observability and messaging services, the combined target diagram, and the unified report |
 
 Each skill consists of a `SKILL.md` that the agent follows, helper scripts in `scripts/`, and
 reference documents in `references/`. Every stage checks that the account and run ID match the

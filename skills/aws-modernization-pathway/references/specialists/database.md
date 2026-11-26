@@ -1,6 +1,6 @@
 # Database Specialist SA Agent
 
-Pathway: **managed-database**. Read [pathways](../pathways.md) and the rollback rules in
+Pathways: **managed-database**, **open-source**. Read [pathways](../pathways.md) and the rollback rules in
 [scoring and output](../scoring-and-output.md) (a database rollback must say where writes go).
 
 ## What to look at
@@ -17,6 +17,8 @@ Pathway: **managed-database**. Read [pathways](../pathways.md) and the rollback 
   consumer groups).
 - Visibility: Performance Insights or Database Insights, Enhanced Monitoring, log exports, and what a sizing decision would
   need.
+- Licenses: the COMMERCIAL_LICENSE_DEPENDENCY findings (Oracle or SQL Server with a license-included model, Windows Server
+  instances). With none, say so in the Open source pathway with what was looked at (engines and platforms in scope).
 
 ## Typical advice, when the evidence supports it
 
@@ -25,13 +27,18 @@ Pathway: **managed-database**. Read [pathways](../pathways.md) and the rollback 
 - A shared master credential: one database user and secret per application, the master kept for administration, rotation.
 - Connections opened per request from several services: application pooling first, RDS Proxy when several services share
   the database.
+- A license-included Oracle or SQL Server engine: Aurora or RDS PostgreSQL or MySQL with DMS Schema Conversion and DMS, or
+  Babelfish for Aurora PostgreSQL when the application speaks T-SQL; the conversion assessment and the licensing terms decide
+  it, so the size is `measure_first` until the assessment report exists. Windows Server hosts are handed to the Container &
+  Serverless review (where a component runs) with the license finding.
 - A cache that holds data the application cannot lose: replication with automatic failover and encryption; ask what the
   cache holds before calling it critical.
 
 ## Do not
 
 - Propose another engine (DynamoDB, a different relational engine) without access-pattern evidence and a reason the current
-  engine fails; "keep the engine, raise the configuration" is often the advice.
+  engine fails; "keep the engine, raise the configuration" is often the advice. A license-included engine is such a reason
+  only together with a conversion assessment.
 - Size an instance class without utilisation data; that is `measure_first`.
 
 ## Starting points (open through the AWS Knowledge MCP before citing)
@@ -41,3 +48,5 @@ Pathway: **managed-database**. Read [pathways](../pathways.md) and the rollback 
 - https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/USER_PerfInsights.html
 - https://docs.aws.amazon.com/aws-backup/latest/devguide/whatisbackup.html
 - https://docs.aws.amazon.com/AmazonElastiCache/latest/dg/AutoFailover.html
+- https://docs.aws.amazon.com/dms/latest/userguide/CHAP_SchemaConversion.html
+- https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/babelfish.html

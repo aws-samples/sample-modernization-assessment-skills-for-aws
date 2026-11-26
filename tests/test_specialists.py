@@ -169,7 +169,9 @@ class SpecialistReviewTests(unittest.TestCase):
             self.assertEqual([s["specialist"] for s in merged["specialists"]], ["database", "devops"])
             self.assertEqual(merged["specialists"][0]["diagram"]["svg"], "specialists/database/diagram.aws.svg")
             combined = json.loads((run / "05-modernization/candidates.specialists.json").read_text())
-            self.assertEqual(len(combined), 7)
+            self.assertEqual([c["pathway"] for c in combined], list(recommend.PATHWAYS))
+            # A pathway no review covered and that the catalog added later carries what the evidence shows, not a guess.
+            self.assertIn(recommend.NOT_REVIEWED, next(c for c in combined if c["pathway"] == "managed-services")["rationale"])
             # Synthesis: a changed status needs a reason.
             pathways = [dict(c) for c in combined]
             next(c for c in pathways if c["pathway"] == "managed-database")["status"] = "not_recommended"

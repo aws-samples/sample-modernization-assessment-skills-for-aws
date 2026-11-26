@@ -7,8 +7,8 @@ advice for a review by a person; it is a draft the assessing architect confirms.
 
 | ID | Role | Pathways | Domain guide |
 |---|---|---|---|
-| `containers` | Container & Serverless Specialist SA Agent | container, serverless, cloud-native (`messaging_options`) | [containers](specialists/containers.md) |
-| `database` | Database Specialist SA Agent | managed-database | [database](specialists/database.md) |
+| `containers` | Container & Serverless Specialist SA Agent | container, serverless, managed-services, cloud-native (`messaging_options`) | [containers](specialists/containers.md) |
+| `database` | Database Specialist SA Agent | managed-database, open-source | [database](specialists/database.md) |
 | `analytics` | Data Analytics Specialist SA Agent | managed-analytics | [analytics](specialists/analytics.md) |
 | `genai` | GenAI Specialist SA Agent | genai (`ai_options`) | [genai](specialists/genai.md) |
 | `devops` | DevOps Specialist SA Agent | modern-devops (`observability_options`) | [devops](specialists/devops.md) |
@@ -35,7 +35,7 @@ advice for a review by a person; it is a draft the assessing architect confirms.
 3. Collect every reply, then run `advice.py validate --run-dir "$RUN_DIR" --specialist <id>` yourself: an agent's claim of
    success is not the check. Send a failing agent its errors once; if it still fails, write that review yourself.
 4. `python3 "$SKILL_DIR/scripts/advice.py" merge --run-dir "$RUN_DIR"` writes `specialist-advice.json`,
-   `candidates.specialists.json` (the seven pathways assembled from the reviews) and folds the agents' list prices into
+   `candidates.specialists.json` (the nine pathways assembled from the reviews) and folds the agents' list prices into
    `list-prices.json`. It lists `shared_references`: findings two agents both act on. It refuses to merge while a review is
    missing or failing; `--allow-missing` is only for a domain that could not be reviewed at all, and the report then shows
    the reviews that exist.
@@ -60,7 +60,9 @@ IDs), including what already works well. Do not repeat the whole findings list; 
 **Recommendations (at most four), in the order you would raise them.** Each is the smallest change that fixes an observed
 problem, or a target state the evidence supports. Each names concrete resources and settings, says what it gives the
 customer, carries its size (`effort`: setting, days, weeks, quarter) and cost direction (`up`, `neutral`, `down`,
-`measure_first`), lists what must be true or confirmed first (`before_deciding`), gives at least one alternative (keeping
+`measure_first`), says whether it is a `move` (the component runs somewhere or on something new: containers, serverless,
+a managed service or database, another engine or license, a new AI capability) or an `improve` of the current setup
+(`kind`; the executive summary lists moves first, because this is a modernization assessment), lists what must be true or confirmed first (`before_deciding`), gives at least one alternative (keeping
 and improving the current setup is an alternative), and says how to undo it. Name an AWS service only when it solves a
 problem in the evidence or a need stated in the scope; a service that would be nice to have is not a recommendation.
 The report shows every recommendation in the same four fields: **current state** (`current`, optional: one sentence in
@@ -120,7 +122,7 @@ never change the account.
     "change": "Add an Aurora reader in us-east-1a to cluster ..., set DeletionProtection and DeletionPolicy: Snapshot in shopnow-data.",
     "benefit": "A writer or zone failure promotes the reader instead of stopping four services; a stack mistake keeps a snapshot.",
     "refs": ["f0064", "m0004"],
-    "effort": "days", "cost_direction": "up",
+    "kind": "improve", "effort": "days", "cost_direction": "up",
     "list_prices": [{"id": "db-p001", "sign": "+"}],
     "before_deciding": ["Agree RTO and RPO with the owner."],
     "alternatives": ["A smaller reader class or Aurora Serverless v2 reader when cost decides it."],

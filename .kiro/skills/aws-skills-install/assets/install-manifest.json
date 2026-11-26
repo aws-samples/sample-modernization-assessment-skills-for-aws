@@ -127,10 +127,10 @@
     {
       "name": "aws-mcp-setup",
       "source": "skills/aws-mcp-setup",
-      "digest": "e294f956d2f9cf7c35338e2d6c88dd6e4f2169a42a871c0e2f38c1770a90b982",
+      "digest": "5c62ad710f6d8dfa1ffd439d6c642ce0c0f72cf12fbbd3846d156f5c9350a175",
       "stamp": {
         "package": "moda-skills",
-        "sha256": "e294f956d2f9cf7c35338e2d6c88dd6e4f2169a42a871c0e2f38c1770a90b982"
+        "sha256": "5c62ad710f6d8dfa1ffd439d6c642ce0c0f72cf12fbbd3846d156f5c9350a175"
       },
       "files": [
         {
@@ -150,8 +150,8 @@
         },
         {
           "path": "assets/glossary.ko.json",
-          "bytes": 17717,
-          "sha256": "704bb799b8025e34421729e6e86dbe024c9790a5eb780473dd116aaf2226c421"
+          "bytes": 23649,
+          "sha256": "928749a8daa7ec5916e4d05593a2d865a072dfadca44bc4c510dc83f86e355e9"
         },
         {
           "path": "references/compatibility.md",
@@ -274,10 +274,10 @@
     {
       "name": "aws-architecture-review",
       "source": "skills/aws-architecture-review",
-      "digest": "beb018d2d68dfcbdfd898be5c8379da293f416aaba4e865e45c868126a3fdd2d",
+      "digest": "4ef092e964f2b7ad146a6553d77b520066c74f63c35cada98d50abdd67996cc4",
       "stamp": {
         "package": "moda-skills",
-        "sha256": "beb018d2d68dfcbdfd898be5c8379da293f416aaba4e865e45c868126a3fdd2d"
+        "sha256": "4ef092e964f2b7ad146a6553d77b520066c74f63c35cada98d50abdd67996cc4"
       },
       "files": [
         {
@@ -342,8 +342,8 @@
         },
         {
           "path": "scripts/report_kit.py",
-          "bytes": 62139,
-          "sha256": "e94ed8030e20f2a26c4c14b53bc5ad7bf0c77a637375581331a3496e02c63d68"
+          "bytes": 66103,
+          "sha256": "3d30b75a5f47732bc2ebe8a5d4e8f26fe3400462d4c1baad9575bf51a82b128e"
         },
         {
           "path": "scripts/review.py",
@@ -360,16 +360,16 @@
     {
       "name": "aws-modernization-pathway",
       "source": "skills/aws-modernization-pathway",
-      "digest": "68c69be4cd37384eebae1e077caa9b46ad610bc341ba62273a3877d343b98518",
+      "digest": "e7ef1383baa5e4a409f6097f3484b823387e6c14c6bcc75a28f68f171bac0e93",
       "stamp": {
         "package": "moda-skills",
-        "sha256": "68c69be4cd37384eebae1e077caa9b46ad610bc341ba62273a3877d343b98518"
+        "sha256": "e7ef1383baa5e4a409f6097f3484b823387e6c14c6bcc75a28f68f171bac0e93"
       },
       "files": [
         {
           "path": "SKILL.md",
-          "bytes": 22543,
-          "sha256": "ea56d337891a9ebaa2aba8b959d18cc9ee75aba1887896b9d4a82b9d3558c341"
+          "bytes": 24297,
+          "sha256": "d60ce246e042b5bb244a6c91ecdccc3ddba006e1ade0b065b329e5b75cc78106"
         },
         {
           "path": "agents/openai.yaml",
@@ -383,8 +383,8 @@
         },
         {
           "path": "assets/next-steps.json",
-          "bytes": 43316,
-          "sha256": "0a02313c8ba2357fa92d8e78f3ac027a48676d8d215b18b73df6e6fb27f2f909"
+          "bytes": 43572,
+          "sha256": "802300e1bb973defd38051da12381f003263707b7a5600d4249e184d2d46d6bf"
         },
         {
           "path": "assets/platform-options.json",
@@ -393,8 +393,8 @@
         },
         {
           "path": "assets/recommendations.template.md",
-          "bytes": 2498,
-          "sha256": "5e2806cc28c749bd6f3c9cfef51277e7ac4acb8590797abd32e52d3070b79c64"
+          "bytes": 2576,
+          "sha256": "1f3ddc28a35353aaaf503b860ca5a68f1d79bf175b5b35a68de075a1c4865b7f"
         },
         {
           "path": "assets/references.json",
@@ -423,13 +423,13 @@
         },
         {
           "path": "references/pathways.md",
-          "bytes": 3993,
-          "sha256": "9241b1e7fec8b56cff3d9958dc4593ecffaa23620b2b0d5f134c5f0645bbf82e"
+          "bytes": 5935,
+          "sha256": "e185b69608707481c1a3b06ec4ed2cbef853d8f29c9e08eba353a4f0294d70bc"
         },
         {
           "path": "references/scoring-and-output.md",
-          "bytes": 7198,
-          "sha256": "87d4854f946cc7bb8e4a095312a7a48989050ab4563235b1f6c8a5b34c115edc"
+          "bytes": 8202,
+          "sha256": "5f88e422b3f72c1a38331db46baa4a6df871c974cd0de81253febce9088fbf20"
         },
         {
           "path": "references/specialists/analytics.md",
@@ -438,13 +438,13 @@
         },
         {
           "path": "references/specialists/containers.md",
-          "bytes": 3185,
-          "sha256": "adaa9b87d7b465e29a9558e539b757a01e004f9ac6a54500d3e581e2324be09a"
+          "bytes": 4135,
+          "sha256": "0e74c4407c3b3af17903a0bcfaf9cacd250f81b765cca594369126d3ce6bedfd"
         },
         {
           "path": "references/specialists/database.md",
-          "bytes": 2682,
-          "sha256": "e148dc1fdbe5c08dd34da13af3bcd21eabb983b931bf09a16e9f33af063a5985"
+          "bytes": 3629,
+          "sha256": "cf701896d1e3f8d10a93baf7b3b0a34c2001bf5a8d250e006c4505b252647921"
         },
         {
           "path": "references/specialists/devops.md",
@@ -458,18 +458,18 @@
         },
         {
           "path": "references/specialists.md",
-          "bytes": 11611,
-          "sha256": "ca7fd71411346ec31efe064facbda485ca8cee180bd78ac0892a41363c91384b"
+          "bytes": 11974,
+          "sha256": "5196ae18aed977d106ae5c8935c987e464e4f79d7d93d49d3d281a1fe41ece5c"
         },
         {
           "path": "scripts/advice.py",
-          "bytes": 49584,
-          "sha256": "79f43ab67f4ed5c3b73a535fd5ff3bbfc13e2091db3b4cbc3142cda6dac7c547"
+          "bytes": 50326,
+          "sha256": "329172fb150c96e1be2618f186b97379e321eec63c68459099b0dd71dd863dc4"
         },
         {
           "path": "scripts/assessment_report.py",
-          "bytes": 150751,
-          "sha256": "32e3494a20c0f4f4df31dc49a271628a8c851a81e6f5fa4581bc71eae70ad987"
+          "bytes": 164950,
+          "sha256": "fb3589a1ac92d11dfc3d19e14ebb9d1c7a07ff15b5229be89201f39e0b43b77c"
         },
         {
           "path": "scripts/benefits.py",
@@ -488,13 +488,13 @@
         },
         {
           "path": "scripts/recommend.py",
-          "bytes": 40687,
-          "sha256": "1d7d44bc22738dc8da90f460b1f3b7a81447c4a9cd805cd1eb01b25d953b070b"
+          "bytes": 54629,
+          "sha256": "1f24eef5560eb0a16b3c4e26fc704b3822df3ffe09ff0f0332a7f22daa7646b6"
         },
         {
           "path": "scripts/report_kit.py",
-          "bytes": 62139,
-          "sha256": "e94ed8030e20f2a26c4c14b53bc5ad7bf0c77a637375581331a3496e02c63d68"
+          "bytes": 66103,
+          "sha256": "3d30b75a5f47732bc2ebe8a5d4e8f26fe3400462d4c1baad9575bf51a82b128e"
         },
         {
           "path": "scripts/write_audit.py",

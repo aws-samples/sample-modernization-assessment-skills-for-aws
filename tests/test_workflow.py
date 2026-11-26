@@ -480,13 +480,15 @@ class AssessmentTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             recommend.rank(candidates, {"r1"}, {"f1"})
         devops.update(resource_ids=["r1"], finding_ids=["f1"], blockers=["Rollback drill pending"])
-        rated = recommend.rank(candidates, {"r1"}, {"f1"})[-1]
+        def rated_devops():
+            return next(c for c in recommend.rank(candidates, {"r1"}, {"f1"}) if c["pathway"] == "modern-devops")
+        rated = rated_devops()
         self.assertEqual(rated["score"], 80)
         self.assertIsNone(rated["rank"])
         devops["blockers"] = []
-        self.assertEqual(recommend.rank(candidates, {"r1"}, {"f1"})[-1]["rank"], 1)
+        self.assertEqual(rated_devops()["rank"], 1)
         devops["criteria"]["cost_confidence"]["score"] = None
-        self.assertIsNone(recommend.rank(candidates, {"r1"}, {"f1"})[-1]["rank"])
+        self.assertIsNone(rated_devops()["rank"])
 
     def test_ai_catalog_starts_unselected_and_unassessed(self):
         candidates = recommend.bootstrap()
@@ -670,9 +672,9 @@ class AssessmentTests(unittest.TestCase):
                                        capture_output=True, text=True)
             self.assertEqual(generated.returncode, 0, generated.stderr)
             pathways = json.loads((root/"05-modernization/pathways.json").read_text())
-            self.assertEqual(len(pathways["candidates"]), 7)
-            self.assertEqual(pathways["pathway_catalog_version"], "2.0")
-            self.assertEqual(pathways["candidates"][-1]["pathway"], "modern-devops")
+            # Seven directions, then the two foundations (catalog 3.0 added Managed services and Open source).
+            self.assertEqual([c["pathway"] for c in pathways["candidates"]], list(recommend.DIRECTIONS) + list(recommend.FOUNDATIONS))
+            self.assertEqual(pathways["pathway_catalog_version"], "3.0")
             self.assertEqual(pathways["ai_option_catalog_version"], "1.0")
             self.assertEqual(pathways["platform_option_catalog_version"], "1.0")
             self.assertEqual(len(next(c for c in pathways["candidates"] if c["pathway"] == "genai")["ai_options"]), 12)
@@ -701,7 +703,7 @@ class AssessmentTests(unittest.TestCase):
             self.assertEqual(run.returncode, 0, run.stderr)
             self.assertEqual(source.read_bytes(), original)
             result = json.loads((root/"reports/pathways.json").read_text())
-            self.assertEqual(len(result["candidates"]), 7)
+            self.assertEqual(len(result["candidates"]), len(recommend.PATHWAYS))
             self.assertEqual(len(result["input_notes"]), 3)
             self.assertIsNone(result["candidates"][-1]["rank"])
             for extension in ("md", "html"):
