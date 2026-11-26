@@ -287,6 +287,62 @@ def graph_from_inventory(inventory, scope=None):
             "groups": group_list, "nodes": nodes, "edges": list(edges.values())}
 
 
+# Grouping resources a drawing shows by name and id: on a security group frame, a target group or an Auto Scaling group
+# container, and on a route-table chip. annotate_members() writes these from the inventory into the graph.
+MEMBER_KINDS = {"ec2.security-group", "elbv2.target-group", "autoscaling.group", "ec2.route-table"}
+CFN_SUFFIX = re.compile(r"-[A-Za-z0-9]{12,13}$")  # the random tail CloudFormation appends to generated names
+
+
+def member_info(r):
+    """Name, id and one technical detail of a grouping resource, as the drawing shows them."""
+    a, kind = r["attributes"], r["type"]
+    if kind == "ec2.security-group":
+        name, detail = a.get("GroupName") or r["name"], ""
+    elif kind == "elbv2.target-group":
+        name = a.get("TargetGroupName") or r["name"]
+        detail = " · ".join(x for x in (f"{a.get('Protocol')}:{a.get('Port')}" if a.get("Port") else "", a.get("TargetType") or "") if x)
+    elif kind == "autoscaling.group":
+        name = a.get("AutoScalingGroupName") or r["name"]
+        detail = f"min {a.get('MinSize')} · max {a.get('MaxSize')}" if a.get("MaxSize") is not None else ""
+    else:
+        name, detail = name_tag(r) or r["name"], ""
+    name = str(name or r["native_id"])
+    short = CFN_SUFFIX.sub("", name) if re.search(r"[A-Z]", name[-13:]) and re.search(r"\d", name[-13:]) else name
+    return {"id": r["id"], "native_id": r["native_id"], "name": short, "detail": detail}
+
+
+def annotate_members(graph, inventory):
+    """Name and id of every security group, target group, Auto Scaling group and route table a node stands for
+    (`members`), and on each edge to or from such a node the ones it concerns (`target_resources` /
+    `source_resources`, from the inventory's relationships in either direction). The renderer labels frames and
+    containers with them; nothing else changes."""
+    by_id = {r["id"]: r for r in inventory["resources"]}
+    by_native = {r["native_id"]: r for r in inventory["resources"]}
+    nodes = {n["id"]: n for n in graph["nodes"]}
+    for n in graph["nodes"]:
+        if n.get("type") in MEMBER_KINDS:
+            members = [member_info(by_id[x]) for x in n.get("resource_ids") or [] if x in by_id and by_id[x]["type"] == n["type"]]
+            if members:
+                n["members"] = members
+    links = defaultdict(set)
+    for rel in inventory.get("relationships", []):
+        if rel.get("relation") != "contained_in":
+            links[rel["source"]].add(rel["target"]); links[rel["target"]].add(rel["source"])
+    for e in graph["edges"]:
+        for end, other, key in (("target", "source", "target_resources"), ("source", "target", "source_resources")):
+            grouping, peer = nodes.get(e[end]), nodes.get(e[other])
+            if not grouping or not peer or not grouping.get("members"):
+                continue
+            mine = {m["id"] for m in grouping["members"]}
+            peers = set(peer.get("resource_ids") or [])
+            if peer.get("target_group") in by_native:
+                peers.add(by_native[peer["target_group"]]["id"])
+            hit = sorted((peers & mine) | {x for p in peers for x in links.get(p, ()) if x in mine})
+            if hit:
+                e[key] = hit
+    return graph
+
+
 IDENTITY_TYPES = {"AWS::IAM::Role", "AWS::IAM::ManagedPolicy", "AWS::IAM::Policy", "AWS::IAM::InstanceProfile", "AWS::IAM::User", "AWS::IAM::Group"}
 
 
@@ -527,6 +583,8 @@ def main():
         else:
             graph = json.loads(args.graph.read_text(encoding="utf-8"))
         validate_graph(graph)
+        if inventory is not None:
+            annotate_members(graph, inventory)
         check = coverage(graph, inventory, scope) if inventory is not None else {"status": "not_checked"}
         (args.output / "diagram-graph.json").write_text(json.dumps(graph, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         result = {"coverage": check}

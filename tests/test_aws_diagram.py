@@ -78,7 +78,10 @@ class AwsDiagramTests(unittest.TestCase):
             self.assertIn('data-kind="public-subnet"', svg); self.assertIn('data-kind="subnet"', svg)
             self.assertIn("Public subnet public-a", svg); self.assertIn("Private subnet app-a", svg)
             self.assertIn("NAT gateway nat-a", svg); self.assertIn("ECS service catalog-api", svg)
-            self.assertIn(">Legend<", svg); self.assertIn("shop: current architecture", svg)
+            self.assertIn(">LEGEND<", svg); self.assertIn("shop: current architecture", svg)
+            self.assertIn(">alb-sg<", svg, "diagram.py names the security group of the ALB frame from the inventory")
+            sg_edge = next(e for e in json.loads((root / "diagrams/diagram-graph.json").read_text())["edges"] if e["label"] == "associated with")
+            self.assertEqual(sg_edge.get("target_resources"), [f"{ACCOUNT}:{REGION}:ec2.security-group:sg-1"])
             self.assertNotIn("<script", svg.lower())
             qa = json.loads((root / "diagrams/diagram-qa.json").read_text())
             self.assertEqual(qa["status"], "pass")
@@ -133,7 +136,7 @@ class AwsDiagramTests(unittest.TestCase):
             for number in qa["checks"]["labels_clear"]["numbered"]:
                 self.assertIn(f">{number}</text>", svg)
             if qa["checks"]["labels_clear"]["numbered"]:
-                self.assertIn(">Connections<", svg)
+                self.assertIn(">CONNECTIONS<", svg)
 
     def test_official_style_nodes_and_crowded_graphs_drawn_as_views(self):
         """Field case: boxed cards with three to four text lines made the drawings hard to read. Nodes are now drawn as in
@@ -223,6 +226,57 @@ class AwsDiagramTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as a, tempfile.TemporaryDirectory() as b:
             aws.render(g, Path(a), "x", None, None, None); aws.render(g, Path(b), "x", None, None, None)
             self.assertEqual((Path(a) / "x.aws.svg").read_text(), (Path(b) / "x.aws.svg").read_text())
+
+    def test_frames_and_containers_name_their_resource_and_style_follows_the_design_skill(self):
+        """Field request: frames and containers show the resource id briefly. A security group frame carries the group's
+        name and short id; an aggregate of target groups becomes one container per target group (name and port) when
+        each member belongs to one, and a listener to two target groups draws a line to each (the second repeats the edge
+        id). Style from aws-diagram-design: ids prefixed per drawing, crossings bridged, changed components tagged
+        without an outline, resource ids in mono."""
+        tg = lambda name, port: {"id": f"tg-{name}", "native_id": f"arn:tg/{name}", "name": name, "detail": f"HTTP:{port} · ip"}  # noqa: E731
+        g = {"title": "Named", "groups": [{"id": "vpc", "label": "VPC v", "kind": "vpc"}, {"id": "sub", "label": "Private subnet app", "kind": "subnet", "parent": "vpc"}],
+             "nodes": [{"id": "alb", "label": "ALB internal", "type": "elbv2.load-balancer", "group": "sub"},
+                       {"id": "a", "label": "ECS service catalog", "type": "ecs.service", "group": "sub", "state": "changed"},
+                       {"id": "b", "label": "ECS service order", "type": "ecs.service", "group": "sub"},
+                       {"id": "vm", "label": "EC2 chatbot", "detail": "t3.large · i-07b4811fdf0b209bf", "type": "ec2.instance", "group": "sub"},
+                       {"id": "tgs", "label": "Target groups × 2", "type": "elbv2.target-group", "group": "vpc", "resource_ids": ["tg-catalog", "tg-order"],
+                        "members": [tg("catalog", 8000), tg("order", 3000)]},
+                       {"id": "sgs", "label": "Security groups × 1", "type": "ec2.security-group", "group": "vpc", "resource_ids": ["sg-a"],
+                        "members": [{"id": "sg-a", "native_id": "sg-0313f6fd483968235", "name": "shopnow-ecs-TaskSg", "detail": ""}]}],
+             "edges": [{"id": "lst", "source": "alb", "target": "tgs", "label": "listener", "target_resources": ["tg-catalog", "tg-order"]},
+                       {"id": "r1", "source": "tgs", "target": "a", "label": "registered", "source_resources": ["tg-catalog"]},
+                       {"id": "r2", "source": "tgs", "target": "b", "label": "registered", "source_resources": ["tg-order"]},
+                       {"id": "att", "source": "vm", "target": "sgs", "label": "Security group attachment", "drawn_as": "badge", "target_resources": ["sg-a"]}]}
+        with tempfile.TemporaryDirectory() as tmp:
+            qa = aws.render(g, Path(tmp), "named", None, None, None)
+            svg = (Path(tmp) / "named.aws.svg").read_text()
+            self.assertEqual(qa["status"], "pass", qa["checks"])
+            self.assertEqual(diagram.audit(g, Path(tmp) / "named.aws.svg", require_coverage=False)["status"], "pass")
+            self.assertEqual(svg.count('data-kind="target-group"'), 2, "one container per target group")
+            self.assertIn(">catalog<", svg); self.assertIn(">HTTP:8000 · ip<", svg); self.assertIn(">order<", svg)
+            self.assertEqual(svg.count('data-edge-repeat="lst"'), 1, "the listener reaches both target groups; the second line repeats its id")
+            self.assertIn(">shopnow-ecs-TaskSg<", svg); self.assertIn(">sg-0313…8235<", svg)
+            self.assertIn(">i-07b4…09bf<", svg, "the instance id moves to a short mono line")
+            self.assertNotRegex(svg, r'<g data-node-id="a" data-state="changed"><title>[^<]*</title><rect [^>]*fill="none"', "a changed component has its tag, no outline")
+            self.assertRegex(svg, r'<g data-node-id="a" data-state="changed">.*?>changed</text>')
+            self.assertIn("listener: ALB internal → catalog HTTP:8000 · ip", svg, "a line to a container names the target group")
+            self.assertNotIn('id="dg-title"', svg)
+            self.assertRegex(svg, r'aria-labelledby="named-[0-9a-f]{6}-title named-[0-9a-f]{6}-desc"')
+            self.assertNotIn('url(#arrow)', svg)
+        self.assertEqual(aws.short_id("sg-0313f6fd483968235"), "sg-0313…8235")
+        # subnets keep public-first, then address order in every language (a translated label used to sort DB before app)
+        app, db = {"label": "\ud504\ub77c\uc774\ube57 \uc571 10.70.10.0/24"}, {"label": "\ud504\ub77c\uc774\ube57 DB 10.70.20.0/24"}
+        self.assertLess(aws.subnet_order(app), aws.subnet_order(db))
+        self.assertLess(aws.subnet_order({"label": "Public 10.70.99.0/24", "public": True}), aws.subnet_order(app))
+        translated = aws.translated_graph({"groups": [{"id": "s", "kind": "subnet", "label": "Public subnet web"}], "nodes": [], "edges": []}, lambda t: "\ud37c\ube14\ub9ad")
+        self.assertTrue(aws.is_public_subnet(translated["groups"][0]), "a translated label keeps the public flag")
+        self.assertEqual(aws.short_id("vpc-1"), "vpc-1")
+        # a crossing makes the less important connector hop
+        path = aws.points_to_path([(0, 50), (100, 50)], hops={0: [50]})
+        self.assertIn(f"A {aws.HOP} {aws.HOP} 0 0 1", path)
+        routes = {"solid": ([(50, 0), (50, 100)], None), "dashed": ([(0, 50), (100, 50)], None)}
+        graph = {"edges": [{"id": "solid", "state": "observed_configuration"}, {"id": "dashed", "state": "declared"}]}
+        self.assertEqual(aws.crossing_hops(graph, routes, []), {"dashed": {0: [50]}})
 
     def test_focused_to_be_graph_draws_states_without_an_inventory(self):
         """A specialist's drawing: retained, changed, proposed and removal-candidate nodes, a proposed edge, no inventory

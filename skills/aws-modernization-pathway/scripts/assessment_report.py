@@ -1082,7 +1082,7 @@ def method_appendix(scores, checks, pathways, weights):
     heat += "</tbody></table>"
     return (f'<details><summary>How the grades are derived</summary><div class="body">{kit.grade_rubric_html()}</div></details>'
             f'<details><summary>Numeric scores (for pathway ranking)</summary><div class="body"><p class="small">Local score = weighted average of PASS 1, WARN 0.5, FAIL 0 over judged checks; UNKNOWN is excluded and only lowers evidence coverage. These are inputs to pathway ranking, not a rating of the workload.</p>'
-            f'{kit.score_bars(scores)}<div class="grid g2" style="margin-top:12px"><div class="card"><h3>Judgement distribution</h3>{kit.stacked_status(scores)}{kit.legend([(kit.STATUS[k][0], kit.STATUS[k][1]) for k in kit.STATUS_ORDER])}</div>'
+            f'{kit.score_bars(scores)}<div class="grid g2" style="margin-top:12px"><div class="card"><h3>Judgement distribution</h3>{kit.stacked_status(scores, slug="status-stack-method")}{kit.legend([(kit.STATUS[k][0], kit.STATUS[k][1]) for k in kit.STATUS_ORDER])}</div>'
             f'<div class="card"><h3>Fail and warn by severity</h3>{kit.severity_bars(checks)}</div></div>'
             f'<h4>Pathway criteria (1-5, "-" = unknown)</h4>{heat}<p class="small">A total score and rank appear only when all six criteria are verified; unknown criteria stay unknown rather than becoming zero.</p></div></details>')
 

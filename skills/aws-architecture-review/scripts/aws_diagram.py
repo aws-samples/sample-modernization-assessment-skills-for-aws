@@ -30,6 +30,7 @@ Text in the drawing (title, legend, group and node labels) is the English draft 
 output language; localize_artifacts.py redraws translated drawings from <name>.render.json with renderer_words().
 """
 import argparse
+import hashlib
 import heapq
 import json
 import math
@@ -41,6 +42,7 @@ SANS = "'Amazon Ember','Helvetica Neue',Helvetica,Arial,'Apple SD Gothic Neo','N
 MONO = "'Amazon Ember Mono',ui-monospace,SFMono-Regular,Menlo,monospace"
 INK, MUTED, SOFT, ACCENT, RED, PAPER = "#232F3E", "#545B64", "#7D8998", "#EC7211", "#DD344C", "#FFFFFF"
 TEXT_2 = "#414D5C"     # edge labels and legend text: darker than MUTED, on white plates
+RULE = "#D5DBDB"       # hairlines (legend separator)
 
 # Every coordinate and size of the layout is a multiple of GRID, and the router's cells are GRID wide with their centres
 # on that grid, so a connector between two aligned icons is one straight line.
@@ -56,6 +58,8 @@ LABEL_SIZE, LABEL_LH = 12, 15            # node name: 12 px semibold ink
 NODE_DETAIL_SIZE, NODE_DETAIL_LH = 10, 12.5
 DETAIL_SIZE, EDGE_LABEL_LH = 10, 12.5    # edge labels
 MAX_LABEL_LINES, MAX_DETAIL_LINES = 3, 2
+ID_SIZE, ID_LH = 9, 12                   # resource ids, in mono
+HOP = 5                                  # radius of the bridge a less important connector makes where it crosses another
 GROUP_LABEL_SIZE, TITLE_LH = 12, 15
 TITLE_MIN_W = 360                         # a zone title wider than its content and this wraps to two lines
 WRAP_LABEL_SIZE = 10.5                   # title of a security group frame or a target group container
@@ -65,13 +69,13 @@ MARGIN = 24
 # Zone containers: border colour, dash pattern, group badge file (aws-icons/group/<file>), legend text. Official AWS
 # convention; FILLS are the official light fills of the subnet containers.
 ZONES = {
-    "region": ("#00A4A6", "6,4", "Region_32.svg", "Region"),
+    "region": ("#00A4A6", "4,4", "Region_32.svg", "Region"),
     "vpc": ("#8C4FFF", None, "Virtual-private-cloud-VPC_32.svg", "VPC"),
-    "az": ("#00A4A6", "6,4", None, "Availability Zone"),
+    "az": ("#00A4A6", "4,4", None, "Availability Zone"),
     "subnet": ("#00A4A6", None, "Private-subnet_32.svg", "Private subnet"),
     "public-subnet": ("#7AA116", None, "Public-subnet_32.svg", "Public subnet"),
     "subnet-span": ("#00A4A6", "2,4", None, "Resources spanning several subnets"),
-    "services": ("#7D8998", "6,4", None, "Regional services outside the VPC"),
+    "services": ("#7D8998", "4,4", None, "Regional services outside the VPC"),
     "account": ("#E7157B", None, "AWS-Account_32.svg", "AWS account"),
     "cloud": ("#232F3E", None, "AWS-Cloud_32.svg", "AWS Cloud"),
     "security-group": ("#DD344C", "4,4", None, "Security group"),
@@ -86,12 +90,13 @@ STATES = {
     "observed": (INK, None, 1, "Observed in the account (configuration read by API)"),
     "retained": (INK, None, 1, "Retained as it is"),
     "declared": (MUTED, "3,3", 1, "Declared in a template or source; not observed as a resource"),
-    "changed": (ACCENT, None, 1.6, "Existing component the proposal changes"),
-    "proposed": (ACCENT, "5,3", 1.6, "Proposed; does not exist yet"),
-    "removal_candidate": (RED, "5,3", 1.6, "Candidate for removal"),
+    "changed": (ACCENT, None, 1, "Existing component the proposal changes"),
+    "proposed": (ACCENT, "4,3", 1.2, "Proposed; does not exist yet"),
+    "removal_candidate": (RED, "4,3", 1.2, "Candidate for removal"),
     "unresolved": (SOFT, "3,3", 1, "Could not be confirmed from the evidence"),
 }
 PLAIN_STATES = {"observed", "retained"}  # drawn without an outline, as in the official diagrams
+TAG_ONLY = {"changed"}                   # an existing component the proposal changes: its tag says so, no outline
 STATE_TAGS = {"proposed": "proposed", "changed": "changed", "removal_candidate": "removal candidate", "unresolved": "unconfirmed", "declared": "declared"}
 # Edges to these aggregate nodes (every resource is attached to some security group and route table) are not routed
 # lines: a security group attachment is a frame around the source node, a route table attachment a chip on it. The edge
@@ -347,6 +352,17 @@ def wrap(text, size, width, max_lines, bold=False):
     return lines, truncated
 
 
+def short_id(native):
+    """An AWS resource id shortened for a drawing: the prefix, the first and last four hex digits (sg-0313…8235)."""
+    m = re.match(r"^([a-z]+(?:-[a-z]+)*)-([0-9a-f]{8,17})$", str(native or ""))
+    return f"{m.group(1)}-{m.group(2)[:4]}…{m.group(2)[-4:]}" if m and len(m.group(2)) > 8 else str(native or "")
+
+
+def detail_ids(text):
+    """The raw resource ids visible_detail() takes out of a detail line, shortened, for the node's id line."""
+    return [short_id(p.strip()) for p in str(text or "").split(" · ") if RAW_ID.match(p.strip())]
+
+
 def visible_detail(text, label=""):
     """The detail line without raw resource ids (i-0f7..., nat-08a...) and, under a label that already counts the
     resources ("Security groups × 11"), without the word "Aggregated". Both stay in the node's <title>."""
@@ -446,6 +462,12 @@ def node_lines(node, width=TEXT_W):
     return label, detail, t1 or t2
 
 
+def id_line(node, width=TEXT_W):
+    """The node's resource id, shortened, in mono under its text (only when the detail line carried a raw id)."""
+    ids = detail_ids(node.get("detail", ""))
+    return fit_line(", ".join(ids), ID_SIZE, width) if ids else ""
+
+
 BADGE_ROW = 16     # a row of route-table chips under the node text
 LINK_ROW = 24      # one chip per connector to a component of another view
 LINK_MAX_W = 224   # a node cell widens up to this to show the name on such a chip
@@ -468,7 +490,7 @@ def node_size(node, badges=0, links=0):
     key = (node.get("label"), node.get("detail"), badges, links)
     if key not in _SIZES:
         label, detail, _ = node_lines(node)
-        text_h = len(label) * LABEL_LH + (len(detail) * NODE_DETAIL_LH + 3 if detail else 0)
+        text_h = len(label) * LABEL_LH + (len(detail) * NODE_DETAIL_LH + 3 if detail else 0) + (ID_LH if id_line(node) else 0)
         _SIZES[key] = (NODE_W, snap(NODE_TOP + ICON + 6 + text_h + 4 + (BADGE_ROW if badges else 0) + LINK_ROW * links))
     return _SIZES[key]
 
@@ -485,8 +507,16 @@ def is_badge_edge(edge, nodes):
     return "badge" in hint or target.get("type") in BADGE_TARGETS
 
 
-def subnet_order(group):
-    return (0 if is_public_subnet(group) else 1, str(group.get("label", "")).lower())
+def subnet_order(group, index=0):
+    """Public subnets first, then by address (app subnets usually come before database subnets), so the order does not
+    depend on the language of the labels; without an address, the graph's own order decides."""
+    import ipaddress
+    found = re.search(r"\b(\d{1,3}(?:\.\d{1,3}){3}/\d{1,2})\b", str(group.get("label", "")))
+    try:
+        net = int(ipaddress.ip_network(found.group(1), strict=False).network_address) if found else 1 << 40
+    except ValueError:
+        net = 1 << 40
+    return (0 if is_public_subnet(group) else 1, net, index)
 
 
 def grid(items, columns):
@@ -677,7 +707,8 @@ class Layout:
         else:
             fixed = [c for c in self.children[gid] if not self.is_wrap(c)]
             if kind == "az":
-                fixed.sort(key=lambda c: subnet_order(self.groups[c]))
+                order = list(self.groups)
+                fixed.sort(key=lambda c: subnet_order(self.groups[c], order.index(c)))
             units = self.unit_order(gid)
             items = fixed + units
             cols = 1 if kind == "az" else max(1, self.cols.get(gid) or columns_for(len(items), kind))
@@ -715,8 +746,10 @@ class Layout:
             subs = self.children[az]
             if self.members[az] or any(self.kind(s) != "subnet" for s in subs):
                 return
-            public = sorted([s for s in subs if is_public_subnet(self.groups[s])], key=lambda s: str(self.groups[s].get("label", "")).lower())
-            private = sorted([s for s in subs if not is_public_subnet(self.groups[s])], key=lambda s: str(self.groups[s].get("label", "")).lower())
+            order = list(self.groups)
+            ranked = sorted(subs, key=lambda s: subnet_order(self.groups[s], order.index(s)))  # address, then graph order: not the label's language
+            public = [s for s in ranked if is_public_subnet(self.groups[s])]
+            private = [s for s in ranked if not is_public_subnet(self.groups[s])]
             columns[az] = [((0, i), s) for i, s in enumerate(public)] + [((1, i), s) for i, s in enumerate(private)]
         if len(columns) < 2:
             return
@@ -822,13 +855,30 @@ WRAPPER_TYPES = {"elbv2.target-group": "target-group", "autoscaling.group": "aut
                  "ec2.security-group": "security-group"}
 
 
+def member_lines(grouping, ids, kind, say):
+    """(title, mono detail) of a frame or container for the grouping resources `ids` (from the graph's `members`):
+    the name and the short id or port, so a reader can find the resource in the console."""
+    members = {m["id"]: m for m in (grouping or {}).get("members") or []}
+    found = [members[i] for i in ids if i in members]
+    if not found:
+        return None
+    if len(found) == 1:
+        m = found[0]
+        ref = m.get("detail") if kind == "target-group" else short_id(m.get("native_id"))
+        return m["name"], ref or ""
+    return ", ".join(m["name"] for m in found), ", ".join(short_id(m.get("native_id")) if kind != "target-group" else (m.get("detail") or "") for m in found)
+
+
 def wrap_groups(graph, say=lambda text: text):
     """The view graph with grouping resources turned into containers. A target group (or Auto Scaling group, or node
     group) whose members all sit in one zone becomes a dashed container around them inside that zone: the container
     carries the resource's node id, connectors to the resource end at its border, and the membership edges are drawn by
-    the containment (their ids are on the container). A security group attachment becomes a red dashed frame around the
-    attached component, carrying the attachment edge's id; the security group node itself stays where it is. Anything
-    that cannot be drawn this way keeps the plain drawing."""
+    the containment (their ids are on the container). An aggregate of target groups whose members each belong to one
+    target group becomes one container per target group, named with its name and port; a connector to the aggregate
+    goes to each target group it concerns (the extra lines repeat the edge id as data-edge-repeat). A security group
+    attachment becomes a red dashed frame around the attached component, titled with the group's name and short id,
+    carrying the attachment edge's id; the security group node itself stays where it is. Anything that cannot be drawn
+    this way keeps the plain drawing."""
     nodes = {n["id"]: dict(n) for n in graph["nodes"]}
     known = {**graph.get("refs", {}), **nodes}
     groups = [dict(g) for g in graph.get("groups", [])]
@@ -845,6 +895,11 @@ def wrap_groups(graph, say=lambda text: text):
         while gid:
             out.add(gid); gid = parent_of.get(gid)
         return out
+
+    def container(gid, kind, w, label, detail, home, k=0):
+        groups.append({"id": gid, "kind": kind, "label": label, "detail": detail, "parent": home, "wraps": w["id"],
+                       "state": w.get("state") or "observed", "title": " ".join(filter(None, [label, detail]))})
+        parent_of[gid] = home
     badge_sources = {e["source"] for e in edges if is_badge_edge(e, known)}
     for wid in [n["id"] for n in graph["nodes"]]:
         w = nodes.get(wid)
@@ -856,17 +911,52 @@ def wrap_groups(graph, say=lambda text: text):
         else:
             mine = [e for e in edges if wid in (e["source"], e["target"]) and node_type(nodes.get(e["target"] if e["source"] == wid else e["source"]) or {}) == "ec2.instance"]
         mine = [e for e in mine if e["id"] not in taken]
-        members = list(dict.fromkeys(e["target"] if e["source"] == wid else e["source"] for e in mine))
+        member_of = lambda e: e["target"] if e["source"] == wid else e["source"]  # noqa: E731
+        members = list(dict.fromkeys(member_of(e) for e in mine))
+        if not members:
+            continue
+        # One container per target group, when every membership edge names exactly one and each one's members share a zone.
+        per = {}
+        if kind == "target-group" and w.get("members") and all(len(e.get("source_resources") or []) == 1 for e in mine):
+            for e in mine:
+                per.setdefault(e["source_resources"][0], []).append(e)
+            homes = {t: {nodes[member_of(e)].get("group") for e in es} for t, es in per.items()}
+            if set(per) != {m["id"] for m in w["members"]} or any(len(h) != 1 or None in h or (w.get("group") and w["group"] not in ancestry(next(iter(h)))) for h in homes.values()):
+                per = {}
+        if per:
+            order = [m["id"] for m in w["members"] if m["id"] in per]
+            ids = {}
+            for k, tg in enumerate(order):
+                gid = "~wrap:" + wid + (f"~{k}" if k else "")
+                label, detail = member_lines(w, [tg], kind, say)
+                container(gid, kind, w, label, detail, next(iter({nodes[member_of(e)].get("group") for e in per[tg]})), k)
+                for e in per[tg]:
+                    nodes[member_of(e)]["group"] = gid
+                carried[gid] = per[tg]
+                taken |= {e["id"] for e in per[tg]}
+                ids[tg] = gid
+            del nodes[wid]
+            extra = []
+            for e in edges:
+                if e["id"] in taken or wid not in (e["source"], e["target"]):
+                    continue
+                end = "target" if e["target"] == wid else "source"
+                ends = [ids[t] for t in e.get(f"{end}_resources") or [] if t in ids] or [ids[order[0]]]
+                e[end] = ends[0]
+                for j, other in enumerate(ends[1:], 1):
+                    extra.append(dict(e, id=f"{e['id']}~{j}", label="", repeat_of=e["id"], **{end: other}))
+            edges += extra
+            continue
         homes = {nodes[m].get("group") for m in members}
-        if not members or len(homes) != 1:
+        if len(homes) != 1:
             continue
         home = homes.pop()
         if home is None or (w.get("group") and w["group"] not in ancestry(home)):
             continue
         gid = "~wrap:" + wid
-        groups.append({"id": gid, "kind": kind, "label": w.get("label", ""), "detail": visible_detail(w.get("detail"), w.get("label", "")), "parent": home,
-                       "wraps": wid, "state": w.get("state") or "observed", "title": " ".join(filter(None, [w.get("label"), w.get("detail")]))})
-        parent_of[gid] = home
+        named = member_lines(w, [m["id"] for m in w.get("members") or []], kind, say) if len(w.get("members") or []) == 1 else None
+        label, detail = named or (w.get("label", ""), visible_detail(w.get("detail"), w.get("label", "")))
+        container(gid, kind, w, label, detail, home)
         for m in members:
             nodes[m]["group"] = gid
         carried[gid] = mine
@@ -882,10 +972,13 @@ def wrap_groups(graph, say=lambda text: text):
             framed.setdefault(e["source"], []).append(e)
     for src, mine in framed.items():
         sg = known.get(mine[0]["target"]) or {}
+        ids = list(dict.fromkeys(x for e in mine for x in e.get("target_resources") or []))
+        named = member_lines(sg, ids, "security-group", say)
         single = len(mine) == 1 and len(sg.get("resource_ids") or []) <= 1 and "×" not in str(sg.get("label", ""))
+        label, detail = named or ((sg.get("label") if single and sg.get("label") else say("Security group")), "")
         gid = "~frame:" + src
-        groups.append({"id": gid, "kind": "security-group", "label": sg.get("label") if single and sg.get("label") else say("Security group"),
-                       "parent": nodes[src].get("group"), "frame_for": src})
+        groups.append({"id": gid, "kind": "security-group", "label": label, "detail": detail, "parent": nodes[src].get("group"), "frame_for": src,
+                       "title": " ".join(filter(None, [say("Security group"), label, detail]))})
         parent_of[gid] = nodes[src].get("group")
         nodes[src]["group"] = gid
         carried[gid] = mine
@@ -1457,7 +1550,7 @@ def place_labels(graph, routes, boxes, badge_ids, headers, extent, first=1):
                         continue
                     for frac in (0.5, 0.35, 0.65, 0.2, 0.8):
                         px, py = a[0] + (b[0] - a[0]) * frac, a[1] + (b[1] - a[1]) * frac
-                        for bx, by in ([(px - w / 2, py - h - 3), (px - w / 2, py + 3)] if horizontal else [(px + 5, py - h / 2), (px - 5 - w, py - h / 2)]):
+                        for bx, by in ([(px - w / 2, py - h - 6), (px - w / 2, py + 6)] if horizontal else [(px + 8, py - h / 2), (px - 8 - w, py - h / 2)]):
                             box = (bx, by, w, h)
                             if free(box) and not crossed(box, e["id"]) and not (strict and on_border(box)):
                                 return {"lines": lines, "box": box}
@@ -1485,19 +1578,65 @@ def place_labels(graph, routes, boxes, badge_ids, headers, extent, first=1):
     return out, keyed
 
 
-def points_to_path(pts, radius=6):
-    """An orthogonal polyline with rounded bends (quadratic corners of `radius`, smaller on short runs)."""
-    if len(pts) < 3:
-        return "M " + " L ".join(f"{x:.1f} {y:.1f}" for x, y in pts)
+def points_to_path(pts, radius=8, hops=None):
+    """An orthogonal polyline with rounded bends (quadratic corners of `radius`, smaller on short runs) and a small
+    bridge (a half circle of HOP) where `hops` says it crosses a more important connector: {segment index: [distance
+    from the segment's start]}."""
+    if len(pts) < 2:
+        return ""
+    hops = hops or {}
+    n = len(pts)
+    length = lambda a, b: abs(b[0] - a[0]) + abs(b[1] - a[1])  # noqa: E731
+    rad = [0.0] * n
+    for i in range(1, n - 1):
+        rad[i] = min(radius, length(pts[i - 1], pts[i]) / 2, length(pts[i], pts[i + 1]) / 2)
     out = [f"M {pts[0][0]:.1f} {pts[0][1]:.1f}"]
-    for a, p, b in zip(pts, pts[1:], pts[2:]):
-        la, lb = abs(p[0] - a[0]) + abs(p[1] - a[1]), abs(b[0] - p[0]) + abs(b[1] - p[1])
-        r = min(radius, la / 2, lb / 2)
-        ux, uy = ((p[0] - a[0]) / la, (p[1] - a[1]) / la) if la else (0, 0)
-        vx, vy = ((b[0] - p[0]) / lb, (b[1] - p[1]) / lb) if lb else (0, 0)
-        out.append(f"L {p[0] - ux * r:.1f} {p[1] - uy * r:.1f} Q {p[0]:.1f} {p[1]:.1f} {p[0] + vx * r:.1f} {p[1] + vy * r:.1f}")
-    out.append(f"L {pts[-1][0]:.1f} {pts[-1][1]:.1f}")
+    for i in range(n - 1):
+        a, b = pts[i], pts[i + 1]
+        seg = length(a, b)
+        ux, uy = ((b[0] - a[0]) / seg, (b[1] - a[1]) / seg) if seg else (0, 0)
+        sweep = 1 if ux > 0 or uy > 0 else 0
+        for t in sorted(hops.get(i, [])):
+            if t - HOP < rad[i] + 4 or t + HOP > seg - rad[i + 1] - 4:
+                continue
+            h0, h1 = (a[0] + ux * (t - HOP), a[1] + uy * (t - HOP)), (a[0] + ux * (t + HOP), a[1] + uy * (t + HOP))
+            out.append(f"L {h0[0]:.1f} {h0[1]:.1f} A {HOP} {HOP} 0 0 {sweep} {h1[0]:.1f} {h1[1]:.1f}")
+        end = (b[0] - ux * rad[i + 1], b[1] - uy * rad[i + 1])
+        out.append(f"L {end[0]:.1f} {end[1]:.1f}")
+        if i + 1 < n - 1:
+            c = pts[i + 2]
+            nl = length(b, c)
+            vx, vy = ((c[0] - b[0]) / nl, (c[1] - b[1]) / nl) if nl else (0, 0)
+            out.append(f"Q {b[0]:.1f} {b[1]:.1f} {b[0] + vx * rad[i + 1]:.1f} {b[1] + vy * rad[i + 1]:.1f}")
     return " ".join(out)
+
+
+EDGE_RANK = {"observed_configuration": 3, "observed": 3, "proposed": 3, "declared": 2, "unresolved": 1}
+
+
+def crossing_hops(graph, routes, badge_edges):
+    """Where each connector bridges another: at every crossing of a horizontal and a vertical run, the less important
+    connector (declared before unconfirmed; among equals the later one) makes the hop, as aws-diagram-design asks.
+    Returns {edge id: {segment index: [distance from the segment's start]}}."""
+    order = [e for e in graph["edges"] if e["id"] in routes and e not in badge_edges]
+    rank = {e["id"]: (EDGE_RANK.get(e.get("state") or "observed_configuration", 3), -i) for i, e in enumerate(order)}
+    segs = {e["id"]: list(zip(routes[e["id"]][0], routes[e["id"]][0][1:])) for e in order}
+    out = {}
+    ids = [e["id"] for e in order]
+    for i, ea in enumerate(ids):
+        for eb in ids[i + 1:]:
+            for ia, (a0, a1) in enumerate(segs[ea]):
+                for ib, (b0, b1) in enumerate(segs[eb]):
+                    ha, hb = abs(a0[1] - a1[1]) < 0.5, abs(b0[1] - b1[1]) < 0.5
+                    if ha == hb:
+                        continue
+                    (h0, h1, ih, eh), (v0, v1, iv, ev) = ((a0, a1, ia, ea), (b0, b1, ib, eb)) if ha else ((b0, b1, ib, eb), (a0, a1, ia, ea))
+                    x, y = v0[0], h0[1]
+                    if not (min(h0[0], h1[0]) + 2 < x < max(h0[0], h1[0]) - 2 and min(v0[1], v1[1]) + 2 < y < max(v0[1], v1[1]) - 2):
+                        continue
+                    hopper, seg, start = (eh, ih, h0) if rank[eh] < rank[ev] else (ev, iv, v0)
+                    out.setdefault(hopper, {}).setdefault(seg, []).append(abs(x - start[0]) + abs(y - start[1]))
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -1549,6 +1688,8 @@ def translated_graph(graph, translate):
         if g.get(key):
             g[key] = translate(g[key])
     for item in g.get("groups", []):
+        if (item.get("kind") or "") == "subnet" and "public" not in item:
+            item["public"] = is_public_subnet(item)  # decided on the English label, before it is translated
         if item.get("label"):
             item["label"] = translate(item["label"])
     for item in g.get("nodes", []):
@@ -1715,7 +1856,7 @@ def draw_view(view, dx, dy, icon_set, say, notes, drawn=None, all_nodes=None):
     graph, boxes, routes, labels = view["graph"], view["boxes"], view["routes"], view["labels"]
     groups = {g["id"]: g for g in graph.get("groups", [])}
     nodes_by_id, badge_edges = view["nodes"], view["badge_edges"]
-    names = {**(all_nodes or {}), **nodes_by_id}
+    names = {**(all_nodes or {}), **nodes_by_id, **{gid: {"label": g.get("title") or g.get("label")} for gid, g in groups.items() if gid.startswith("~")}}
     carried = graph.get("carried", {})
     out, top = [], []
     for gid in sorted(groups, key=lambda g: (group_depth(groups, g), list(groups).index(g))):
@@ -1732,7 +1873,7 @@ def draw_view(view, dx, dy, icon_set, say, notes, drawn=None, all_nodes=None):
             else:
                 marker = f'data-frame-for="{esc(g.get("frame_for") or "")}" data-kind="{esc(kind)}"'
             title = g.get("title") or g.get("label") or ""
-            out.append(f'{opener}<g {marker}><title>{esc(title)}</title><rect x="{x:.1f}" y="{y:.1f}" width="{w:.1f}" height="{h:.1f}" rx="4" fill="none" stroke="{color}" stroke-width="1.2"{dash_attr}/>')
+            out.append(f'{opener}<g {marker}><title>{esc(title)}</title><rect x="{x:.1f}" y="{y:.1f}" width="{w:.1f}" height="{h:.1f}" rx="4" fill="none" stroke="{color}" stroke-width="1"{dash_attr}/>')
             label_x = x + 6
             icon = icon_set.inner(f"group/{badge}") if badge else None
             if icon:
@@ -1743,18 +1884,18 @@ def draw_view(view, dx, dy, icon_set, say, notes, drawn=None, all_nodes=None):
             if line:
                 out.append(f'<text x="{label_x:.1f}" y="{y + 13:.1f}" font-size="{WRAP_LABEL_SIZE}" font-weight="600" fill="{color}">{esc(line)}</text>')
             if g.get("detail"):
-                out.append(f'<text x="{label_x:.1f}" y="{y + 27:.1f}" font-size="{DETAIL_SIZE}" fill="{TEXT_2}">{esc(fit_line(g["detail"], DETAIL_SIZE, x + w - label_x - 6))}</text>')
+                out.append(f'<text x="{label_x:.1f}" y="{y + 26:.1f}" font-size="{ID_SIZE}" fill="{TEXT_2}" font-family="{MONO}">{esc(fit_line(g["detail"], ID_SIZE * 1.12, x + w - label_x - 6))}</text>')
             if state in STATE_TAGS:
                 s_color = STATES.get(state, STATES["observed"])[0]
                 tag_text = say(STATE_TAGS[state])
                 tw = text_width(tag_text, 8, True) + 10
-                out.append(f'<rect x="{x + w - tw - 6:.1f}" y="{y - 7:.1f}" width="{tw:.1f}" height="14" rx="7" fill="{s_color}"/>'
+                out.append(f'<rect x="{x + w - tw - 6:.1f}" y="{y - 7:.1f}" width="{tw:.1f}" height="14" rx="3" fill="{s_color}"/>'
                            f'<text x="{x + w - tw / 2 - 6:.1f}" y="{y + 3.3:.1f}" font-size="8" font-weight="700" fill="{PAPER}" text-anchor="middle">{esc(tag_text)}</text>')
             out.append("</g>" + "</g>" * len(carried.get(gid, [])))
             continue
         fill = FILLS.get(kind)
         fill_attr = f' fill="{fill}"' if fill else ' fill="none"'
-        out.append(f'<g {ident("group", gid)} data-kind="{esc(kind)}"><rect x="{x:.1f}" y="{y:.1f}" width="{w:.1f}" height="{h:.1f}" stroke="{color}" stroke-width="1.2"{dash_attr}{fill_attr}/>')
+        out.append(f'<g {ident("group", gid)} data-kind="{esc(kind)}"><rect x="{x:.1f}" y="{y:.1f}" width="{w:.1f}" height="{h:.1f}" stroke="{color}" stroke-width="1"{dash_attr}{fill_attr}/>')
         label_x = x + 8
         icon = icon_set.inner(f"group/{badge}") if badge else None
         if icon:
@@ -1772,6 +1913,7 @@ def draw_view(view, dx, dy, icon_set, say, notes, drawn=None, all_nodes=None):
         out.append("</g>")
     out.append(f'<g transform="translate({dx:.1f},{dy:.1f})" fill="none">')
     edge_states, missing_routes = set(), []
+    hops = crossing_hops(graph, routes, badge_edges)
     for e in graph["edges"]:
         if e in badge_edges:
             continue
@@ -1783,8 +1925,7 @@ def draw_view(view, dx, dy, icon_set, say, notes, drawn=None, all_nodes=None):
         edge_states.add(state if state in EDGE_STATES else "observed_configuration")
         dash_attr = f' stroke-dasharray="{dash}"' if dash else ""
         marker = "arrow-accent" if color == ACCENT else "arrow-soft" if color == SOFT else "arrow"
-        width = 1.5 if not dash else 1.3
-        out.append(f'<g {ident("edge", e["id"])}><title>{esc(edge_title(e, names))}</title><path d="{points_to_path(pts)}" stroke="{color}" stroke-width="{width}"{dash_attr} stroke-linejoin="round" marker-end="url(#{marker})"/></g>')
+        out.append(f'<g {ident("edge", e.get("repeat_of") or e["id"])}><title>{esc(edge_title(e, names))}</title><path d="{points_to_path(pts, hops=hops.get(e["id"]))}" stroke="{color}" stroke-width="1.2"{dash_attr} stroke-linejoin="round" marker-end="url(#@@SLUG@@-{marker})"/></g>')
     out.append("</g>")
     top.append(f'<g transform="translate({dx:.1f},{dy:.1f})">')
     for eid, spot in labels.items():
@@ -1812,7 +1953,7 @@ def draw_view(view, dx, dy, icon_set, say, notes, drawn=None, all_nodes=None):
             notes.append(f"node {n['id']}: text shortened to {MAX_LABEL_LINES}+{MAX_DETAIL_LINES} lines")
         title_text = " ".join(filter(None, [n.get("label"), n.get("detail")]))
         out.append(f'<g data-node-id="{esc(n["id"])}" data-state="{esc(state)}"><title>{esc(title_text)}</title>')
-        if state not in PLAIN_STATES:
+        if state not in PLAIN_STATES | TAG_ONLY:
             dash_attr = f' stroke-dasharray="{dash}"' if dash else ""
             out.append(f'<rect x="{x:.1f}" y="{y:.1f}" width="{w:.1f}" height="{h:.1f}" rx="6" fill="none" stroke="{color}" stroke-width="{sw}"{dash_attr}/>')
         icon_path, cat_color, tag = icon_for(n)
@@ -1831,10 +1972,13 @@ def draw_view(view, dx, dy, icon_set, say, notes, drawn=None, all_nodes=None):
         ty += 3 - (LABEL_LH - NODE_DETAIL_LH) if detail else 0
         for line in detail:
             out.append(f'<text x="{cx_text:.1f}" y="{ty:.1f}" font-size="{NODE_DETAIL_SIZE}" fill="{MUTED}" text-anchor="middle">{esc(line)}</text>'); ty += NODE_DETAIL_LH
+        rid = id_line(n)
+        if rid:
+            out.append(f'<text x="{cx_text:.1f}" y="{ty + 1:.1f}" font-size="{ID_SIZE}" fill="{SOFT}" text-anchor="middle" font-family="{MONO}">{esc(rid)}</text>'); ty += ID_LH
         if state in STATE_TAGS:
             tag_text = say(STATE_TAGS[state])
             tw = text_width(tag_text, 8, True) + 10
-            out.append(f'<rect x="{x + w - tw - 6:.1f}" y="{y - 7:.1f}" width="{tw:.1f}" height="14" rx="7" fill="{color}"/>'
+            out.append(f'<rect x="{x + w - tw - 6:.1f}" y="{y - 7:.1f}" width="{tw:.1f}" height="14" rx="3" fill="{color}"/>'
                        f'<text x="{x + w - tw / 2 - 6:.1f}" y="{y + 3.3:.1f}" font-size="8" font-weight="700" fill="{PAPER}" text-anchor="middle">{esc(tag_text)}</text>')
         mine = [e for e in badge_edges if e["source"] == n["id"]]
         my_links = links.get(n["id"], [])
@@ -2019,14 +2163,16 @@ def render(graph, output, name, title=None, note=None, icons=None, language="en"
         color, dash, sw, text = STATES[s]
         if s in PLAIN_STATES:
             items.append((lambda lx, ly: f'<rect x="{lx + 5}" y="{ly - 10:.1f}" width="12" height="12" rx="2" fill="#879196"/>', say(text)))
+        elif s in TAG_ONLY:
+            items.append((lambda lx, ly, c=color, t=say(STATE_TAGS[s]): f'<rect x="{lx}" y="{ly - 10:.1f}" width="22" height="12" rx="3" fill="{c}"/>', say(text)))
         else:
             items.append((lambda lx, ly, c=color, d=dash, w=sw: f'<rect x="{lx}" y="{ly - 9:.1f}" width="22" height="12" rx="3" fill="{PAPER}" stroke="{c}" stroke-width="{w}"'
                           + (f' stroke-dasharray="{d}"' if d else "") + "/>", say(text)))
     for s in sorted(edge_states, key=lambda s: list(EDGE_STATES).index(s)):
         color, dash, text = EDGE_STATES[s]
         marker = "arrow-accent" if color == ACCENT else "arrow-soft" if color == SOFT else "arrow"
-        items.append((lambda lx, ly, c=color, d=dash, m=marker: f'<line x1="{lx}" y1="{ly - 3:.1f}" x2="{lx + 22}" y2="{ly - 3:.1f}" stroke="{c}" stroke-width="1.4"'
-                      + (f' stroke-dasharray="{d}"' if d else "") + f' marker-end="url(#{m})"/>', say(text)))
+        items.append((lambda lx, ly, c=color, d=dash, m=marker: f'<line x1="{lx}" y1="{ly - 3:.1f}" x2="{lx + 22}" y2="{ly - 3:.1f}" stroke="{c}" stroke-width="1.2"'
+                      + (f' stroke-dasharray="{d}"' if d else "") + f' marker-end="url(#@@SLUG@@-{m})"/>', say(text)))
     for kind, (color, dash, badge, text) in kinds_seen:
         fill = FILLS.get(kind)
         items.append((lambda lx, ly, c=color, d=dash, f=fill: f'<rect x="{lx}" y="{ly - 9:.1f}" width="22" height="12" fill="{f or "none"}" stroke="{c}" stroke-width="1.2"'
@@ -2037,13 +2183,14 @@ def render(graph, output, name, title=None, note=None, icons=None, language="en"
     if any(v["graph"].get("links") for v in views):
         items.append((lambda lx, ly: f'<rect x="{lx}" y="{ly - 10:.1f}" width="22" height="13" rx="6.5" fill="{PAPER}" stroke="{MUTED}" stroke-width="1"/>'
                       f'<text x="{lx + 11}" y="{ly:.1f}" font-size="9" font-weight="700" fill="{MUTED}" text-anchor="middle">→</text>', say(LINK_LEGEND)))
-    legend = [f'<text x="{MARGIN}" y="{y + 28:.1f}" font-size="11" font-weight="700" fill="{INK}">{esc(say("Legend"))}</text>']
+    legend = [f'<line x1="{MARGIN}" y1="{y + 14:.1f}" x2="{width - MARGIN:.1f}" y2="{y + 14:.1f}" stroke="{RULE}" stroke-width="0.8"/>',
+              f'<text x="{MARGIN}" y="{y + 30:.1f}" font-size="9" font-weight="700" fill="{MUTED}" font-family="{MONO}" letter-spacing="1.6">{esc(say("Legend").upper())}</text>']
     block, block_h = legend_block(items, MARGIN, y + 46, width - 2 * MARGIN)
     legend += block
     y_cursor = y + 46 + block_h
     if keyed:
         y_cursor += 10
-        legend.append(f'<text x="{MARGIN}" y="{y_cursor:.1f}" font-size="11" font-weight="700" fill="{INK}">{esc(say("Connections"))}</text>')
+        legend.append(f'<text x="{MARGIN}" y="{y_cursor:.1f}" font-size="9" font-weight="700" fill="{MUTED}" font-family="{MONO}" letter-spacing="1.6">{esc(say("Connections").upper())}</text>')
         y_cursor += 16
         for number, text in keyed:
             lines, _ = wrap(text, 10, max(400, width - 2 * MARGIN - 40), 3)
@@ -2059,14 +2206,14 @@ def render(graph, output, name, title=None, note=None, icons=None, language="en"
     subtitle = graph.get("subtitle") or ""
     head = (f'<text x="{MARGIN}" y="34" font-size="20" font-weight="700" fill="{INK}">{esc(heading)}</text>'
             + (f'<text x="{MARGIN}" y="52" font-size="11" fill="{MUTED}">{esc(subtitle)}</text>' if subtitle else ""))
-    defs = ('<defs>'
-            f'<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="{MUTED}"/></marker>'
-            f'<marker id="arrow-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="{ACCENT}"/></marker>'
-            f'<marker id="arrow-soft" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="{SOFT}"/></marker>'
-            '</defs>')
-    svg = (f'<svg xmlns="http://www.w3.org/2000/svg" width="{width:.0f}" height="{height:.0f}" viewBox="0 0 {width:.0f} {height:.0f}" role="img" lang="{esc(language)}" aria-labelledby="dg-title dg-desc" data-renderer="aws_diagram" data-views="{len(views)}">'
-           f'<title id="dg-title">{esc(heading)}</title><desc id="dg-desc">{esc(subtitle or note or heading)}</desc>{defs}'
-           f'<rect width="100%" height="100%" fill="{PAPER}"/><g font-family="{SANS}">{head}{"".join(out)}{"".join(top)}{"".join(legend)}</g></svg>\n')
+    slug = re.sub(r"[^a-z0-9]+", "-", str(name).lower()).strip("-") + "-" + hashlib.sha1(heading.encode("utf-8")).hexdigest()[:6]
+    defs = ('<defs>' + "".join(
+        f'<marker id="{slug}-{mid}" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto" markerUnits="userSpaceOnUse">'
+        f'<polygon points="0 0, 8 3, 0 6" fill="{fill}"/></marker>' for mid, fill in (("arrow", MUTED), ("arrow-accent", ACCENT), ("arrow-soft", SOFT))) + '</defs>')
+    body = f'{head}{"".join(out)}{"".join(top)}{"".join(legend)}'.replace("@@SLUG@@", slug)
+    svg = (f'<svg xmlns="http://www.w3.org/2000/svg" width="{width:.0f}" height="{height:.0f}" viewBox="0 0 {width:.0f} {height:.0f}" role="img" lang="{esc(language)}" aria-labelledby="{slug}-title {slug}-desc" data-renderer="aws_diagram" data-views="{len(views)}">'
+           f'<title id="{slug}-title">{esc(heading)}</title><desc id="{slug}-desc">{esc(subtitle or note or heading)}</desc>{defs}'
+           f'<rect width="100%" height="100%" fill="{PAPER}"/><g font-family="{SANS}">{body}</g></svg>\n')
     # Geometry QA per view: nodes inside their group, no node overlap, connectors end at their nodes and never run through
     # another node, labels clear of nodes, titles and each other.
     merged = {}

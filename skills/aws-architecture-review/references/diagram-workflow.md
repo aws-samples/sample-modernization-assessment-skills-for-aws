@@ -54,6 +54,15 @@ arrows or make up topology. If workload relationships remain unavailable after e
   component, a target group whose registered components sit in one zone is a purple dashed container around them, an
   Auto Scaling group or EKS node group is an orange dashed container around its instances. The membership edges are
   drawn by the containment and keep their ids on the container; connectors to the target group end at its border.
+  With `--inventory`, diagram.py writes each grouping resource's name and id into the graph (`members`, and
+  `target_resources` / `source_resources` on the edges), so a frame is titled with the security group's name and short
+  id (`sg-0313…8235`), and an aggregate of target groups becomes one container per target group (name, protocol and
+  port) with a listener line to each target group it serves (extra lines repeat the edge id as `data-edge-repeat`).
+- Style follows the aws-diagram-design skill: 1 px zone borders with 4,4 dashes, rounded bends (r 8), a small bridge
+  where a less important connector (declared, then unconfirmed) crosses another, 8 x 6 arrowheads, labels 6-8 px off
+  their line on a white plate, a component the proposal changes marked by its tag only (outlines for proposed, removal
+  candidate, declared and unconfirmed components), resource ids in mono under the name, a legend strip under a
+  hairline, and ids prefixed per drawing (`<name>-<hash>-title`, `-arrow`) so several drawings can sit in one page.
 - The arrangement is searched, not fixed: column counts and member order (barycentre of the connected components) are
   tried and the arrangement with the fewest crossings, bends and the shortest connectors wins; the result is the same
   for the same graph. Names wrap at spaces first and split an over-long identifier only at - _ / without leaving a

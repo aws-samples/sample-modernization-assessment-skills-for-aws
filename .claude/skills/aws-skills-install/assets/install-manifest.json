@@ -274,10 +274,10 @@
     {
       "name": "aws-architecture-review",
       "source": "skills/aws-architecture-review",
-      "digest": "4ef092e964f2b7ad146a6553d77b520066c74f63c35cada98d50abdd67996cc4",
+      "digest": "4aed1038a8797185ff0f1cd3ce2bf95d8beeb2fed809dd2f0a54b418883dd85a",
       "stamp": {
         "package": "moda-skills",
-        "sha256": "4ef092e964f2b7ad146a6553d77b520066c74f63c35cada98d50abdd67996cc4"
+        "sha256": "4aed1038a8797185ff0f1cd3ce2bf95d8beeb2fed809dd2f0a54b418883dd85a"
       },
       "files": [
         {
@@ -302,8 +302,8 @@
         },
         {
           "path": "references/diagram-workflow.md",
-          "bytes": 8210,
-          "sha256": "f5e1fca8e08cd45176f6f290ce89753dcaedd25036a240855e0b1ea208b74cb5"
+          "bytes": 9251,
+          "sha256": "b70de49536daf9d01b5e7e503786b1e8867cbbca816d8d6e2de7a173d6844cca"
         },
         {
           "path": "references/review-method.md",
@@ -317,13 +317,13 @@
         },
         {
           "path": "scripts/aws_diagram.py",
-          "bytes": 123643,
-          "sha256": "912208cbf61e928e9aeedbccdf1962087b93f6cbea62173a5562fa8b853e741b"
+          "bytes": 132530,
+          "sha256": "c13ed0403635e8ec371a9d63cf754cee7d3d2a03c14996b05b0a15b6f5fe02e1"
         },
         {
           "path": "scripts/diagram.py",
-          "bytes": 39431,
-          "sha256": "1290c37ff63f0fdf5539ff731d9f3176f8d1cf207073963a56b6cfd8f6668869"
+          "bytes": 42735,
+          "sha256": "7fe07170bf6977b246bfb6a7b357f9b67038a9c1aa730c61a4621a1159158d40"
         },
         {
           "path": "scripts/iac_fixes.py",
@@ -360,10 +360,10 @@
     {
       "name": "aws-modernization-pathway",
       "source": "skills/aws-modernization-pathway",
-      "digest": "e7ef1383baa5e4a409f6097f3484b823387e6c14c6bcc75a28f68f171bac0e93",
+      "digest": "6a7235d2280edaee687f86dd41a61be525506f47014b9095d18f07ddea298b24",
       "stamp": {
         "package": "moda-skills",
-        "sha256": "e7ef1383baa5e4a409f6097f3484b823387e6c14c6bcc75a28f68f171bac0e93"
+        "sha256": "6a7235d2280edaee687f86dd41a61be525506f47014b9095d18f07ddea298b24"
       },
       "files": [
         {
@@ -468,8 +468,8 @@
         },
         {
           "path": "scripts/assessment_report.py",
-          "bytes": 164950,
-          "sha256": "fb3589a1ac92d11dfc3d19e14ebb9d1c7a07ff15b5229be89201f39e0b43b77c"
+          "bytes": 164978,
+          "sha256": "bc6b0e276f4af05ca1680882e96b885b12ada20dac2cfa909da0794b5dfe5e02"
         },
         {
           "path": "scripts/benefits.py",
