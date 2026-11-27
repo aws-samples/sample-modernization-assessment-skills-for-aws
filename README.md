@@ -52,9 +52,10 @@ procedure fixed so that the result depends less on who runs it.
   the change back, and the evidence. A specialist can also recommend no change for now. A
   validator rejects advice that cites references that do not exist, or that states amounts,
   schedules or improvement percentages without a source, or uses promotional wording. Based on
-  these reviews, the seven modernization directions (Container, Serverless, Managed Database,
-  Managed Analytics, GenAI, Cloud Native, Modern DevOps) are rated candidate, conditional, not
-  recommended or not assessed.
+  these reviews, the seven modernization directions (Container, Serverless, Managed Services,
+  Managed Database, Managed Analytics, GenAI, Open Source) and the two foundations that make the
+  moves safe (Modern DevOps, Cloud Native) are rated candidate, conditional, not recommended or
+  not assessed.
 - **Prices come from the AWS Price List API.** Costs are published On-Demand list prices with
   the basis they were calculated on. They are not a bill forecast, and the report does not
   estimate savings, dates or person-days.
@@ -72,8 +73,8 @@ artifacts/<workload>/<UTC run id>/
   03-as-is/        inventory.json, raw/, as-is-report.md   configuration evidence
   04-review/       findings.json, scorecard.json, review.html, diagrams/
   05-modernization/ specialists/<id>/ (advice, diagram), specialist-advice.json, pathways.json, diagrams/
-  06-assessment/   assessment.html, assessment.md     the English draft of the report
-  06-assessment-ko/ assessment.html                   the report in the language you asked for (here Korean)
+  06-assessment/   assessment.html, assessment.md     the report in English (summary, AS-IS, pillars, modernization, appendix)
+  06-assessment-ko/ assessment.html                   the same report in Korean, when the run started with lang ko
 ```
 
 ![Pillar grades with driving checks](docs/img/en/report-grades.png)
@@ -89,7 +90,7 @@ The unified report has these sections, in this order:
 7. Security recommendations, with local checks shown next to imported
    [Service Screener](skills/aws-architecture-review/references/service-screener.md) results
 8. Specialist SA Agent recommendations, each with its own architecture diagram
-9. The combined target architecture and the seven directions
+9. The combined target architecture, the seven directions and the two foundations
 10. Reference material and terms
 11. Evidence (collapsed), and an appendix with the method, scores and run provenance
 
@@ -111,16 +112,17 @@ The report is written in the language of your request, and the English draft is 
 |---|---|---|
 | 0 | [moda-skill](skills/moda-skill/SKILL.template.md) + [aws-skills-install](skills/aws-skills-install/SKILL.md) | The `/moda-skill` entry point and its subcommands; installation into the client with hash checks; MCP configuration |
 | 1 | [aws-cli-setup](skills/aws-cli-setup/SKILL.md) | Verified account and access |
-| 2 | [aws-mcp-setup](skills/aws-mcp-setup/SKILL.md) | AWS Knowledge MCP, D2, rendering tools, run metadata |
+| 2 | [aws-mcp-setup](skills/aws-mcp-setup/SKILL.md) | AWS Knowledge MCP, companion skills, rendering tools, run metadata |
 | 3 | [aws-as-is-analysis](skills/aws-as-is-analysis/SKILL.md) | Discovery of every tagged service (Resource Groups Tagging API), inventory of the default and discovered services, account posture (Security Hub, GuardDuty, Config, Inspector, Access Analyzer, Compute Optimizer, Trusted Advisor, Health, Organizations, Cost Explorer spend by service), raw evidence, templates and source, optional SSH/SSM host inspection |
 | 4 | [aws-architecture-review](skills/aws-architecture-review/SKILL.md) | Findings for the six pillars, including lifecycle checks (engine, Kubernetes, runtime and OS support dates, previous-generation instance types, Classic Load Balancers, launch configurations, commercial licenses, stack drift) and edge checks (flow logs, CloudFront, ACM); grades; current-state diagram in AWS style |
-| 5 | [aws-modernization-pathway](skills/aws-modernization-pathway/SKILL.md) | Five Specialist SA Agent reviews with diagrams, the seven directions, fit for AI, observability and messaging services, the combined target diagram, and the unified report |
+| 5 | [aws-modernization-pathway](skills/aws-modernization-pathway/SKILL.md) | Five Specialist SA Agent reviews with diagrams, the seven directions and two foundations, fit for AI, observability and messaging services, the combined target diagram, and the unified report |
 
 Each skill consists of a `SKILL.md` that the agent follows, helper scripts in `scripts/`, and
 reference documents in `references/`. Every stage checks that the account and run ID match the
 previous stage. Two companion skills, `aws-diagram-design` and `aws-bento-deck`, are downloaded
 at [pinned commits](skills/aws-mcp-setup/assets/dependencies.lock.json) together with their
-licenses.
+licenses. Architecture diagrams are drawn by code (`diagram.py`) from the collected configuration, with the
+official AWS icons from `aws-diagram-design`; the agent never redraws them.
 
 ![Agent reading the skill definitions before starting](docs/img/cloudshell-skill-invoked.png)
 
@@ -231,7 +233,8 @@ modified.
   host inspection uses. In Kiro it also checks the built-in `use_aws` tool. With the guard in
   place, read-only access is enforced by the hook rather than left to the agent's instructions.
 - A **stop gate** asks the agent to continue while a run still has unfinished stages or a draft
-  report.
+  report. After the turn that finishes a run, it also re-reads the AI tool's usage so the report
+  counts that last turn too.
 
 The guard does not see AWS tools that you add yourself, such as an AWS API MCP server. The
 read-only role described in [Permissions](#permissions) is the control that holds in every case.
@@ -308,7 +311,7 @@ profile that refreshes its own credentials, see [docs/CLOUDSHELL.md](docs/CLOUDS
 
 The assessment was designed and tested with the newest frontier model, currently
 **Claude Opus 5.5** (`claude-opus-5.5`), at effort `high` or above. With Sonnet-class models the
-key issues and recommendations are noticeably shallower and diagrams need more retries.
+key issues and recommendations are noticeably shallower.
 Haiku-class models skip steps and are suitable only for checking that the tooling runs.
 `/moda-skill start` checks the session's model and effort first and stops with a short message
 when they are below the recommended level; `/moda-skill doctor` reports the same check. The
@@ -425,9 +428,10 @@ The [test runs](#tested-clients) went through these checks in all three clients.
 - The scope is the workload you name. Application logic and database contents are not inspected.
 - Costs are published On-Demand list prices with their basis, not a bill forecast. Savings, dates
   and effort in person-days are not estimated.
-- Model usage is read from the client's own session records (Kiro CLI, Claude Code, Codex). When
-  the records cover only part of the run, the report says so instead of showing a misleading
-  number.
+- The AI tool, model and usage in the executive summary are read from the client's own session
+  records (Kiro CLI, Claude Code, Codex), not reported by the agent. Claude Code and Codex record
+  tokens; Kiro CLI records credits, not tokens. A client writes a turn's usage when the turn ends,
+  so without hooks the last turn is counted only when you run `report` again.
 
 ## Verification
 

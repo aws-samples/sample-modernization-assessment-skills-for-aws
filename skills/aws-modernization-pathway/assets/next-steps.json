@@ -10,7 +10,8 @@
    "url": "https://aws.amazon.com/transform/",
    "pathways": [
     "container",
-    "cloud-native"
+    "cloud-native",
+    "open-source"
    ],
    "when": {
     "platforms": [
@@ -152,7 +153,8 @@
    "kind": "service",
    "url": "https://aws.amazon.com/dms/",
    "pathways": [
-    "managed-database"
+    "managed-database",
+    "open-source"
    ],
    "when": {
     "keywords": [
@@ -691,7 +693,8 @@
    "kind": "skill",
    "url": "https://github.com/aws-samples/sample-dbmig-aidlc",
    "pathways": [
-    "managed-database"
+    "managed-database",
+    "open-source"
    ],
    "when": {
     "engines": [
@@ -715,7 +718,8 @@
    "kind": "workshop",
    "url": "https://catalog.workshops.aws/mma-oracle-pg/en-US",
    "pathways": [
-    "managed-database"
+    "managed-database",
+    "open-source"
    ],
    "when": {
     "engines": [
@@ -886,7 +890,8 @@
    "url": "https://github.com/aws-samples/aws-transform-custom-samples",
    "pathways": [
     "container",
-    "cloud-native"
+    "cloud-native",
+    "open-source"
    ],
    "when": {
     "platforms": [
@@ -964,11 +969,13 @@
    "pathways": {
     "container": "Containers",
     "serverless": "Serverless",
+    "managed-services": "Managed services",
     "managed-database": "Managed database",
     "managed-analytics": "Managed analytics",
     "genai": "Generative AI",
-    "cloud-native": "Cloud-native structure",
-    "modern-devops": "Modern DevOps"
+    "open-source": "Open source",
+    "modern-devops": "Modern DevOps",
+    "cloud-native": "Cloud-native structure"
    }
   },
   "ko": {
@@ -1004,11 +1011,13 @@
    "pathways": {
     "container": "컨테이너",
     "serverless": "서버리스",
+    "managed-services": "관리형 서비스",
     "managed-database": "관리형 데이터베이스",
     "managed-analytics": "관리형 분석",
     "genai": "생성형 AI",
-    "cloud-native": "클라우드 네이티브 구조",
-    "modern-devops": "현대적 DevOps"
+    "open-source": "오픈 소스",
+    "modern-devops": "현대적 DevOps",
+    "cloud-native": "클라우드 네이티브 구조"
    }
   }
  }

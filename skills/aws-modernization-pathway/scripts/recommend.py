@@ -14,11 +14,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import report_kit  # noqa: E402  (shared visual report kit, standard library only)
 
 PATHWAYS = {
-    "container": "Move to Container", "serverless": "Move to Serverless",
+    "container": "Move to Container", "serverless": "Move to Serverless", "managed-services": "Move to Managed Services",
     "managed-database": "Move to Managed Database", "managed-analytics": "Move to Managed Analytics",
-    "genai": "Move to GenAI", "cloud-native": "Move to Cloud Native",
-    "modern-devops": "Move to Modern DevOps",
+    "genai": "Move to GenAI", "open-source": "Move to Open Source",
+    "modern-devops": "Move to Modern DevOps", "cloud-native": "Move to Cloud Native",
 }
+# The seven modernization directions, in the order the report leads with them, and the two foundations: the delivery and
+# operations practices that make the moves safe. Foundations are shown after the directions and not counted among them.
+DIRECTIONS = ("container", "serverless", "managed-services", "managed-database", "managed-analytics", "genai", "open-source")
+FOUNDATIONS = ("modern-devops", "cloud-native")
+# Pathways added after catalog 2.0. A candidates file written before them still loads: each one is inserted as not assessed,
+# with a rationale built only from the findings, the inventory and the specialist reviews (see inserted_pathway).
+ADDED_PATHWAYS = ("managed-services", "open-source")
 WEIGHTS = {"business_value": 25, "technical_fit": 25, "operating_model": 15,
            "risk_manageability": 15, "delivery_feasibility": 10, "cost_confidence": 10}
 STATUSES = {"candidate", "conditional", "not_recommended", "not_assessed"}
@@ -49,18 +56,24 @@ AI_CATEGORY_LABELS = {"managed-agent": "Managed agent", "foundation-model-platfo
 PUBLIC_SOURCES = {
     "container": "https://docs.aws.amazon.com/decision-guides/latest/containers-on-aws-how-to-choose/containers-on-aws-how-to-choose.html",
     "serverless": "https://docs.aws.amazon.com/lambda/latest/dg/welcome.html",
+    "managed-services": "https://docs.aws.amazon.com/prescriptive-guidance/latest/large-migration-guide/migration-strategies.html",
     "managed-database": "https://docs.aws.amazon.com/prescriptive-guidance/latest/strategy-database-migration/welcome.html",
     "managed-analytics": "https://docs.aws.amazon.com/decision-guides/latest/analytics-on-aws-how-to-choose/analytics-on-aws-how-to-choose.html",
     "genai": "https://docs.aws.amazon.com/bedrock/latest/userguide/what-is-bedrock.html",
+    "open-source": "https://docs.aws.amazon.com/dms/latest/userguide/CHAP_SchemaConversion.html",
     "cloud-native": "https://docs.aws.amazon.com/wellarchitected/latest/framework/welcome.html",
     "modern-devops": "https://docs.aws.amazon.com/wellarchitected/latest/devops-guidance/dl.cd.6-refine-delivery-pipelines-using-metrics-for-continuous-improvement.html",
 }
 QUESTIONS = {
     "container": "Verify application processes, state, packaging constraints and operating capabilities",
     "serverless": "Verify event/request patterns, execution constraints, state and database connection requirements",
+    "managed-services": ("Verify what each self-managed host or hand-run operation does (cache, broker, search, scheduler, self-run cluster, bastion access), "
+                         "the state it keeps and which AWS managed service could take it over"),
     "managed-database": "Verify database location, engine, schema, SQL/extension compatibility and RTO/RPO",
     "managed-analytics": "Verify analytics use cases, data classification, consumption patterns and freshness requirements",
     "genai": "Assess managed agents, Bedrock/AgentCore, task AI APIs, SageMaker AI and Trainium/Inferentia against workload goals",
+    "open-source": ("Verify license-included engines and operating systems (Oracle, SQL Server, Windows), SQL dialect, stored procedure and "
+                    ".NET Framework compatibility, and the licensing terms that apply"),
     "cloud-native": "Verify deployment, observability, recovery procedures, team ownership and operational goals",
     "modern-devops": "Verify source, build, test and deployment history, IaC, artifact promotion, rollback, operational feedback and delivery metrics",
 }
@@ -113,20 +126,208 @@ def bootstrap():
     return candidates
 
 
-def normalize_candidates(candidates):
-    """Accept the exact legacy catalog without modifying supplied assessments."""
+LICENSE_RULE = "COMMERCIAL_LICENSE_DEPENDENCY"
+# Software a host's UserData names, for saying what an EC2 instance runs. Only names that appear in the script are reported;
+# nothing is inferred from them.
+HOST_SOFTWARE = ("kubectl", "helm", "docker", "containerd", "nginx", "httpd", "tomcat", "haproxy", "redis", "memcached", "rabbitmq", "kafka",
+                 "zookeeper", "elasticsearch", "opensearch", "solr", "mysql", "mariadb", "postgresql", "mongodb", "cassandra", "jenkins", "airflow",
+                 "openvpn", "squid", "wordpress", "iis", "java", "python", "nodejs", "dotnet")
+SYSTEMD_UNIT = re.compile(r"systemctl\s+(?:--now\s+)?enable\s+(?:--now\s+)?([A-Za-z0-9_@.-]+)")
+# A recommendation that hands a self-managed component to an AWS managed service: a move verb followed, in the same
+# sentence, by "to/onto/into/with/on" and the managed service (the Managed services rationale lists those that concern a
+# component on an EC2 instance). Databases stay with Managed database.
+MANAGED_TARGETS = ("Fargate", "Lambda", "App Runner", "Systems Manager", "Session Manager", "ElastiCache", "MemoryDB", "Amazon MQ", "MSK",
+                   "OpenSearch Service", "EKS Auto Mode", "AWS Batch", "Step Functions", "EventBridge Scheduler", "Managed Workflows")
+MANAGED_MOVE = re.compile(r"(?i)\b(?:mov\w*|migrat\w*|replac\w*|consolidat\w*|hand\w*|shift\w*|repackag\w*|packag\w*)\b[^.]{0,90}?"
+                          r"\b(?:to|onto|into|with|on|as)\s+(?:an?\s+|the\s+)?(?:AWS\s+|Amazon\s+)?(?:" + "|".join(re.escape(t) for t in MANAGED_TARGETS) + r")\b")
+NOT_REVIEWED = "Not reviewed by a Specialist SA Agent in this run."
+
+
+def tag_map(attributes):
+    return {t.get("Key"): t.get("Value") for t in (attributes or {}).get("Tags") or [] if isinstance(t, dict)}
+
+
+def is_eks_node(attributes):
+    """Same test as the review rules: a worker node of an EKS node group or Karpenter."""
+    tags = tag_map(attributes)
+    return any(k in tags for k in ("aws:eks:cluster-name", "eks:cluster-name", "karpenter.sh/nodepool")) or any(
+        str(k).startswith("kubernetes.io/cluster/") for k in tags)
+
+
+def collected_user_data(run_dir, snapshot_dir=None):
+    """{instance id: decoded UserData} from the describe-instance-attribute records stage 3 collected (03-supplementary, or a
+    snapshot's own supplementary folder, the first that exists, as benefits.py reads them)."""
+    out = {}
+    folders = [Path(run_dir) / "03-supplementary"] if run_dir else []
+    if snapshot_dir:
+        folders.append(Path(snapshot_dir) / "supplementary")
+    for folder in folders:
+        manifest = folder / "supplementary-manifest.json"
+        if not manifest.is_file():
+            continue
+        try:
+            records = json.loads(manifest.read_text(encoding="utf-8")).get("records", [])
+        except (OSError, ValueError):
+            records = []
+        for record in records:
+            if record.get("operation") != "describe-instance-attribute" or record.get("status") != "ok":
+                continue
+            try:
+                data = json.loads((folder / str(record.get("raw_path") or "")).read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            user = data.get("UserData")
+            decoded = user.get("Decoded") if isinstance(user, dict) else None
+            if data.get("InstanceId") and decoded:
+                out[data["InstanceId"]] = str(decoded)
+        break
+    return out
+
+
+def evidence_context(inventory, checks, scope_ids=None, run_dir=None, snapshot_dir=None, specialists=None):
+    """What the rationale of an inserted pathway may cite: in-scope resources, findings, collected UserData and the
+    specialist reviews (05-modernization/specialist-advice.json entries)."""
+    resources = [r for r in (inventory or {}).get("resources", []) if r.get("level") != "account" and (scope_ids is None or r.get("id") in scope_ids)]
+    return {"resources": resources, "checks": list(checks or []), "user_data": collected_user_data(run_dir, snapshot_dir),
+            "specialists": list(specialists or [])}
+
+
+def _plural(n, word):
+    return f"{n} {word}" if n == 1 else f"{n} {word}s"
+
+
+def _join(items):
+    items = list(items)
+    return items[0] if len(items) == 1 else ", ".join(items[:-1]) + " and " + items[-1]
+
+
+def _first_sentence(text, limit=240):
+    text = " ".join(str(text or "").split())
+    m = re.match(r"(.+?[.!?])(\s|$)", text)
+    out = m.group(1) if m else text
+    return out if len(out) <= limit else ""
+
+
+def host_software(user_data):
+    """What a UserData script says the host runs: the names from HOST_SOFTWARE it mentions and the systemd units it enables."""
+    low = user_data.lower()
+    names = [w for w in HOST_SOFTWARE if re.search(rf"(?<![a-z]){re.escape(w)}(?![a-z])", low)]
+    units = list(dict.fromkeys(SYSTEMD_UNIT.findall(user_data)))
+    parts = []
+    if names:
+        parts.append("UserData names " + _join(names[:4]))
+    if units:
+        parts.append(("enables the systemd unit " if len(units) == 1 else "enables the systemd units ") + _join(units[:3]))
+    return " and ".join(parts)
+
+
+def open_source_rationale(ctx):
+    """(rationale, resource ids, finding ids) for Open source: the license-included findings, or what was looked at."""
+    found = [c for c in ctx["checks"] if c.get("rule_id") == LICENSE_RULE and c.get("status") in {"FAIL", "WARN"}]
+    known = {r["id"] for r in ctx["resources"]}
+    if found:
+        listed = "; ".join(f"{str(c.get('observation') or '').strip().rstrip('.')} ({c['id']})" for c in found[:4])
+        more = f"; +{len(found) - 4} more" if len(found) > 4 else ""
+        text = f"{_plural(len(found), 'license-included engine or operating system')} found in scope: {listed}{more}."
+        return text, sorted({c["resource_id"] for c in found if c.get("resource_id") in known}), [c["id"] for c in found]
+    dbs = [r for r in ctx["resources"] if r.get("type") == "rds.instance"]
+    hosts = [r for r in ctx["resources"] if r.get("type") == "ec2.instance"]
+    if not dbs and not hosts:
+        return "No database instance or EC2 instance is in scope, so no license-included engine or operating system was found.", [], []
+    looked = []
+    if dbs:
+        engines = sorted({str((r.get("attributes") or {}).get("Engine") or "engine not recorded") for r in dbs})
+        looked.append(f"{_plural(len(dbs), 'RDS instance')} ({', '.join(engines)})")
+    if hosts:
+        platforms = sorted({str((r.get("attributes") or {}).get("PlatformDetails") or (r.get("attributes") or {}).get("Platform") or "platform not recorded") for r in hosts})
+        looked.append(f"{_plural(len(hosts), 'EC2 instance')} ({', '.join(platforms)})")
+    return ("No license-included engine or operating system was found among the in-scope databases and instances: " + _join(looked) + "."), [], []
+
+
+def managed_services_rationale(ctx):
+    """(rationale, resource ids, finding ids) for Managed services: the EC2 instances outside EKS node groups with what the
+    evidence says they run, and the specialist recommendations that hand one of their components to a managed service."""
+    instances = [r for r in ctx["resources"] if r.get("type") == "ec2.instance"]
+    hosts = [r for r in instances if not is_eks_node(r.get("attributes"))]
+    nodes = len(instances) - len(hosts)
+    if not hosts:
+        text = "No in-scope EC2 instance runs outside the EKS node groups, so no self-managed host software was found to hand to a managed service."
+        if nodes:
+            text = text[:-1] + f" ({_plural(nodes, 'EKS worker node')} left out)."
+        return text, [], []
+    names, described, quiet = [], [], []
+    for r in hosts:
+        a = r.get("attributes") or {}
+        tags = tag_map(a)
+        native = str(r.get("native_id") or a.get("InstanceId") or r["id"].rsplit(":", 1)[-1])
+        bits = [str(a.get("InstanceType") or "type not recorded")]
+        if tags.get("Role"):
+            bits.append(f"Role tag {tags['Role']}")
+        runs = host_software(ctx["user_data"].get(native) or ctx["user_data"].get(str(a.get("InstanceId") or "")) or "")
+        if runs:
+            bits.append(runs)
+        else:
+            quiet.append(r)
+        names.append(tags.get("Name") or native)
+        described.append(f"{tags.get('Name') or native}: {', '.join(bits)}")
+    verb = "runs" if len(hosts) == 1 else "run"
+    sentences = [f"{_plural(len(hosts), 'in-scope EC2 instance')} {verb} outside the EKS node groups: {_join(names)}.",
+                 "; ".join(described) + "."]
+    if nodes:
+        sentences.append(f"{_plural(nodes, 'EKS worker node')} {'is' if nodes == 1 else 'are'} left out.")
+    # What a specialist saw on a host whose UserData says nothing about what it runs.
+    for r in quiet:
+        native = str(r.get("native_id") or "")
+        for sp in ctx["specialists"]:
+            item = next((i for i in sp.get("current_state") or [] if r["id"] in (i.get("refs") or []) or (native and native in str(i.get("text") or ""))), None)
+            sentence = _first_sentence(item.get("text")) if item else ""
+            if sentence:
+                sentences.append(f"{sp.get('role', sp.get('specialist'))}: {sentence}")
+                break
+    ids = {r["id"] for r in instances}
+    natives = {str(r.get("native_id") or "") for r in instances} - {""}
+    by_id = {c["id"]: c for c in ctx["checks"]}
+    moves = []
+    for sp in ctx["specialists"]:
+        for rec in sp.get("recommendations") or []:
+            refs = set(rec.get("refs") or [])
+            touches = refs & ids or any((by_id.get(f) or {}).get("resource_id") in ids for f in refs) or any(n in str(rec.get("change") or "") for n in natives)
+            if touches and (MANAGED_MOVE.search(str(rec.get("title") or "")) or MANAGED_MOVE.search(str(rec.get("change") or ""))):
+                moves.append(f"\u201c{rec.get('title')}\u201d ({sp.get('role', sp.get('specialist'))})")
+    if moves:
+        sentences.append("Specialist recommendations that hand a component on these instances to a managed service: "
+                         + "; ".join(moves[:3]) + (f"; +{len(moves) - 3} more" if len(moves) > 3 else "") + ".")
+    return " ".join(sentences), sorted(r["id"] for r in hosts), []
+
+
+RATIONALE = {"open-source": open_source_rationale, "managed-services": managed_services_rationale}
+
+
+def inserted_pathway(key, ctx=None):
+    """A pathway missing from an older candidates file, as not assessed. With an evidence context the rationale states what
+    the evidence shows (and that no specialist reviewed it in this run); without one it keeps the open question."""
+    c = next(x for x in bootstrap() if x["pathway"] == key)
+    if ctx is not None and key in RATIONALE:
+        text, resource_ids, finding_ids = RATIONALE[key](ctx)
+        c.update(rationale=f"{text} {NOT_REVIEWED}", resource_ids=resource_ids, finding_ids=finding_ids)
+    return c
+
+
+def normalize_candidates(candidates, evidence=None):
+    """Accept the legacy catalogs without modifying supplied assessments: the six pathways before Modern DevOps, and the
+    seven before Managed services and Open source. Missing pathways are appended as not assessed."""
     if not isinstance(candidates, list) or any(not isinstance(c, dict) for c in candidates):
         raise ValueError("candidates must be an array of objects")
     keys = [c.get("pathway") for c in candidates]
     if any(not isinstance(key, str) for key in keys) or len(set(keys)) != len(keys):
         raise ValueError("invalid or duplicate pathway")
-    legacy = set(PATHWAYS) - {"modern-devops"}
-    if set(keys) == legacy:
-        missing = next(c for c in bootstrap() if c["pathway"] == "modern-devops")
-        candidates = [*candidates, missing]
-    elif set(keys) != set(PATHWAYS):
-        raise ValueError("exactly seven pathways required; only the complete legacy six-pathway catalog can be upgraded")
-    normalized = [dict(c) for c in candidates]
+    unknown = set(keys) - set(PATHWAYS)
+    missing = [k for k in PATHWAYS if k not in keys]
+    if unknown or set(missing) - {"modern-devops", *ADDED_PATHWAYS}:
+        raise ValueError(f"all {len(PATHWAYS)} pathways required; only a legacy catalog without Modern DevOps, Managed Services "
+                         "or Open Source can be upgraded")
+    added = [inserted_pathway(k, evidence) if k in ADDED_PATHWAYS else next(c for c in bootstrap() if c["pathway"] == k) for k in missing]
+    normalized = [dict(c) for c in [*candidates, *added]]
     for c in normalized:
         if c["pathway"] == "genai" and "ai_options" not in c:
             c["ai_options"] = bootstrap_ai_options()
@@ -135,6 +336,12 @@ def normalize_candidates(candidates):
             if field not in c:
                 c[field] = bootstrap_platform_options(c["pathway"])
     return normalized
+
+
+def ordered(candidates):
+    """Candidates in report order: the seven directions, then the foundations."""
+    order = {k: i for i, k in enumerate((*DIRECTIONS, *FOUNDATIONS))}
+    return sorted(candidates, key=lambda c: order.get(c.get("pathway"), len(order)))
 
 
 def validate_ai_options(options, resource_ids, finding_ids):
@@ -320,7 +527,7 @@ def diagram_image(path):
 
 
 def reports(output, data, diagram, run_meta=None):
-    candidates = data["candidates"]
+    candidates = ordered(data["candidates"])
     status = "Includes conditional or unassessed options" if any(c["status"] != "candidate" for c in candidates) else "Candidate comparison"
     lines = ["# AWS Modernization Pathway recommendations", "", f"- Workload: {data['workload']}",
              f"- Status: {status}", "- Scores are local comparison measures, not official AWS scores.",
@@ -332,13 +539,13 @@ def reports(output, data, diagram, run_meta=None):
     for note in data.get("input_notes", []):
         lines += ["", note]
     lines += ["", "## Proposed architecture", ""]
-    image_markup = "<p>TO-BE: initial D2 render and final AWS-branded diagram required</p>"
+    image_markup = "<p>TO-BE: the proposed-architecture diagram is required</p>"
     if diagram:
         relative = Path(os.path.relpath(diagram, output)).as_posix()
         lines += [f"![TO-BE architecture with conditions and proposal states]({relative})"]
         image_markup = f'<img alt="TO-BE architecture with conditions and proposal states" src="{diagram_image(diagram)}">'
     else:
-        lines += ["Draft pending the initial D2 render and final aws-diagram-design redraw."]
+        lines += ["Draft pending the proposed-architecture diagram (diagram.py --graph)."]
     for c in candidates:
         lines += ["", f"## {PATHWAYS[c['pathway']]}", "", f"- Assessment/rationale: {c['status']} — {c['rationale']}",
                   f"- Current problem: {c['problem']}", f"- Target: {', '.join(c['resource_ids']) or 'Unverified'}",
@@ -372,7 +579,7 @@ def wave_rows(candidates):
 def render_html(data, status, diagram, image_markup, run_meta=None):
     """Visual HTML report: KPI tiles, verified-weight chart, pathway cards, criteria heat map, option grids and roadmap."""
     kit = report_kit
-    candidates = data["candidates"]
+    candidates = ordered(data["candidates"])
     counts = {s: sum(1 for c in candidates if c["status"] == s) for s in kit.PATHWAY_STATUS}
     ranked = [c for c in candidates if c.get("rank")]
     genai = next((c for c in candidates if c["pathway"] == "genai"), None)
@@ -444,12 +651,12 @@ def render_html(data, status, diagram, image_markup, run_meta=None):
     weights = [(short(c["pathway"]), c["known_weight_percent"]) for c in candidates]
     notes = "".join(f'<div class="callout"><p>{kit.esc(n)}</p></div>' for n in data.get("input_notes", []))
     diagram_block = (f'<figure>{image_markup}<figcaption>TO-BE architecture · retained, proposed and unresolved components are distinguished in the diagram legend</figcaption></figure>'
-                     if diagram else f'<div class="callout">{image_markup} <p>Complete the initial D2 render and the final aws-diagram-design redraw before delivery.</p></div>')
+                     if diagram else f'<div class="callout">{image_markup} <p>Draw the proposed architecture with diagram.py --graph before delivery.</p></div>')
     meta_chip = (f"model {run_meta['models_seen'][0]}" if run_meta and len(run_meta["models_seen"]) == 1 else ("model not recorded" if not run_meta else f"{len(run_meta['models_seen'])} models"))
-    hero = kit.hero("AWS modernization pathways · 7 pathways · 12 AI options · 7 platform options", "AWS Modernization Pathway recommendations", status,
+    hero = kit.hero(f"AWS modernization pathways · {len(DIRECTIONS)} directions and {len(FOUNDATIONS)} foundations · 12 AI options · 7 platform options", "AWS Modernization Pathway recommendations", status,
                     [f"account {data['account_id']}", f"workload {data['workload']}", f"generated {data['generated_at'][:16]}",
                      f"catalog v{data['pathway_catalog_version']}", f"diagram {data.get('diagram', 'pending')}", meta_chip])
-    nav = kit.toc([("summary", "Summary"), ("pathways", "Seven pathways"), ("architecture", "Proposed architecture"), ("options", "AI · observability · messaging"),
+    nav = kit.toc([("summary", "Summary"), ("pathways", "Directions and foundations"), ("architecture", "Proposed architecture"), ("options", "AI · observability · messaging"),
                    ("roadmap", "Roadmap"), ("details", "Pathway details"), ("provenance", "Run provenance"), ("deferred", "Deferred decisions")])
     kpis = (kit.kpi(len(candidates), "pathways assessed") + kit.kpi(counts["candidate"], "candidate", "pass") + kit.kpi(counts["conditional"], "conditional", "warn")
             + kit.kpi(counts["not_recommended"], "not recommended", "unknown") + kit.kpi(counts["not_assessed"], "not assessed", "unknown")
@@ -462,7 +669,7 @@ def render_html(data, status, diagram, image_markup, run_meta=None):
 <div class="kpis">{kpis}</div>{notes}
 <div class="grid g2"><div class="card"><h3>Verified criteria weight per pathway</h3><p class="sub">share of the six weighted criteria with a known score · 100% is required for a total score and rank</p>{kit.count_bars(weights, "verified-weight", "Verified criteria weight per pathway", "Horizontal bars show the percentage of criteria weight with verified scores for each pathway.", suffix="%")}</div>
 <div class="card"><h3>Ranking status</h3><p class="sub">{len(ranked)} ranked · {counts["candidate"]} candidate · {counts["conditional"]} conditional</p><p class="small">{kit.esc(rank_note)}</p></div></div></section>
-<section id="pathways"><h2>Seven pathways</h2><p class="lead">Status colours: candidate (green), conditional (orange), not recommended (grey), not assessed (light grey). Target services are proposals, not confirmed designs.</p>
+<section id="pathways"><h2>Seven directions and two foundations</h2><p class="lead">The seven modernization directions come first; Modern DevOps and Cloud Native are the foundations, the delivery and operations practices that make the moves safe. Status colours: candidate (green), conditional (orange), not recommended (grey), not assessed (light grey). Target services are proposals, not confirmed designs.</p>
 <div class="grid g3">{"".join(card(c) for c in candidates)}</div>
 <h3>Criteria heat map (1-5, "-" = unknown)</h3>{heat}
 <p class="small">Weighted fit = sum of weight x score / 5 over the six criteria; a total score and rank appear only when every criterion is known.</p></section>
@@ -497,9 +704,25 @@ def main():
             raise ValueError("unsupported or failed inventory")
         run_meta = report_kit.load_run_metadata(args.run_metadata)
         candidates = json.loads(args.candidates.read_text(encoding="utf-8")) if args.candidates else bootstrap()
-        normalized = normalize_candidates(candidates)
-        notes = (["Preserved the legacy six pathways and added Move to Modern DevOps as unassessed. The original input file was not modified."]
-                 if len(normalized) != len(candidates) else [])
+        if args.candidates:
+            import advice  # noqa: E402  (same folder)
+            language = report_kit.english_errors(advice.candidate_texts(candidates, args.candidates.name))
+            if language:
+                raise ValueError(language[0] + f" ({len(language)} field(s))")
+        scope_path = args.inventory.parent / "scope-resources.json"
+        scope_ids = {x["id"] for x in json.loads(scope_path.read_text(encoding="utf-8")).get("resources", [])} if scope_path.is_file() else None
+        advice_path = args.output / "specialist-advice.json"
+        specialists = json.loads(advice_path.read_text(encoding="utf-8")).get("specialists", []) if advice_path.is_file() else []
+        evidence = evidence_context(inventory, findings["checks"], scope_ids, args.output.parent, args.inventory.parent, specialists)
+        normalized = normalize_candidates(candidates, evidence)
+        given = {c.get("pathway") for c in candidates}
+        notes = []
+        if "modern-devops" not in given:
+            notes.append("Preserved the legacy six pathways and added Move to Modern DevOps as unassessed. The original input file was not modified.")
+        added = [PATHWAYS[k] for k in ADDED_PATHWAYS if k not in given]
+        if added:
+            notes.append(f"Added {' and '.join(added)} as not assessed, with reasons taken from the findings, the inventory and the specialist reviews. "
+                         "The original input file was not modified.")
         if any(c["pathway"] == "genai" and "ai_options" not in c for c in candidates):
             notes.append("Added 12 unassessed AI options to the legacy GenAI input. GenAI remains unranked until selected options are verified.")
         if any(c["pathway"] in PLATFORM_GROUPS and PLATFORM_GROUPS[c["pathway"]]["field"] not in c for c in candidates):
@@ -508,8 +731,6 @@ def main():
         rated = rank(candidates, {r["id"] for r in inventory["resources"]}, {f["id"] for f in findings["checks"]})
         sys.path.insert(0, str(Path(__file__).resolve().parent))
         import next_steps  # noqa: E402
-        scope_path = args.inventory.parent / "scope-resources.json"
-        scope_ids = {x["id"] for x in json.loads(scope_path.read_text(encoding="utf-8")).get("resources", [])} if scope_path.is_file() else None
         steps = next_steps.select(rated, findings["checks"], inventory, scope_ids)
         if args.diagram:
             diagram_image(args.diagram)
@@ -519,7 +740,7 @@ def main():
             draft.write_text(json.dumps(candidates, ensure_ascii=False, indent=2)+"\n", encoding="utf-8")
         result = {"schema_version": "1.0", "run_id": inventory["run_id"], "account_id": inventory["account_id"],
                   "workload": args.workload, "generated_at": datetime.now(timezone.utc).isoformat(),
-                  "pathway_catalog_version": "2.0", "input_notes": notes,
+                  "pathway_catalog_version": "3.0", "input_notes": notes,
                   "ai_option_catalog_version": AI_CATALOG["version"],
                   "platform_option_catalog_version": PLATFORM_CATALOG["version"],
                   "weights": WEIGHTS, "candidates": rated, "diagram": "included" if args.diagram else "pending", "run_metadata": run_meta,

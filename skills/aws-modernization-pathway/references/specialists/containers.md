@@ -1,7 +1,7 @@
 # Container & Serverless Specialist SA Agent
 
-Pathways: **container**, **serverless**, **cloud-native** (with `messaging_options`: MSK, SQS, EventBridge, SNS). Read
-[pathways](../pathways.md) and [message and event-driven options](../message-event-driven.md) for the criteria.
+Pathways: **container**, **serverless**, **managed-services**, **cloud-native** (with `messaging_options`: MSK, SQS, EventBridge,
+SNS). Read [pathways](../pathways.md) and [message and event-driven options](../message-event-driven.md) for the criteria.
 
 ## What to look at
 
@@ -17,6 +17,9 @@ Pathways: **container**, **serverless**, **cloud-native** (with `messaging_optio
   utilisation measurement are `measure_first`.
 - Asynchronous steps in the source or templates (queues, topics, event rules, Step Functions). Messaging is a
   recommendation only when an asynchronous step or a coupling problem is in the evidence.
+- Managed services: what each EC2 instance outside an EKS node group or Auto Scaling group runs, from its Name and Role tags,
+  its UserData and the templates (a cache, broker, search engine, scheduler or self-run cluster, a bastion host that only
+  holds kubectl or SSH access). The brief lists these instances; the data stores themselves stay with the Database review.
 
 ## Typical advice, when the evidence supports it
 
@@ -25,6 +28,9 @@ Pathways: **container**, **serverless**, **cloud-native** (with `messaging_optio
 - Two container platforms for few services: whether to consolidate, which way, and what decides it (Kubernetes-specific
   requirements, team skills). Keeping both with a reason is a valid answer.
 - Fixed-size node groups: measure first (Container Insights), then right-size, Graviton, Karpenter or EKS Auto Mode.
+- Managed services: software a host runs that an AWS managed service can take over (ElastiCache or MemoryDB for a cache,
+  Amazon MQ or MSK for a broker, OpenSearch Service for search), and Systems Manager Session Manager instead of a bastion
+  host. Say what state the host keeps and what the move needs first; keeping the host is a valid answer when nothing fits.
 - Serverless: only for event or request units that fit Lambda's limits; a working container service is not a Lambda
   candidate because Lambda exists. Database connection behaviour (no pooling) counts against it.
 
@@ -40,4 +46,6 @@ Pathways: **container**, **serverless**, **cloud-native** (with `messaging_optio
 - https://docs.aws.amazon.com/eks/latest/best-practices/introduction.html
 - https://docs.aws.amazon.com/eks/latest/userguide/automode.html
 - https://docs.aws.amazon.com/lambda/latest/dg/welcome.html
+- https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager.html
+- https://docs.aws.amazon.com/prescriptive-guidance/latest/large-migration-guide/migration-strategies.html
 - https://docs.aws.amazon.com/decision-guides/latest/sns-or-sqs-or-eventbridge/sns-or-sqs-or-eventbridge.html

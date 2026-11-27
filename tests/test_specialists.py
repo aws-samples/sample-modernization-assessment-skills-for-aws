@@ -81,11 +81,27 @@ class SpecialistReviewTests(unittest.TestCase):
     def test_briefs_name_the_role_domain_resources_and_commands(self):
         with tempfile.TemporaryDirectory() as tmp:
             run = build_run(Path(tmp))
+            inventory = json.loads((run / "03-as-is-enriched/inventory.json").read_text())
+            inventory["resources"][0]["attributes"] = {"Engine": "aurora-postgresql", "EngineVersion": "16.4", "MultiAZ": False, "BackupRetentionPeriod": 1, "DeletionProtection": False,
+                                                       "DBClusterMembers": [{"DBInstanceIdentifier": "w", "IsClusterWriter": True}], "StorageEncrypted": True, "DBClusterArn": "arn:x"}
+            (run / "03-as-is-enriched/inventory.json").write_text(json.dumps(inventory))
+            (run / "04-review/diagrams").mkdir()
+            (run / "04-review/diagrams/diagram-graph.json").write_text(json.dumps({"groups": [{"id": "vpc", "kind": "vpc", "label": "VPC", "parent": None}],
+                                                                                  "nodes": [{"id": "n1", "label": "Aurora cluster orders-db", "type": "rds.cluster", "group": "vpc", "resource_ids": [CLUSTER]}], "edges": []}))
+            (run / "05-modernization/candidates.draft.json").write_text(json.dumps([{"pathway": "managed-database", "status": "not_assessed"}, {"pathway": "container", "status": "not_assessed"}]))
             result = advice.brief(advice.Context(run), list(advice.ORDER))
             self.assertEqual([b["specialist"] for b in result], ["containers", "database", "analytics", "genai", "devops"])
             text = (run / "05-modernization/specialists/database/brief.md").read_text()
             self.assertIn("Database Specialist SA Agent", text); self.assertIn(CLUSTER, text); self.assertNotIn(TASK, text)
             self.assertIn("--id-prefix db-", text); self.assertIn("advice.py\" validate", text); self.assertIn("f0001", text)
+            # The dossier is the whole input: configuration values, full finding text, diagram nodes, prices, drafts, rules, domain guide, skeleton.
+            for expected in ("engine=aurora-postgresql 16.4", "writers=1", "readers=0", "backup_retention_days=1", "| f0001 | AURORA_SINGLE_INSTANCE | FAIL | HIGH |", "add a reader",
+                             "| n1 | Aurora cluster orders-db |", "| p001 | reader |", '"pathway": "managed-database"', "This file is your whole input",
+                             "# Shared rules for every Specialist SA Agent", "# Your domain guide", "## What to look at",
+                             '"specialist": "database"', "diagram.py\" --graph"):
+                self.assertIn(expected, text, expected)
+            self.assertNotIn('"pathway": "container"', text, "only the specialist's own pathway drafts")
+            self.assertNotIn("aws-diagram-design", text, "no redraw step")
             self.assertIn(TASK, (run / "05-modernization/specialists/containers/brief.md").read_text())
 
     def test_validate_accepts_grounded_advice_and_refuses_brochure_wording(self):
@@ -107,6 +123,17 @@ class SpecialistReviewTests(unittest.TestCase):
             self.assertEqual(advice.wording_errors({"summary": "Measure node use for two weeks, then size the group."}), [], "a measurement window is advice")
             self.assertIn("glossary replaces", " ".join(advice.wording_errors({"summary": "\uc54c\ub78c\uc744 \ucd94\uac00\ud569\ub2c8\ub2e4."})),
                           "a term the Korean glossary replaces is refused before the localizer sees it")
+            # The optional `current` sentence follows the wording rules; `evidence` is benefits.py's, never the review's.
+            own = good_advice()
+            own["recommendations"][0]["current"] = "One writer in us-east-1b, no reader; a saving of $400 a month is available."
+            own["recommendations"][0]["evidence"] = [{"metric": "deploys", "value": "3", "source": "me"}]
+            write_review(run, "database", own)
+            errors = " | ".join(advice.validate(advice.Context(run), "database")["errors"])
+            self.assertIn("recommendations[0].current", errors); self.assertIn("written by benefits.py", errors)
+            own["recommendations"][0]["current"] = "One writer in us-east-1b and no reader."
+            del own["recommendations"][0]["evidence"]
+            write_review(run, "database", own)
+            self.assertEqual(advice.validate(advice.Context(run), "database")["status"], "pass")
 
     def test_validate_checks_the_diagram(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -142,7 +169,9 @@ class SpecialistReviewTests(unittest.TestCase):
             self.assertEqual([s["specialist"] for s in merged["specialists"]], ["database", "devops"])
             self.assertEqual(merged["specialists"][0]["diagram"]["svg"], "specialists/database/diagram.aws.svg")
             combined = json.loads((run / "05-modernization/candidates.specialists.json").read_text())
-            self.assertEqual(len(combined), 7)
+            self.assertEqual([c["pathway"] for c in combined], list(recommend.PATHWAYS))
+            # A pathway no review covered and that the catalog added later carries what the evidence shows, not a guess.
+            self.assertIn(recommend.NOT_REVIEWED, next(c for c in combined if c["pathway"] == "managed-services")["rationale"])
             # Synthesis: a changed status needs a reason.
             pathways = [dict(c) for c in combined]
             next(c for c in pathways if c["pathway"] == "managed-database")["status"] = "not_recommended"
@@ -162,12 +191,19 @@ class SpecialistReviewTests(unittest.TestCase):
             specialists = report.load_specialists(run, ctx.findings["checks"], [], ctx.manifest, ctx.inventory, prices)
             self.assertEqual(specialists[0]["recommendations"][0]["list_prices"][0]["monthly_usd"], 189.8)
             html = report.specialist_html(specialists[0], {"managed-database": "conditional"}, ctx.finding_ids, run)
-            for text in ("Database Specialist SA Agent", "What we see now", "Not now", "What changes", "What it gives", "Before deciding", "How to undo",
+            # Every recommendation is rendered in the same four fields; the evidence field holds only the cited list prices
+            # (and later the figures benefits.py computes), never a number the specialist wrote.
+            for text in ("Database Specialist SA Agent", "What we see now", "Not now", "Current state", "Proposal", "Quantitative evidence", "Prerequisites",
+                         "What changes", "What it gives", "Before deciding", "How to undo", "AWS Price List API, On-Demand (db-p001)",
                          'id="zoom-sp-database"', "List price +$190/mo", 'href="#f0001"', 'href="#ev-e0001"'):
                 self.assertIn(text, html)
             self.assertNotIn("<script", html)
-            md = "\n".join(report.specialist_markdown(specialists[0], {"managed-database": "conditional"}))
-            self.assertIn("### Database Specialist SA Agent (Managed database: Conditional)", md); self.assertIn("What changes:", md)
+            by_id = {c["id"]: c for c in ctx.findings["checks"]}
+            html = report.specialist_html(specialists[0], {"managed-database": "conditional"}, ctx.finding_ids, run, by_id)
+            self.assertIn(f'<th>Current state</th><td>{by_id["f0001"]["observation"]}</td>', html, "without a `current` sentence the cited finding's observation is shown")
+            md = "\n".join(report.specialist_markdown(specialists[0], {"managed-database": "conditional"}, by_id))
+            self.assertIn("### Database Specialist SA Agent (Managed database: Conditional)", md); self.assertIn("- Proposal:", md)
+            self.assertIn("| List price + reader | $190/month |", md)
             rows = report.glance_rows("orders", [], ctx.findings["checks"], ctx.inventory, {}, None, {}, specialists)
             self.assertIn("Give the order database a failover target", " ".join(r[2] for r in rows))
             table = report.pathway_table([dict(c, problem="p", rationale="r") for c in recommend.bootstrap()], specialists)

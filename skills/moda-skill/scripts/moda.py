@@ -127,9 +127,17 @@ def inspect(run):
         except ValueError:
             status = "unreadable"
     localized = sorted(str(d.relative_to(run) / "assessment.html") for d in run.glob("06-assessment-*") if (d / "assessment.html").is_file())
+    language = "en"
+    if (run / "scope.json").is_file():
+        try:
+            language = json.loads((run / "scope.json").read_text(encoding="utf-8")).get("output_language") or "en"
+        except ValueError:
+            pass
     folder = run / "05-modernization/specialists"
     specialists = {d.name: ("advice written" if (d / "advice.json").is_file() else "brief only") for d in sorted(folder.iterdir()) if d.is_dir()} if folder.is_dir() else {}
+    deliverable = "06-assessment/assessment.html" if language.split("-")[0] == "en" else f"06-assessment-{language}/assessment.html"
     return {"run_dir": str(run), "workload": run.parent.name, "run_id": run.name, "localized_reports": localized, "specialists": specialists,
+            "language": language, "deliverable": deliverable if (run / deliverable).is_file() else None,
             "modified": datetime.fromtimestamp(run.stat().st_mtime, tz=timezone.utc).isoformat(timespec="minutes"),
             "stages": stages, "next_stage": next_stage, "complete": next_stage is None, "report_status": status}
 
@@ -143,8 +151,10 @@ def table(info):
         done = sum(1 for v in info["specialists"].values() if v == "advice written")
         lines.append(f"           specialist reviews {done}/{len(info['specialists'])}: " + ", ".join(f"{k} ({v})" for k, v in info["specialists"].items()))
     if info["complete"]:
-        lines += ["", f"Complete. Report: {info['run_dir']}/06-assessment/assessment.html ({info['report_status'] or 'status unknown'})"]
-        lines += [f"Localized: {info['run_dir']}/{r}" for r in info.get("localized_reports") or []]
+        if info.get("language", "en").split("-")[0] != "en" and not info.get("deliverable"):
+            lines += ["", f"English draft done ({info['report_status'] or 'status unknown'}); the {info['language']} report is not translated yet  →  resume to translate it"]
+        else:
+            lines += ["", f"Complete. Report ({info.get('language', 'en')}): {info['run_dir']}/{info.get('deliverable') or '06-assessment/assessment.html'} ({info['report_status'] or 'status unknown'})"]
     else:
         lines += ["", f"Next: {info['next_stage']}  →  resume to continue"]
     return "\n".join(lines)

@@ -33,6 +33,29 @@ PATHWAY_STATUS = {"candidate": ("Candidate", "#7AA116"), "conditional": ("Condit
                   "not_recommended": ("Not recommended", "#687078"), "not_assessed": ("Not assessed", "#8D99A8")}
 
 
+# Canonical artifacts are English; a report in another language is translated from them in one pass at the end
+# (localize_artifacts.py), so no report mixes languages. Resource names may contain any script, so a short run of
+# other letters is tolerated; prose in another language is not.
+NON_LATIN_LETTER = re.compile(r"[\u0370-\u03ff\u0400-\u04ff\u0590-\u06ff\u0e00-\u0e7f\u1100-\u11ff\u3040-\u30ff\u3130-\u318f\u3400-\u9fff\uac00-\ud7af\uf900-\ufaff]")
+
+
+def non_english_prose(value):
+    """True when `value` reads as text written in another language rather than English with a foreign name in it:
+    more than four letters of a non-Latin script that make up over a fifth of the letters."""
+    text = str(value or "")
+    other = len(NON_LATIN_LETTER.findall(text))
+    if other <= 4:
+        return False
+    letters = sum(1 for ch in text if ch.isalpha())
+    return other / max(letters, 1) > 0.2
+
+
+def english_errors(items):
+    """(where, text) pairs -> error strings for the ones that are not English."""
+    return [f"{where} is not in English; canonical artifacts are written in English and translated at the end when the run language is not English"
+            for where, text in items if non_english_prose(text)]
+
+
 def esc(value):
     return html.escape(str(value), quote=True)
 
@@ -68,8 +91,17 @@ details.kpi-list[open]{{grid-column:1 / -1}} details.kpi-list ul{{margin:0;paddi
 .evidence-table td:nth-child(1) code{{white-space:nowrap}} .evidence-table td:nth-child(8) code{{font-size:11px}}
 .evidence-table td{{font-size:12.5px;word-break:break-word}} .evidence-table code{{white-space:normal;word-break:break-word}}
 .kpi.fail{{border-top-color:#DD344C}} .kpi.warn{{border-top-color:#EC7211}} .kpi.pass{{border-top-color:#7AA116}} .kpi.unknown{{border-top-color:#7D8998}} .kpi.accent{{border-top-color:#FF9900}} .kpi.link{{border-top-color:{LINK}}}
-.grid{{display:grid;gap:16px}} .g2{{grid-template-columns:1.15fr 0.85fr}} .g3{{grid-template-columns:repeat(3,1fr)}}
+.grid{{display:grid;gap:16px}} .grid>*{{min-width:0}} .g2{{grid-template-columns:1.15fr 0.85fr}} .g3{{grid-template-columns:repeat(3,1fr)}}
 @media (max-width:900px){{.g2,.g3{{grid-template-columns:1fr}}}}
+nav.pages a{{display:inline-flex;gap:6px;align-items:center;font-size:12px;padding:7px 12px}} nav.pages .pn{{display:inline-block;min-width:18px;height:18px;line-height:18px;border-radius:9px;background:{PAPER2};color:{INK};text-align:center;font-size:10px}}
+nav.pager{{display:flex;justify-content:space-between;align-items:center;border-top:1px solid {RULE};margin:36px 0 0;padding:16px 0 8px;font-size:14px}}
+.segbar{{display:inline-flex;width:160px;border-radius:5px;overflow:hidden;background:{PAPER2};vertical-align:middle}} .segbar i{{display:block;height:100%}}
+ol.improvements{{margin:8px 0 0;padding:0;list-style:none;counter-reset:imp}} ol.improvements li{{counter-increment:imp;border:1px solid {RULE};border-left:4px solid {ACCENT};border-radius:6px;padding:10px 14px 10px 48px;margin:8px 0;position:relative;background:#fff}} ol.improvements li::before{{content:counter(imp);position:absolute;left:14px;top:10px;width:24px;height:24px;border-radius:12px;background:{ACCENT};color:#fff;font-weight:700;font-size:13px;text-align:center;line-height:24px}} ol.improvements li p{{margin:3px 0 0}} ol.improvements .chips{{display:inline-flex;gap:6px;flex-wrap:wrap;margin-left:6px;vertical-align:middle}}
+.pillar{{border:1px solid {RULE};border-radius:6px;padding:14px 18px;margin:16px 0;background:#fff}} .pillar>header{{display:flex;flex-wrap:wrap;gap:10px;align-items:center}} .pillar>header h3{{margin:0;font-size:17px}}
+.chart-card{{border:1px solid {RULE};border-radius:6px;padding:14px 16px;background:#fff;margin:14px 0}} .chart-card h3{{margin:0 0 6px;font-size:15px}} .chart-card svg{{width:100%;max-width:760px;height:auto;display:block;margin:0 auto}} .chart-card svg[data-chart=pillar-radar]{{max-width:400px}}
+table.grade-list td{{padding:7px 8px;vertical-align:middle}} table.grade-list .segbar{{width:120px}}
+.appendix-letter{{font-family:{MONO};color:{ACCENT};margin-right:6px}}
+@media (max-width:700px){{table{{display:block;max-width:100%;overflow-x:auto}} table.fields th{{width:auto;white-space:normal}} .wrap{{padding-left:16px;padding-right:16px}}}}
 .card{{border:1px solid {RULE};border-radius:6px;padding:18px 20px;background:#fff}} .card h3{{margin:0 0 6px;font-size:15px}} .card h4{{margin:0 0 8px;font-size:15px}} .card.consider p{{margin:6px 0;font-size:13px}} .card.consider p b{{color:{MUTED};font-weight:600;margin-right:4px}}
 .card .sub{{font-family:{MONO};font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:{MUTED};margin:0 0 12px}} .card svg{{width:100%;height:auto;display:block}}
 .chip{{display:inline-block;font-family:{MONO};font-size:10px;letter-spacing:0.04em;padding:2px 8px;border-radius:3px;border:1px solid transparent;white-space:nowrap;vertical-align:middle}}
@@ -96,8 +128,27 @@ figure{{margin:16px 0}} figure svg,figure img{{width:100%;height:auto;display:bl
 figure.zoomable a.zoom-open{{display:block;cursor:zoom-in}} figure.zoomable .zoom-close{{display:none}}
 figure.zoomable:target{{position:fixed;inset:0;z-index:1000;margin:0;background:#fff;overflow:auto;padding:56px 24px 24px}} figure.zoomable:target a.zoom-open{{cursor:default}}
 figure.zoomable:target svg{{width:max(1800px,200%);max-width:none}} figure.zoomable:target .zoom-close{{display:inline-block;position:fixed;top:12px;right:24px;z-index:1001;background:{INK};color:#fff;padding:6px 14px;border-radius:16px;font-size:13px;text-decoration:none}}
-.specialist{{border:1px solid {RULE};border-top:4px solid {ACCENT};border-radius:6px;padding:16px 20px;margin:18px 0;background:#fff}} .specialist h3{{margin:0 0 8px;font-size:17px}} .specialist h3 .chips{{display:inline-flex;gap:6px;flex-wrap:wrap;vertical-align:middle;margin-left:6px}} .specialist h4{{margin:12px 0 6px;font-size:14px}} .specialist .rec{{border-left:3px solid {RULE};padding:4px 14px;margin:12px 0}} .specialist .rec h4 .chips{{display:inline-flex;gap:6px;flex-wrap:wrap;margin-left:6px;vertical-align:middle}} .specialist .rec p{{margin:4px 0}} .specialist .ref{{font-family:{MONO};font-size:11px;color:{SOFT};margin-top:4px}}
+.specialist{{border:1px solid {RULE};border-top:4px solid {ACCENT};border-radius:6px;padding:16px 20px;margin:18px 0;background:#fff}} .specialist h3{{margin:0 0 8px;font-size:17px}} .specialist h3 .chips{{display:inline-flex;gap:6px;flex-wrap:wrap;vertical-align:middle;margin-left:6px}} .specialist h4{{margin:12px 0 6px;font-size:14px}} .specialist .rec{{border:1px solid {RULE};border-left:3px solid {ACCENT};border-radius:6px;padding:10px 14px;margin:12px 0}} .specialist .rec h4 .chips{{display:inline-flex;gap:6px;flex-wrap:wrap;margin-left:6px;vertical-align:middle}} .specialist .rec p{{margin:4px 0}} .specialist .ref{{font-family:{MONO};font-size:11px;color:{SOFT};margin-top:4px}}
+section.sub{{padding:0}} section.sub>h3{{margin-top:30px}}
+.dir-grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px;margin:12px 0 6px}} .dir-grid>*{{min-width:0}}
+.dir-tile{{border:1px solid {RULE};border-top:4px solid {MUTED};border-radius:6px;padding:12px 14px;background:#fff;display:flex;flex-direction:column;gap:6px}} .dir-tile.small{{padding:9px 12px;background:{PAPER2}}}
+.dir-head{{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}} .dir-head b{{font-size:15px}} .dir-reason{{margin:0;font-size:13px;line-height:1.5;flex:1}} .dir-tile.small .dir-reason{{font-size:12.5px;color:{MUTED}}}
+.dir-foot{{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:flex-end}} .dir-who{{font-family:{MONO};font-size:10.5px;color:{MUTED}}} .dir-link{{font-size:12px;white-space:nowrap;margin-left:auto}} .dir-nr{{font-style:italic}} span.dir-nr::before{{content:"\\00B7  "}}
+.toprecs{{display:grid;grid-template-columns:1fr;gap:10px}} .toprecs>*{{min-width:0}}
+.toprec{{border:1px solid {RULE};border-left:4px solid {ACCENT};border-radius:6px;padding:12px 16px;background:#fff;display:flex;flex-direction:column;gap:6px}} .toprec header{{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center}} .toprec h4{{margin:0;font-size:15px;display:flex;gap:10px;align-items:center}}
+.toprec-n{{flex:none;width:24px;height:24px;border-radius:12px;background:{ACCENT};color:#fff;font-size:13px;font-weight:700;text-align:center;line-height:24px}} .toprec .chips{{display:flex;gap:6px;flex-wrap:wrap}} .toprec p.small{{margin:0}} .toprec .rec-flow{{margin:4px 0}}
+.rec-flow{{display:grid;grid-template-columns:minmax(0,1fr) 22px minmax(0,1fr);gap:6px;margin:8px 0;overflow-wrap:anywhere}} .toprec,.dir-tile,ul.points,ul.rec-figs{{overflow-wrap:anywhere}} .rec-now,.rec-to{{border-radius:6px;padding:8px 12px;font-size:13px;line-height:1.5}} .rec-now p,.rec-to p{{margin:2px 0 0}}
+.rec-now{{background:{PAPER2}}} .rec-to{{background:rgba(255,153,0,0.07);border:1px solid rgba(236,114,17,0.28)}} .rec-label{{font-family:{MONO};font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:{MUTED};font-weight:600}} .rec-to .rec-label{{color:{ACCENT}}}
+.rec-arrow{{display:flex;align-items:center;justify-content:center;color:{SOFT};font-size:18px}} @media (max-width:700px){{.rec-flow{{grid-template-columns:1fr}} .rec-arrow{{transform:rotate(90deg)}}}}
+ul.rec-figs{{list-style:none;margin:6px 0;padding:0;display:flex;flex-wrap:wrap;gap:6px}} ul.rec-figs li{{font-size:12px;border:1px solid {RULE};border-radius:12px;padding:2px 10px;color:{MUTED};background:#fff}} ul.rec-figs li b{{color:{INK};font-weight:600}}
+details.rec-more{{margin:6px 0 2px;border-style:dashed}} details.rec-more>summary{{font-size:12.5px;color:{LINK};padding:7px 12px}} details.rec-more table.fields{{margin:0 12px 10px;width:calc(100% - 24px)}}
+details.more{{border:0;margin:2px 0 0;background:transparent}} details.more>summary{{display:inline-flex;padding:0;font-size:11.5px;font-weight:400;color:{LINK};gap:4px}} details.more>summary::before{{font-size:10px}} details.more p{{margin:4px 0 0;font-size:13px;color:{MUTED}}}
+.sp-cols{{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:18px}} .sp-later{{border-left:1px solid {RULE};padding-left:16px}} @media (max-width:900px){{.sp-cols{{grid-template-columns:1fr}} .sp-later{{border-left:0;padding-left:0}}}}
+ul.points{{margin:0;padding:0;list-style:none}} ul.points>li{{position:relative;padding:5px 0 5px 16px;font-size:13.5px;line-height:1.5;border-bottom:1px dotted {RULE}}} ul.points>li::before{{content:'';position:absolute;left:2px;top:13px;width:6px;height:6px;border-radius:3px;background:{ACCENT}}} .sp-later ul.points>li::before{{background:{SOFT}}}
+tr.group-row td{{background:{PAPER2};font-family:{MONO};font-size:10.5px;letter-spacing:0.08em;text-transform:uppercase;color:{MUTED};font-weight:600}}
 table.glance th{{width:180px;white-space:nowrap}} table.glance ol.glance-list{{margin:0;padding-left:18px}} table.glance ol.glance-list li{{margin:3px 0}}
+table.fields{{margin:6px 0 4px}} table.fields th{{width:150px;white-space:nowrap;vertical-align:top;background:{PAPER2}}} table.fields td p{{margin:2px 0}} table.fields table.inner{{margin:0}} table.fields table.inner th{{width:auto;white-space:normal;background:transparent}} table.fields table.inner td{{font-size:13px;padding:6px 10px}} table.fields table.inner td:first-child{{width:30%}} table.fields table.inner td:nth-child(2){{width:28%}} table.fields tr.input-needed td{{background:#FFF8EC}} table.fields tr.input-needed td:nth-child(2){{color:{ACCENT};font-style:italic}}
+nav.toc a.other{{margin-left:auto;color:{ACCENT};font-weight:600}}
 .issue{{border:1px solid {RULE};border-left:5px solid {MUTED};border-radius:6px;padding:14px 18px;margin:12px 0;background:#fff}} .issue h3{{margin:0 0 6px;font-size:16px}} .issue p{{margin:4px 0}} .issue h3 .chips{{display:inline-flex;gap:6px;flex-wrap:wrap;vertical-align:middle;margin-left:6px}} .issue h3 .chip{{font-size:12px;padding:4px 10px}} .quickwins{{margin-top:18px}} .quickwins ul.plain li{{margin:6px 0;font-size:14px}} .quickwins .chip{{margin-left:4px}} .issue .why{{color:{MUTED}}} .issue .act{{font-weight:600}} .issue .ref{{font-family:{MONO};font-size:11px;color:{SOFT};margin-top:6px}}
 footer{{border-top:1px solid {RULE};margin-top:40px;padding:20px 0 40px;font-family:{MONO};font-size:11px;color:{MUTED}}}
 @media print{{nav.toc{{display:none}} .hero{{-webkit-print-color-adjust:exact;print-color-adjust:exact}} details{{page-break-inside:avoid}}}}
@@ -331,10 +382,127 @@ def hero(eyebrow, title, lead, meta):
             f'<p>{esc(lead)}</p></div><div class="meta">{chips}</div></div></div>')
 
 
-def page(title, body, lang="en"):
+def page(title, body, lang="en", extra_css=""):
     return (f'<!doctype html><html lang="{lang}"><head><meta charset="utf-8">'
             f'<meta name="viewport" content="width=device-width,initial-scale=1"><title>{esc(title)}</title>'
-            f"<style>{css()}</style></head><body>{body}</body></html>\n")
+            f"<style>{css()}{extra_css}</style></head><body>{body}</body></html>\n")
+
+
+# ---------------------------------------------------------------------------
+# Paged report: one section visible at a time, chosen with CSS :target only (no script). A link to any element inside a
+# page shows that page; with no fragment the first page shows. Printing shows every page.
+# ---------------------------------------------------------------------------
+def pages_css(page_ids):
+    first = page_ids[0]
+    any_target = ", ".join(f"#{p}:target, #{p} :target" for p in page_ids)
+    rules = [f"section.page{{display:none}} section.page:target, section.page:has(:target){{display:block}}",
+             f"body:not(:has({any_target})) #{first}{{display:block}}",
+             f"body:not(:has({any_target})) nav.pages a[href=\"#{first}\"]{{background:{INK};color:#fff}}",
+             "@media print{section.page{display:block !important} nav.pages,nav.pager{display:none}}"]
+    for p in page_ids:
+        rules.append(f"body:has(#{p}:target, #{p} :target) nav.pages a[href=\"#{p}\"]{{background:{INK};color:#fff}}")
+    return "\n".join(rules)
+
+
+def pages_nav(items):
+    """The sticky page menu: (page id, label) pairs, numbered."""
+    links = "".join(f'<a href="#{esc(pid)}"><span class="pn">{n}</span>{esc(label)}</a>' for n, (pid, label) in enumerate(items, 1))
+    return f'<nav class="toc pages"><div class="wrap">{links}</div></nav>'
+
+
+def pager(items, index):
+    """Previous / next links at the bottom of page `index`."""
+    prev_link = f'<a href="#{esc(items[index - 1][0])}">&larr; {esc(items[index - 1][1])}</a>' if index > 0 else "<span></span>"
+    next_link = f'<a href="#{esc(items[index + 1][0])}">{esc(items[index + 1][1])} &rarr;</a>' if index + 1 < len(items) else "<span></span>"
+    return f'<nav class="pager">{prev_link}<span class="small">{index + 1} / {len(items)}</span>{next_link}</nav>'
+
+
+# ---------------------------------------------------------------------------
+# Summary charts
+# ---------------------------------------------------------------------------
+def radar(values, slug="pillar-radar", title="Pillar scores", colors=None, size=420):
+    """Polygon of 0-100 values on one axis per category (the six pillars). `colors` maps a category to its point colour
+    (the grade colour); a category without a value sits at the centre with a hollow point."""
+    names = list(values)
+    n = len(names)
+    cx, cy, r = size / 2, size / 2 + 4, size / 2 - 92
+    out = [svg_open(size, size + 8, slug, title, f"Radar chart of {n} categories on a 0 to 100 scale; the outer ring is 100.")]
+    def point(i, v):
+        angle = -math.pi / 2 + 2 * math.pi * i / n
+        return cx + r * v / 100 * math.cos(angle), cy + r * v / 100 * math.sin(angle)
+    for ring in (25, 50, 75, 100):
+        pts = " ".join(f"{x:.1f},{y:.1f}" for x, y in (point(i, ring) for i in range(n)))
+        out.append(f'<polygon points="{pts}" fill="none" stroke="{RULE}" stroke-width="1"/>')
+        # ring values between the first two axes, clear of the axis labels and their values
+        angle = -math.pi / 2 + math.pi / n
+        out.append(text(f"{cx + r * ring / 100 * math.cos(angle) + 3:.1f}", f"{cy + r * ring / 100 * math.sin(angle):.1f}", str(ring), 9, SOFT, mono=True))
+    for i, name in enumerate(names):
+        x, y = point(i, 100)
+        out.append(f'<line x1="{cx:.1f}" y1="{cy:.1f}" x2="{x:.1f}" y2="{y:.1f}" stroke="{RULE}" stroke-width="1"/>')
+        lx, ly = point(i, 118)
+        anchor = "middle" if abs(lx - cx) < 8 else ("start" if lx > cx else "end")
+        words = name.split(" ")
+        lines = [" ".join(words[:2]), " ".join(words[2:])] if len(words) > 2 else ([" ".join(words)] if len(name) < 16 else words)
+        for k, line in enumerate(l for l in lines if l):
+            out.append(text(f"{lx:.1f}", f"{ly + 4 + k * 13 - (len(lines) - 1) * 6:.1f}", line, 11.5, INK, 600, anchor=anchor))
+        v = values[name]
+        if v is not None:
+            vx, vy = point(i, 118)
+            out.append(text(f"{vx:.1f}", f"{vy + 4 + len([l for l in lines if l]) * 13 - (len(lines) - 1) * 6 + 2:.1f}", num(v), 10, MUTED, mono=True, anchor=anchor))
+    pts = [point(i, values[nm] or 0) for i, nm in enumerate(names)]
+    out.append(f'<polygon points="{" ".join(f"{x:.1f},{y:.1f}" for x, y in pts)}" fill="rgba(255,153,0,0.16)" stroke="{ACCENT}" stroke-width="2"/>')
+    for (x, y), nm in zip(pts, names):
+        color = (colors or {}).get(nm, ACCENT)
+        if values[nm] is None:
+            out.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="4" fill="#fff" stroke="{SOFT}" stroke-width="1.5"/>')
+        else:
+            out.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="5" fill="{color}" stroke="#fff" stroke-width="1.5"/>')
+    out.append("</svg>")
+    return "".join(out)
+
+
+def priority_matrix(points, columns, rows, slug="priority-matrix", title="Size and cost of each recommendation", legend_items=None, width=640):
+    """A grid of `columns` (left to right, smallest first) by `rows` (top to bottom, cheapest first); each point is a
+    numbered dot (label, column key, row key, colour, href). Several points in one cell are laid out side by side."""
+    left, top, cell_w = 120, 34, (width - 130) / len(columns)
+    cell_h = 62
+    height = top + cell_h * len(rows) + 14
+    out = [svg_open(width, height, slug, title, "Grid of recommendations by size of work (columns) and cost direction (rows); each dot is one item.")]
+    for j, (key, label) in enumerate(columns):
+        out.append(text(f"{left + cell_w * (j + 0.5):.1f}", 20, label, 11, MUTED, 600, anchor="middle"))
+    for i, (key, label) in enumerate(rows):
+        y = top + i * cell_h
+        out.append(text(left - 10, f"{y + cell_h / 2 + 4:.1f}", label, 11, MUTED, 600, anchor="end"))
+        for j in range(len(columns)):
+            shade = "rgba(122,161,22,0.08)" if (i + j) <= 1 else ("rgba(221,52,76,0.06)" if (i + j) >= len(rows) + len(columns) - 3 else PAPER2)
+            out.append(f'<rect x="{left + j * cell_w + 2:.1f}" y="{y + 2}" width="{cell_w - 4:.1f}" height="{cell_h - 4}" rx="4" fill="{shade}"/>')
+    cells = {}
+    for p in points:
+        cells.setdefault((p[1], p[2]), []).append(p)
+    col_index = {k: j for j, (k, _) in enumerate(columns)}
+    row_index = {k: i for i, (k, _) in enumerate(rows)}
+    for (ck, rk), items in cells.items():
+        if ck not in col_index or rk not in row_index:
+            continue
+        x0, y0 = left + col_index[ck] * cell_w, top + row_index[rk] * cell_h
+        per_row = max(1, int((cell_w - 12) // 26))
+        for k, (label, _, _, color, href) in enumerate(items):
+            cx = x0 + 18 + (k % per_row) * 26
+            cy = y0 + 18 + (k // per_row) * 24
+            dot = (f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="11" fill="{color}"/>'
+                   + text(f"{cx:.1f}", f"{cy + 4:.1f}", label, 10, "#fff", 700, mono=True, anchor="middle"))
+            out.append(f'<a href="{esc(href)}">{dot}</a>' if href else dot)
+    out.append("</svg>")
+    return "".join(out) + (legend(legend_items) if legend_items else "")
+
+
+def segment_bar(counts, order=None, height=10):
+    """A thin inline bar of status counts (HTML, not SVG) for a heading line."""
+    order = order or STATUS_ORDER
+    total = sum(counts.get(s, 0) for s in order) or 1
+    parts = "".join(f'<i style="width:{100 * counts.get(s, 0) / total:.2f}%;background:{STATUS[s][1]}" title="{esc(STATUS[s][0])} {counts.get(s, 0)}"></i>'
+                    for s in order if counts.get(s))
+    return f'<span class="segbar" style="height:{height}px">{parts}</span>'
 
 
 # ---------------------------------------------------------------------------
@@ -461,6 +629,18 @@ def run_metadata_rows(meta):
             usage_row, ("Entries", f"{len(meta['entries'])} recorded segment(s){partial}")]
     if credits and totals["total_tokens"] is not None:
         rows.insert(4, ("Kiro credits", f"{sum(credits):.1f}"))
+    # Input tokens are mostly cache reads (the context re-sent with every request) and sub-agents are separate sessions;
+    # both are counted, and said so, because they are where the usage goes.
+    cache_reads = sum(int(e["breakdown"].get(k) or 0) for e in meta["entries"] for k in ("cache_read_input", "cached_input") if isinstance(e["breakdown"].get(k), (int, float)))
+    subagents = sum(int(e["breakdown"].get("subagents") or 0) for e in meta["entries"] if isinstance(e["breakdown"].get("subagents"), (int, float)))
+    sub_requests = sum(int(e["breakdown"].get("subagent_requests") or 0) for e in meta["entries"] if isinstance(e["breakdown"].get("subagent_requests"), (int, float)))
+    if totals["total_tokens"] is not None and (cache_reads or subagents):
+        detail = []
+        if cache_reads and totals["input_tokens"]:
+            detail.append(f"cache reads {fmt_int(cache_reads)} ({100 * cache_reads // max(1, totals['input_tokens'])}% of input: the context re-sent with each request)")
+        if subagents:
+            detail.append(f"{subagents} sub-agent session(s) with {fmt_int(sub_requests)} requests included")
+        rows.insert(len(rows) - 1, ("Token composition", " · ".join(detail)))
     tier = model_tier(models)
     if tier in {"reduced", "unsuitable"}:
         rows.append(("Model guidance", f"{models} is below the recommended tier for this assessment ({MODEL_RECOMMENDED}); "
@@ -507,8 +687,78 @@ def run_metadata_html(meta):
             f"{kpis}<table><tbody>{table}</tbody></table>{entries}" + (f"<ul class=\"small\">{notes}</ul>" if notes else "") + "</section>")
 
 
+CLIENT_NAMES = {"kiro-cli": "Kiro CLI", "kiro": "Kiro CLI", "claude-code": "Claude Code", "claude": "Claude Code", "codex": "Codex"}
+# Every word the usage block shows. A localized report refreshes the block after the final turn with these words from
+# its glossary, so the refreshed block is in the report's language too.
+USAGE_WORDS = ("AI tool", "Model", "Input tokens", "of which cached", "Output tokens", "Kiro credits", "Model requests", "Turn time",
+               "Sub-agents", "Recorded", "not recorded", "Usage of the AI assistant", "Kiro CLI records credits, not tokens.")
+
+
+def usage_facts(meta):
+    """(label, value) pairs for the usage block, from run-metadata.json as the client recorded it; nothing estimated."""
+    if not meta or not meta["entries"]:
+        return []
+    t = meta["totals"]
+    credits = [e["breakdown"].get("credits") for e in meta["entries"] if e["breakdown"].get("credits") is not None]
+    cached = sum(int(e["breakdown"].get(k) or 0) for e in meta["entries"] for k in ("cache_read_input", "cached_input"))
+    subagents = sum(int(e["breakdown"].get("subagents") or 0) for e in meta["entries"])
+    recorded = max((e.get("recorded_at") or "" for e in meta["entries"]), default="")
+    facts = [("AI tool", CLIENT_NAMES.get(str(meta.get("agent_client") or "").lower(), meta.get("agent_client") or "not recorded")),
+             ("Model", ", ".join(meta["models_seen"]) or "not recorded")]
+    if t["input_tokens"] is not None or t["output_tokens"] is not None:
+        facts.append(("Input tokens", fmt_int(t["input_tokens"]) + (f" ({fmt_int(cached)} of which cached)" if cached else "")))
+        facts.append(("Output tokens", fmt_int(t["output_tokens"])))
+    if credits:
+        facts.append(("Kiro credits", f"{sum(float(c) for c in credits):,.2f}"))
+    facts.append(("Model requests", fmt_int(t["requests"]) if t["requests"] is not None else "not recorded"))
+    if t["inference_seconds"] is not None:
+        facts.append(("Turn time", fmt_seconds(t["inference_seconds"])))
+    if subagents:
+        facts.append(("Sub-agents", str(subagents)))
+    facts.append(("Recorded", recorded[:16].replace("T", " ") + " UTC" if recorded else "not recorded"))
+    return facts
+
+
+DURATION_UNITS = ("h", "min", "s")
+
+
+def usage_value(label, value, say=lambda text: text):
+    """A usage value in the report's language: "not recorded", "of which cached" and the duration units go through
+    `say` (glossary terms); names, numbers and model ids stay as the client wrote them."""
+    if value == "not recorded":
+        return say(value)
+    if "of which cached" in value:
+        value = value.replace(" of which cached", " " + say("of which cached"))
+    if label == "Turn time":
+        value = re.sub(r"(\d+(?:\.\d)?) (h|min|s)\b", lambda m: m.group(1) + (say(m.group(2)) if say(m.group(2)) != m.group(2) else " " + m.group(2)), value)
+    return value
+
+
+def usage_block_html(meta, say=lambda text: text):
+    """The usage tiles: AI tool, model, tokens (or Kiro credits), requests. Wrapped in markers so the stop hook can
+    replace it with the figures of the finished run."""
+    facts = usage_facts(meta)
+    if not facts:
+        body = f'<p class="small">{esc(say("Usage of the AI assistant"))}: {esc(say("not recorded"))}</p>'
+    else:
+        body = '<div class="kpis">' + "".join(f'<div class="kpi link"><div class="n" style="font-size:20px">{esc(usage_value(l, v, say))}</div><div class="l">{esc(say(l))}</div></div>'
+                                              for l, v in facts) + "</div>"
+        if any(l == "Kiro credits" for l, _ in facts) and not any(l == "Input tokens" for l, _ in facts):
+            body += f'<p class="small">{esc(say("Kiro CLI records credits, not tokens."))}</p>'
+    return f'<!--moda-usage-->{body}<!--/moda-usage-->'
+
+
+def usage_block_markdown(meta, say=lambda text: text):
+    """Markdown twin of usage_block_html, between the same markers."""
+    facts = usage_facts(meta)
+    lines = [f"- {say(l)}: {usage_value(l, v, say)}" for l, v in facts] or [f"- {say('Usage of the AI assistant')}: {say('not recorded')}"]
+    if any(l == "Kiro credits" for l, _ in facts) and not any(l == "Input tokens" for l, _ in facts):
+        lines.append(f"- {say('Kiro CLI records credits, not tokens.')}")
+    return "<!--moda-usage-->\n" + "\n".join(lines) + "\n<!--/moda-usage-->"
+
+
 def run_metadata_markdown(meta):
-    lines = ["## Run provenance", "", "Declared by the agent and recorded in run-metadata.json; the helper does not measure model usage.", ""]
+    lines = ["## Run provenance", "", "Read from the AI tool's own session records into run-metadata.json; nothing is estimated.", ""]
     lines += [f"- {a}: {b}" for a, b in run_metadata_rows(meta)]
     if meta and meta["entries"]:
         lines += ["", "| Segment | Model | Inference time | Input tokens | Output tokens | Requests | Breakdown | Source |", "|---|---|---|---:|---:|---:|---|---|"]

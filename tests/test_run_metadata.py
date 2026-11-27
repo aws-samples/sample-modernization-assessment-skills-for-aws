@@ -135,6 +135,65 @@ class ClientImportTests(unittest.TestCase):
             self.assertIn("cache_read_input 5,000", kit.run_metadata_html(loaded))
             self.assertEqual(run("import-claude-transcript", "--file", str(meta), "--transcript", str(transcript), "--label", "x", "--since", "2027-01-01T00:00:00Z").returncode, 1)
 
+    def test_claude_transcript_includes_subagent_transcripts(self):
+        """Sub-agents run as separate sessions under <session>/subagents/; their usage is part of the run."""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            usage = {"input_tokens": 10, "cache_read_input_tokens": 1000, "cache_creation_input_tokens": 100, "output_tokens": 20}
+            main = [{"type": "assistant", "uuid": "a1", "timestamp": "2026-10-20T07:00:05Z", "message": {"id": "m1", "model": "model-a", "usage": usage}}]
+            transcript = root / "sess.jsonl"
+            transcript.write_text("\n".join(json.dumps(x) for x in main) + "\n")
+            subs = root / "sess" / "subagents"
+            subs.mkdir(parents=True)
+            for n in ("agent-1", "agent-2"):
+                (subs / f"{n}.jsonl").write_text(json.dumps({"type": "assistant", "uuid": f"{n}-u", "timestamp": "2026-10-20T07:10:00Z",
+                                                            "message": {"id": f"{n}-m", "model": "model-a", "usage": usage}}) + "\n")
+            (subs / "agent-1.meta.json").write_text("{}")  # not a transcript
+            meta = root / "m.json"
+            run("init", "--output", str(meta), "--client", "claude-code")
+            out = json.loads(run("import-claude-transcript", "--file", str(meta), "--transcript", str(transcript), "--label", "s").stdout)
+            self.assertEqual((out["requests"], out["subagents"], out["subagent_requests"]), (3, 2, 2))
+            entry = kit.load_run_metadata(meta)["entries"][0]
+            self.assertEqual(entry["input_tokens"], 3 * 1110)
+            self.assertEqual(entry["breakdown"]["subagent_input_tokens"], 2 * 1110)
+            html = kit.run_metadata_html(kit.load_run_metadata(meta))
+            self.assertIn("2 sub-agent session(s) with 2 requests included", html)
+            self.assertIn("cache reads 3,000 (90% of input", html)
+
+    def test_codex_rollout_sums_records_and_follows_subagents(self):
+        """Per-response token_usage_record rows are summed across the main rollout and the sub-agent rollouts whose
+        session_meta names it as parent; nested sub-agents and the next day's folder are followed."""
+        with tempfile.TemporaryDirectory() as temporary:
+            day = Path(temporary) / "sessions" / "2026" / "10" / "20"
+            nxt = Path(temporary) / "sessions" / "2026" / "10" / "21"
+            day.mkdir(parents=True); nxt.mkdir(parents=True)
+
+            def record(stamp, rid, inp, cached, out):
+                return {"timestamp": stamp, "type": "token_usage_record", "payload": {"response_id": rid, "usage": {
+                    "input_tokens": inp, "cached_input_tokens": cached, "cache_write_input_tokens": 5, "output_tokens": out, "reasoning_output_tokens": 1}}}
+
+            def rollout(path, tid, parent, records):
+                source = {"subagent": {"thread_spawn": {"parent_thread_id": parent}}} if parent else "cli"
+                lines = [{"timestamp": "2026-10-20T07:00:00Z", "type": "session_meta", "payload": {"id": tid, "source": source, "parent_thread_id": parent}},
+                         {"timestamp": "2026-10-20T07:00:01Z", "type": "turn_context", "payload": {"model": "model-c"}}] + records
+                path.write_text("\n".join(json.dumps(x) for x in lines) + "\n")
+            main = day / "rollout-2026-10-20T07-00-00-main.jsonl"
+            rollout(main, "main", None, [record("2026-10-20T07:01:00Z", "r1", 1000, 900, 10), record("2026-10-20T07:02:00Z", "r1", 1000, 900, 10),  # repeated snapshot
+                                          record("2026-10-20T07:03:00Z", "r2", 2000, 1900, 20)])
+            rollout(day / "rollout-2026-10-20T07-05-00-sub.jsonl", "sub", "main", [record("2026-10-20T07:06:00Z", "r3", 500, 400, 5)])
+            rollout(nxt / "rollout-2026-10-21T00-01-00-nested.jsonl", "nested", "sub", [record("2026-10-21T00:02:00Z", "r4", 300, 200, 3)])
+            rollout(day / "rollout-2026-10-20T08-00-00-other.jsonl", "other", None, [record("2026-10-20T08:01:00Z", "r5", 99999, 0, 999)])
+            meta = Path(temporary) / "m.json"
+            run("init", "--output", str(meta), "--client", "codex")
+            out = json.loads(run("import-codex-rollout", "--file", str(meta), "--rollout", str(main), "--label", "s").stdout)
+            self.assertEqual((out["requests"], out["subagents"], out["subagent_requests"], out["method"]), (4, 2, 2, "records"))
+            self.assertEqual((out["input_tokens"], out["output_tokens"]), (3800, 38), "the unrelated session is not counted")
+            entry = kit.load_run_metadata(meta)["entries"][0]
+            self.assertEqual(entry["breakdown"]["cached_input"], 3400)
+            self.assertEqual(entry["breakdown"]["subagent_input_tokens"], 800)
+            only = json.loads(run("import-codex-rollout", "--file", str(meta), "--rollout", str(main), "--label", "m", "--no-subagents").stdout)
+            self.assertEqual((only["requests"], only["subagents"]), (2, 0))
+
     def test_codex_rollout_uses_cumulative_delta(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

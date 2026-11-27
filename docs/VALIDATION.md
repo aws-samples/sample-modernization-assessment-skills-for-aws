@@ -244,3 +244,24 @@ and from short sessions in each client that stopped at the scope question, with 
 user name and names of other projects in the test account replaced.
 
 **201 tests passed.**
+
+## Usage import includes sub-agents (2026-11-16)
+
+Recounting the three live runs showed that the usage importers for Claude Code and Codex read only
+the main session. Claude Code writes each sub-agent's transcript to `<session>/subagents/`; Codex
+writes each sub-agent as its own rollout whose `session_meta` names the parent thread. In the test
+runs the sub-agents held about 60% of the Claude Code tokens and 28% of the Codex tokens (88.5M
+counted against 63.6M recorded). Both importers now include them, and the Codex importer sums the
+per-response `token_usage_record` rows instead of the cumulative snapshots, which cannot be split
+between sessions. The report's provenance section states the cache-read share of the input and the
+number of sub-agent sessions counted. The Kiro CLI importer already read the `sub-executions/`
+folder; its total for the 632-credit run matched the client's own figure. Prices are not in any
+client record and are not estimated. New tests build synthetic session trees for both clients.
+
+A live Kiro CLI run of the branch (2026-11-24, shopnow, us-east-1, 85 minutes to the English report) showed a
+second gap: Kiro writes a turn's usage only when the turn ends, so the report rendered inside the long assessment
+turn recorded 17 of 436 credits, and `/moda-skill report` afterwards added the whole session as a second entry
+(446 credits over 428 requests shown, both double-counted). A re-import of the same session now replaces its
+entry; the corrected report shows 436.24 credits over 391 requests, the figure Kiro's own status line reports.
+
+**203 tests passed.**

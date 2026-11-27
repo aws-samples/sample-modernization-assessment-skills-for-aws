@@ -13,7 +13,7 @@ Connect each constraint to findings/evidence. Distinguish shared security/operat
 | Pathway | Assessment | Fit/evidence coverage | Key evidence | Conditions or rejection reasons |
 |---|---|---|---|---|
 
-Include Container, Serverless, Managed Database, Managed Analytics, GenAI, Cloud Native and Modern DevOps.
+Include the seven directions (Container, Serverless, Managed Services, Managed Database, Managed Analytics, GenAI, Open Source), then the two foundations (Modern DevOps, Cloud Native).
 
 ## GenAI/AI service fit
 

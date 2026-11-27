@@ -19,6 +19,8 @@ import json
 import os
 from pathlib import Path
 import re
+
+NON_LATIN = re.compile(r"[\u0370-\u06ff\u0e00-\u0e7f\u1100-\u11ff\u3040-\u30ff\u3130-\u318f\u3400-\u9fff\uac00-\ud7af\uf900-\ufaff]")
 import shutil
 import subprocess  # nosec B404 - list-form `aws pricing get-products` only
 import sys
@@ -128,6 +130,8 @@ def main():
             raise ValueError("--id-prefix must be two lowercase letters and a hyphen (for example db-)")
         if not 1 <= args.count <= 1000:
             raise ValueError("--count must be between 1 and 1000")
+        if NON_LATIN.search(args.label) and len(NON_LATIN.findall(args.label)) > 4:
+            raise ValueError("--label must be English (the report is translated at the end when its language is not English)")
         service_code, filters, exclude, basis = preset(args)
         prices = hourly_prices(get_products(args, service_code, filters), exclude)
         distinct = sorted({round(p[0], 6) for p in prices})

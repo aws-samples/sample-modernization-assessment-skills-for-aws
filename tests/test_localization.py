@@ -152,6 +152,16 @@ class LocalizationTests(unittest.TestCase):
                 self.assertNotEqual(locale.PROTECTED.findall(source),locale.PROTECTED.findall(target))
             self.assertNotEqual(locale.PROTECTED.findall("Rate 50%"),locale.PROTECTED.findall("Rate 50"))
             self.assertNotEqual(locale.PROTECTED.findall("Value -1"),locale.PROTECTED.findall("Value 1"))
+            # Status values are protected as values; the same words inside a sentence are ordinary words.
+            self.assertFalse(locale.protected_match("conditional", "조건부 권장"))
+            self.assertTrue(locale.protected_match("0 of 1 topic(s) with a confirmed subscriber", "확인된 구독자가 있는 토픽 0개(전체 1개)"))
+            self.assertFalse(locale.protected_match("status FAIL", "상태 미충족"))
+            # A month written as a word may become a number; any other new number is still refused.
+            self.assertTrue(locale.protected_match("generally available Mar 2026", "2026년 3월 정식 출시"))
+            self.assertFalse(locale.protected_match("generally available in 2026", "2026년 3월 정식 출시"))
+            # A time-zone offset or a sign is not a "+" separator between nouns.
+            self.assertEqual(locale.glossary_violations("2026-11-23T07:33:26+00:00까지 쓰기가 없었습니다.", {"+": "x"}, allow_bullets=False), [])
+            self.assertEqual(locale.glossary_violations("경보 + 대시보드를 추가합니다.", {"+": "x"}, allow_bullets=False), ["+"])
 
     def test_source_changes_and_skill_roots_are_rejected(self):
         with tempfile.TemporaryDirectory() as d:

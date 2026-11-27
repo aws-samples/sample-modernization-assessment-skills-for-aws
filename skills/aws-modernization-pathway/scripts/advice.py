@@ -5,8 +5,8 @@ Five Specialist SA Agents (sub-agents that take the role of an AWS specialist SA
 has no sub-agent tool) each look at
 the workload through one domain and write advice with a focused architecture diagram:
 
-  containers  Container & Serverless Specialist SA Agent   container, serverless, cloud-native (messaging options)
-  database    Database Specialist SA Agent                 managed-database
+  containers  Container & Serverless Specialist SA Agent   container, serverless, managed-services, cloud-native (messaging options)
+  database    Database Specialist SA Agent                 managed-database, open-source
   analytics   Data Analytics Specialist SA Agent           managed-analytics
   genai       GenAI Specialist SA Agent                    genai (AI options)
   devops      DevOps Specialist SA Agent                   modern-devops (observability options)
@@ -34,12 +34,12 @@ sys.path.insert(0, str(HERE))
 import report_kit as kit  # noqa: E402
 
 SPECIALISTS = {
-    "containers": {"role": "Container & Serverless Specialist SA Agent", "pathways": ("container", "serverless", "cloud-native"),
-                   "types": ("ecs.", "eks.", "ec2.instance", "autoscaling.", "elbv2.", "lambda.", "apigateway", "sqs.", "sns.", "events.", "stepfunctions.", "ecr.", "cloudfront."),
+    "containers": {"role": "Container & Serverless Specialist SA Agent", "pathways": ("container", "serverless", "managed-services", "cloud-native"),
+                   "types": ("ecs.", "eks.", "ec2.instance", "autoscaling.", "elbv2.", "lambda.", "apigateway", "sqs.", "sns.", "events.", "stepfunctions.", "ecr.", "cloudfront.", "ssm."),
                    "rules": r"^(ECS_|EKS_|EC2_|ASG|ELB_|ALB_|LAMBDA|SQS|SNS|CONTAINER_|GRAVITON|COMPUTE_OPTIMIZER_FINDING|CUSTOMER_INGRESS|SUS_|PERF_)"},
-    "database": {"role": "Database Specialist SA Agent", "pathways": ("managed-database",),
+    "database": {"role": "Database Specialist SA Agent", "pathways": ("managed-database", "open-source"),
                  "types": ("rds.", "elasticache.", "dynamodb.", "secretsmanager.", "backup."),
-                 "rules": r"^(RDS_|AURORA_|ELASTICACHE_|CACHE_|DB_|DYNAMODB|BACKUP_|SECRET_|STACK_DATA_|REL_RESTORE|DATA_SG_|SCOPE_DYNAMODB)"},
+                 "rules": r"^(RDS_|AURORA_|ELASTICACHE_|CACHE_|DB_|DYNAMODB|BACKUP_|SECRET_|STACK_DATA_|REL_RESTORE|DATA_SG_|SCOPE_DYNAMODB|COMMERCIAL_LICENSE)"},
     "analytics": {"role": "Data Analytics Specialist SA Agent", "pathways": ("managed-analytics",),
                   "types": ("rds.", "dynamodb.", "s3.", "athena.", "glue.", "redshift.", "opensearch.", "kinesis.", "firehose.", "quicksight."),
                   "rules": r"^(ANALYTICS|ATHENA|GLUE|REDSHIFT|OPENSEARCH|KINESIS|S3_|AURORA_SINGLE|SCOPE_DYNAMODB|COST_WORKLOAD)"},
@@ -54,6 +54,7 @@ ORDER = tuple(SPECIALISTS)
 PATHWAY_OWNER = {p: sid for sid, s in SPECIALISTS.items() for p in s["pathways"]}
 EFFORT = ("setting", "days", "weeks", "quarter")
 COST = ("up", "neutral", "down", "measure_first")
+KINDS = ("move", "improve")  # optional; the report's top recommendations put moves to a modern target first
 STATES = {"retained", "proposed", "changed", "removal_candidate", "unresolved"}
 REFERENCE_HOSTS = {"docs.aws.amazon.com", "aws.amazon.com", "repost.aws"}
 ID_PREFIX = {"containers": "ct-", "database": "db-", "analytics": "da-", "genai": "ai-", "devops": "do-"}
@@ -138,64 +139,266 @@ def in_domain(spec, resource):
     return any(resource["type"].startswith(t) for t in spec["types"])
 
 
+def _get(d, *path):
+    for key in path:
+        if isinstance(d, dict):
+            d = d.get(key)
+        elif isinstance(d, list) and isinstance(key, int) and key < len(d):
+            d = d[key]
+        else:
+            return None
+    return d
+
+
+def _short(value, limit=48):
+    text = json.dumps(value, ensure_ascii=False) if isinstance(value, (dict, list)) else str(value)
+    return text if len(text) <= limit else text[:limit - 1] + "…"
+
+
+SKIP_FACT_KEYS = re.compile(r"(?i)(arn|id$|ids$|time|date|created|modified|updated|dns|endpoint|token|owner|account|hostedzone|resourceid)")
+
+
+def resource_facts(resource):
+    """The configuration values a specialist reads first, per resource type, as `key=value` strings. Unknown types fall
+    back to the scalar top-level attributes. Nothing here is interpreted; the specialist judges."""
+    a = resource.get("attributes") or {}
+    o = resource.get("observations") or {}
+    t = resource.get("type", "")
+    facts = []
+
+    def add(label, value):
+        if value is not None and value != "" and value != []:
+            facts.append(f"{label}={_short(value)}")
+    if t == "rds.cluster":
+        members = a.get("DBClusterMembers") or []
+        add("engine", f"{a.get('Engine')} {a.get('EngineVersion')}"); add("mode", a.get("EngineMode")); add("multi_az", a.get("MultiAZ"))
+        add("writers", sum(1 for m in members if m.get("IsClusterWriter"))); add("readers", sum(1 for m in members if not m.get("IsClusterWriter")))
+        add("azs", a.get("AvailabilityZones")); add("backup_retention_days", a.get("BackupRetentionPeriod")); add("deletion_protection", a.get("DeletionProtection"))
+        add("storage_encrypted", a.get("StorageEncrypted")); add("iam_auth", a.get("IAMDatabaseAuthenticationEnabled")); add("auto_minor_upgrade", a.get("AutoMinorVersionUpgrade"))
+    elif t == "rds.instance":
+        add("class", a.get("DBInstanceClass")); add("engine", f"{a.get('Engine')} {a.get('EngineVersion')}"); add("az", a.get("AvailabilityZone")); add("multi_az", a.get("MultiAZ"))
+        add("cluster", a.get("DBClusterIdentifier")); add("performance_insights", a.get("PerformanceInsightsEnabled")); add("monitoring_interval_s", a.get("MonitoringInterval"))
+        add("publicly_accessible", a.get("PubliclyAccessible")); add("storage", f"{a.get('AllocatedStorage')} GB {a.get('StorageType') or ''}".strip()); add("encrypted", a.get("StorageEncrypted"))
+        add("backup_retention_days", a.get("BackupRetentionPeriod")); add("deletion_protection", a.get("DeletionProtection"))
+    elif t.startswith("elasticache."):
+        add("engine", f"{a.get('Engine')} {a.get('EngineVersion') or ''}".strip()); add("node_type", a.get("CacheNodeType")); add("nodes", a.get("NumCacheNodes") or len(a.get("MemberClusters") or []) or None)
+        add("automatic_failover", a.get("AutomaticFailover")); add("multi_az", a.get("MultiAZ")); add("cluster_mode", a.get("ClusterMode")); add("at_rest_encryption", a.get("AtRestEncryptionEnabled"))
+        add("transit_encryption", a.get("TransitEncryptionEnabled")); add("auth_token", a.get("AuthTokenEnabled")); add("snapshot_retention_days", a.get("SnapshotRetentionLimit")); add("az", a.get("PreferredAvailabilityZone"))
+    elif t == "dynamodb.table":
+        add("billing", _get(a, "BillingModeSummary", "BillingMode") or ("PROVISIONED" if (a.get("ProvisionedThroughput") or {}).get("ReadCapacityUnits") else None))
+        add("items", a.get("ItemCount")); add("size_bytes", a.get("TableSizeBytes")); add("deletion_protection", a.get("DeletionProtectionEnabled")); add("sse", _get(a, "SSEDescription", "Status"))
+        add("pitr", _get(o, "continuous_backups", "data", "ContinuousBackupsDescription", "PointInTimeRecoveryDescription", "PointInTimeRecoveryStatus"))
+    elif t == "ecs.service":
+        add("launch", a.get("launchType") or "capacity provider"); add("desired", a.get("desiredCount")); add("running", a.get("runningCount")); add("platform", a.get("platformVersion"))
+        add("circuit_breaker", _get(a, "deploymentConfiguration", "deploymentCircuitBreaker", "enable")); add("rollback", _get(a, "deploymentConfiguration", "deploymentCircuitBreaker", "rollback"))
+        add("controller", _get(a, "deploymentController", "type")); add("subnets", len(_get(a, "networkConfiguration", "awsvpcConfiguration", "subnets") or []) or None)
+        add("public_ip", _get(a, "networkConfiguration", "awsvpcConfiguration", "assignPublicIp")); add("load_balancers", len(a.get("loadBalancers") or []) or None)
+        add("health_grace_s", a.get("healthCheckGracePeriodSeconds")); add("exec_command", a.get("enableExecuteCommand")); add("task_definition", str(a.get("taskDefinition") or "").rsplit("/", 1)[-1])
+    elif t == "ecs.cluster":
+        add("services", a.get("activeServicesCount")); add("running_tasks", a.get("runningTasksCount")); add("capacity_providers", a.get("capacityProviders"))
+        add("container_insights", next((x.get("value") for x in a.get("settings") or [] if x.get("name") == "containerInsights"), None))
+    elif t == "eks.cluster":
+        add("version", a.get("version")); add("platform", a.get("platformVersion")); add("support", _get(a, "upgradePolicy", "supportType"))
+        add("endpoint_public", _get(a, "resourcesVpcConfig", "endpointPublicAccess")); add("endpoint_private", _get(a, "resourcesVpcConfig", "endpointPrivateAccess"))
+        add("public_cidrs", _get(a, "resourcesVpcConfig", "publicAccessCidrs")); add("auth_mode", _get(a, "accessConfig", "authenticationMode"))
+        logging = [x.get("types") for x in _get(a, "logging", "clusterLogging") or [] if x.get("enabled")]
+        add("control_plane_logs", sum(logging, []) or "none"); add("deletion_protection", a.get("deletionProtection"))
+    elif t == "ec2.instance":
+        add("type", a.get("InstanceType")); add("arch", a.get("Architecture")); add("platform", a.get("PlatformDetails")); add("az", _get(a, "Placement", "AvailabilityZone"))
+        add("state", _get(a, "State", "Name")); add("imdsv2", _get(a, "MetadataOptions", "HttpTokens")); add("instance_profile", str(_get(a, "IamInstanceProfile", "Arn") or "").rsplit("/", 1)[-1] or None)
+        add("detailed_monitoring", _get(a, "Monitoring", "State")); add("ami", a.get("ImageId")); add("public_ip", bool(a.get("PublicIpAddress")) if "PublicIpAddress" in a else None); add("launched", str(a.get("LaunchTime") or "")[:10] or None)
+    elif t == "autoscaling.group":
+        add("min", a.get("MinSize")); add("max", a.get("MaxSize")); add("desired", a.get("DesiredCapacity")); add("instances", len(a.get("Instances") or []) or 0)
+        add("azs", a.get("AvailabilityZones")); add("health_check", a.get("HealthCheckType")); add("mixed_instances", bool(a.get("MixedInstancesPolicy")))
+    elif t == "lambda.function":
+        add("runtime", a.get("Runtime")); add("memory_mb", a.get("MemorySize")); add("timeout_s", a.get("Timeout")); add("arch", a.get("Architectures")); add("package", a.get("PackageType"))
+        add("vpc_subnets", len(_get(a, "VpcConfig", "SubnetIds") or []) or None)
+    elif t == "elbv2.load-balancer":
+        add("type", a.get("Type")); add("scheme", a.get("Scheme")); add("azs", [z.get("ZoneName") for z in a.get("AvailabilityZones") or []]); add("ip", a.get("IpAddressType"))
+        listeners = _get(o, "listeners", "data", "Listeners") or []
+        add("listeners", [f"{x.get('Protocol')}:{x.get('Port')}" for x in listeners] or None)
+    elif t == "s3.bucket":
+        add("versioning", _get(o, "versioning", "data", "Status") or ("off" if _get(o, "versioning", "status") == "ok" else None))
+        rules = _get(o, "encryption", "data", "ServerSideEncryptionConfiguration", "Rules") or []
+        add("encryption", _get(rules[0] if rules else {}, "ApplyServerSideEncryptionByDefault", "SSEAlgorithm"))
+        pab = _get(o, "public_access_block", "data", "PublicAccessBlockConfiguration") or {}
+        add("public_access_block", "all" if pab and all(pab.values()) else ("partial" if pab else None)); add("created", str(a.get("CreationDate") or "")[:10] or None)
+    elif t == "ecr.repository":
+        add("tag_mutability", a.get("imageTagMutability")); add("scan_on_push", _get(a, "imageScanningConfiguration", "scanOnPush")); add("encryption", _get(a, "encryptionConfiguration", "encryptionType"))
+    elif t == "codepipeline.pipeline":
+        add("type", a.get("pipelineType")); add("execution_mode", a.get("executionMode")); add("stages", [x.get("name") for x in a.get("stages") or []] or None)
+    elif t == "secretsmanager.secret":
+        add("rotation", a.get("RotationEnabled") if "RotationEnabled" in a else "not configured"); add("last_changed", str(a.get("LastChangedDate") or "")[:10] or None)
+        add("last_accessed", str(a.get("LastAccessedDate") or "")[:10] or None); add("owning_service", a.get("OwningService"))
+    elif t == "sns.topic":
+        add("subscriptions_confirmed", a.get("SubscriptionsConfirmed")); add("subscriptions_pending", a.get("SubscriptionsPending"))
+    elif t == "sqs.queue":
+        add("visibility_timeout_s", a.get("VisibilityTimeout")); add("dead_letter", bool(a.get("RedrivePolicy"))); add("fifo", a.get("FifoQueue"))
+    elif t == "cloudwatch.alarm":
+        add("metric", f"{a.get('Namespace') or ''} {a.get('MetricName') or ''}".strip() or None); add("state", a.get("StateValue")); add("actions", len(a.get("AlarmActions") or []) or 0)
+    elif t == "logs.group":
+        add("retention_days", a.get("retentionInDays") or "never expires"); add("stored_bytes", a.get("storedBytes"))
+    elif t == "events.rule":
+        add("state", a.get("State")); add("schedule", a.get("ScheduleExpression")); add("event_pattern", bool(a.get("EventPattern")))
+    else:
+        for key, value in a.items():
+            if isinstance(value, (str, int, float, bool)) and not SKIP_FACT_KEYS.search(key) and len(str(value)) <= 40:
+                add(key, value)
+            if len(facts) >= 8:
+                break
+    return facts
+
+
+def dated_findings(checks):
+    """Checks whose observation carries a calendar date (support ends, deprecation, expiry)."""
+    out = []
+    for c in checks:
+        if c["status"] in {"FAIL", "WARN"}:
+            dates = re.findall(r"\b(20\d\d-\d\d-\d\d)\b", str(c.get("observation", "")))
+            if dates:
+                out.append((min(dates), c))
+    return sorted(out, key=lambda t: t[0])
+
+
+def embedded(path, heading_level="##"):
+    """A reference file's body for the brief, with its headings demoted one level so the brief keeps one outline."""
+    text = Path(path).read_text(encoding="utf-8")
+    text = re.sub(r"^---\n.*?\n---\n", "", text, flags=re.S)
+    text = re.sub(r"(?m)^(#{1,5}) ", lambda m: "#" * (len(m.group(1)) + 1) + " ", text)
+    text = re.sub(r"\]\((?!https?://)([^)]+)\)", lambda m: "](" + str((SKILL_DIR / "references" / m.group(1)).resolve()) + ")", text)
+    return text.strip()
+
+
 def brief_text(ctx, sid):
+    """The dossier a specialist works from: rules, domain guide, scope context, the resources of its domain with their
+    key configuration values, the findings that touch them with full text, dated items, the current diagram's nodes
+    and groups, list prices already looked up, its pathway drafts, a pre-filled advice.json skeleton and the commands.
+    One file, so the review is one model call plus the helper commands."""
     spec = SPECIALISTS[sid]
     run = ctx.run
     folder = ctx.folder(sid)
     language = ctx.scope.get("output_language") or "en"
     profile = ((ctx.scope.get("auth") or {}).get("profile")) or "<profile>"
+    workload = ctx.scope.get("workload_name") or ctx.inventory.get("workload") or "the workload"
     resources = [r for r in ctx.inventory.get("resources", []) if r.get("level") != "account" and (ctx.scope_ids is None or r["id"] in ctx.scope_ids) and in_domain(spec, r)]
     pattern = re.compile(spec["rules"])
-    domain_types = {r["id"] for r in resources}
-    checks = [c for c in ctx.findings.get("checks", []) if c["status"] in {"FAIL", "WARN", "UNKNOWN"} and (pattern.search(c["rule_id"]) or c.get("resource_id") in domain_types)]
+    domain_ids = {r["id"] for r in resources}
+    checks = [c for c in ctx.findings.get("checks", []) if c["status"] in {"FAIL", "WARN", "UNKNOWN"} and (pattern.search(c["rule_id"]) or c.get("resource_id") in domain_ids)]
+    passed = [c for c in ctx.findings.get("checks", []) if c["status"] == "PASS" and (pattern.search(c["rule_id"]) or c.get("resource_id") in domain_ids)]
     review = SKILL_DIR.parent / "aws-architecture-review"
-    diagram_skill = SKILL_DIR.parent / "aws-diagram-design"
-    rows = "\n".join(f"| `{r['id']}` | {r['type']} | {r.get('name') or r.get('native_id') or ''} |" for r in resources[:80])
-    more = f"\n\n({len(resources) - 80} more in the inventory.)" if len(resources) > 80 else ""
-    frows = "\n".join(f"| {c['id']} | {c['rule_id']} | {c['status']} | {c.get('severity')} | {str(c.get('observation', ''))[:160].replace('|', '/')} |" for c in checks)
     pathways = ", ".join(f"`{p}`" for p in spec["pathways"])
-    return f"""# Brief: {spec['role']} for {ctx.scope.get('workload_name') or ctx.inventory.get('workload') or 'the workload'}
+    context = ctx.scope.get("context") or {}
 
-Run `{run}` · account {ctx.inventory.get('account_id')} · {', '.join(ctx.inventory.get('regions') or [])} · output language **{language}**
-(write every sentence, title, diagram label and caption in this language; service names, resource names and IDs stay as they are).
+    def cell(text):
+        return str(text).replace("|", "/").replace("\n", " ")
+    rows = "\n".join(f"| `{r['id']}` | {r['type']} | {cell(r.get('name') or r.get('native_id') or '')} | {cell(' · '.join(resource_facts(r)) or '-')} |" for r in resources[:120])
+    more = f"\n\n({len(resources) - 120} more in the inventory; open it only for these.)" if len(resources) > 120 else ""
+    frows = "\n".join(f"| {c['id']} | {c['rule_id']} | {c['status']} | {c.get('severity')} | `{cell(c.get('resource_id') or c.get('target') or '')}` | {cell(c.get('observation', ''))} | {cell(c.get('recommendation', ''))} | {', '.join(c.get('evidence_ids') or [])} |" for c in checks)
+    prows = "\n".join(f"| {rule} | {n} |" for rule, n in sorted(__import__('collections').Counter(c['rule_id'] for c in passed).items()))
+    dated = dated_findings(checks)
+    drows = "\n".join(f"| {d} | {c['id']} | {c['rule_id']} | `{cell(c.get('resource_id') or '')}` | {cell(c.get('observation', ''))} |" for d, c in dated)
+    graph_path = run / "04-review/diagrams/diagram-graph.json"
+    graph = read_json(graph_path) if graph_path.is_file() else {"nodes": [], "groups": []}
+    nrows = "\n".join(f"| {n['id']} | {cell(n.get('label', ''))} | {cell(n.get('detail') or '')} | {n.get('group') or ''} | {', '.join(f'`{x}`' for x in (n.get('resource_ids') or [])[:3])}{' +' + str(len(n.get('resource_ids') or []) - 3) if len(n.get('resource_ids') or []) > 3 else ''} |"
+                       for n in graph.get("nodes", []) if set(n.get("resource_ids") or []) & domain_ids or any(str(n.get("type", "")).startswith(t) for t in spec["types"]))
+    grows = "\n".join(f"| {g['id']} | {g.get('kind')} | {cell(g.get('label', ''))} | {g.get('parent') or ''} |" for g in graph.get("groups", []))
+    prices_path = run / "05-modernization/list-prices.json"
+    prices = read_json(prices_path).get("prices", []) if prices_path.is_file() else []
+    price_rows = "\n".join(f"| {p['id']} | {cell(p.get('label', ''))} | {p.get('count')} | {p.get('monthly_usd')} |" for p in prices)
+    drafts_path = run / "05-modernization/candidates.draft.json"
+    drafts = read_json(drafts_path) if drafts_path.is_file() else []
+    drafts = drafts.get("candidates", drafts) if isinstance(drafts, dict) else drafts
+    mine = [c for c in drafts if c.get("pathway") in spec["pathways"]]
+    skeleton = {"schema_version": "1.0", "specialist": sid, "summary": "", "current_state": [{"text": "", "refs": []}],
+                "recommendations": [{"title": "", "pathway": spec["pathways"][0], "current": "", "change": "", "benefit": "", "refs": [], "kind": "move", "effort": "days", "cost_direction": "neutral",
+                                     "list_prices": [], "before_deciding": [], "alternatives": [], "rollback": ""}],
+                "not_now": [], "handoffs": [], "diagram": {"svg": "diagram.aws.svg", "caption": ""}, "references": []}
+    scope_lines = [f"- Environment: **{context.get('environment', 'unknown')}**; operator: **{context.get('operator', 'unknown')}**; support plan: **{context.get('support_plan', 'unknown')}**; "
+                   f"compliance: **{', '.join(context.get('compliance') or ['unknown'])}**. Known values are settled: do not ask for them again and do not hedge on them."]
+    if ctx.scope.get("notes"):
+        scope_lines.append(f"- Notes from the scope interview: {cell(ctx.scope['notes'])}")
+    return f"""# Brief: {spec['role']} for {workload}
 
-You cover the pathways {pathways}. Read `{SKILL_DIR}/references/specialists.md` (shared rules and the output schema) and
-`{SKILL_DIR}/references/specialists/{sid}.md` (your domain) before anything else.
+Run `{run}` · account {ctx.inventory.get('account_id')} · {', '.join(ctx.inventory.get('regions') or [])} · report language **{language}**
+Write every sentence, title, diagram label and caption **in English**, whatever the report language: the finished report
+is translated in one pass at the end when the language is not English, so no part of it mixes languages. The validator
+refuses text in another language.
 
-## Evidence
+You cover the pathways {pathways}. **This file is your whole input.** The shared rules, your domain guide, the scope, the
+resources of your domain with their configuration values, the findings that touch them, the current diagram's nodes and
+the prices already looked up are all below. Do not open `inventory.json`, `findings.json` or the raw evidence; when a
+value you need is not here, write the gap into `before_deciding` or `not_now` instead of guessing. Work in this order:
+read once, write `advice.json`, `candidates.json` and `diagram-graph.json`, run the three commands at the end, fix what
+they report, reply with the validator's output.
 
-- Inventory the review judged: `{ctx.snapshot}/inventory.json` (in-scope IDs: `{ctx.snapshot}/scope-resources.json`)
-- Findings: `{run}/04-review/findings.json` (all pillars; the ones below are the likely starting points, not a limit)
-- Supplementary evidence (stack templates, IAM policy documents, task definitions, source files): `{run}/03-supplementary/`
-- Current architecture graph: `{run}/04-review/diagrams/diagram-graph.json` (reuse its labels and resource_ids for retained components)
-- Scope interview and context: `{run}/scope.json` · key list prices already looked up: `{run}/05-modernization/list-prices.json`
-- Pathway draft to start from: `{run}/05-modernization/candidates.draft.json` (your pathway objects)
+## Scope
+
+{chr(10).join(scope_lines)}
 
 ## Resources in your domain ({len(resources)})
 
-| ID | Type | Name |
-|---|---|---|
-{rows}{more}
+| ID | Type | Name | Configuration |
+|---|---|---|---|
+{rows or '| - | - | - | nothing in scope for this domain |'}{more}
 
-## Findings that touch your domain ({len(checks)})
+## Findings that touch your domain ({len(checks)} failed, warned or open)
 
-| ID | Rule | Status | Severity | Observation |
+| ID | Rule | Status | Severity | Resource | Observation | Recommendation | Evidence |
+|---|---|---|---|---|---|---|---|
+{frows or '| - | - | - | - | - | nothing failed or warned | - | - |'}
+
+Passed checks in your domain ({len(passed)}): {', '.join(f'{rule} × {n}' for rule, n in sorted(__import__('collections').Counter(c['rule_id'] for c in passed).items())) or 'none'}.
+Cite a passed check when something is already in good shape.
+
+## Dates the business cannot move ({len(dated)})
+
+| Date | Finding | Rule | Resource | Observation |
 |---|---|---|---|---|
-{frows}
+{drows or '| - | - | - | - | none in your domain |'}
+
+## Current diagram: nodes in your domain and every group
+
+Reuse these labels and `resource_ids` for the `retained`, `changed` and `removal_candidate` nodes of your drawing.
+
+| Node | Label | Detail | Group | Resource IDs |
+|---|---|---|---|---|
+{nrows or '| - | - | - | - | none |'}
+
+| Group | Kind | Label | Parent |
+|---|---|---|---|
+{grows or '| - | - | - | - |'}
+
+## List prices already looked up ({len(prices)})
+
+| ID | Label | Count | USD per month |
+|---|---|---|---|
+{price_rows or '| - | none yet | - | - |'}
+
+Cite these ids in `list_prices`; look up anything else with the command below, into your own file.
+
+## Your pathway drafts (from candidates.draft.json)
+
+```json
+{json.dumps(mine, ensure_ascii=False, indent=1)}
+```
 
 ## Write
 
-1. `{folder}/advice.json` (schema in specialists.md).
-2. `{folder}/candidates.json`: a JSON array with exactly your pathway objects ({pathways}), in the scoring and output contract of
-   `{SKILL_DIR}/references/scoring-and-output.md`, including the option list your pathway carries.
-3. `{folder}/diagram-graph.json`, then the initial render and the final drawing:
+1. `{folder}/advice.json`, starting from this skeleton (schema and field rules in the shared rules below):
 
-   ```bash
-   python3 "{review}/scripts/diagram.py" --graph "{folder}/diagram-graph.json" --output "{folder}" --name diagram
+   ```json
+   {json.dumps(skeleton, ensure_ascii=False, indent=1)}
    ```
 
-   Redraw with the aws-diagram-design skill (`{diagram_skill}`) as `{folder}/diagram.aws.html`, `.svg` and `.png`, keeping graph IDs as
-   `data-node-id`, `data-edge-id` and `data-group-id`; run its `self_check.py` and `verify-geometry.py`, and look at the PNG.
+2. `{folder}/candidates.json`: a JSON array with exactly your pathway objects ({pathways}), in the scoring and output contract
+   (`{SKILL_DIR}/references/scoring-and-output.md`), including the option list your pathway carries. Start from the drafts above.
+3. `{folder}/diagram-graph.json`, then draw it (the renderer makes the AWS-styled SVG and checks its geometry; no redraw):
+
+   ```bash
+   python3 "{review}/scripts/diagram.py" --graph "{folder}/diagram-graph.json" --output "{folder}" --name diagram --title "<your role>: <what the drawing shows>" --language {language}
+   ```
+
+   Exit code 0 means drawn; otherwise fix the graph (shorter labels, a dangling edge) and run it again.
 
 Prices: only from the read-only helper, into your own file so parallel reviewers do not collide:
 
@@ -209,7 +412,19 @@ python3 "{SKILL_DIR}/scripts/list_price.py" --profile "{profile}" --id-prefix {I
 python3 "{SKILL_DIR}/scripts/advice.py" validate --run-dir "{run}" --specialist {sid}
 ```
 
-Fix what it reports and run it again. Reply with its final output only.
+Fix what it reports (each error names the field) and run it again. Reply with its final output only.
+
+---
+
+# Shared rules for every Specialist SA Agent
+
+{embedded(SKILL_DIR / "references/specialists.md")}
+
+---
+
+# Your domain guide
+
+{embedded(SKILL_DIR / f"references/specialists/{sid}.md")}
 """
 
 
@@ -229,7 +444,9 @@ def texts(advice):
     for i, item in enumerate(advice.get("current_state") or []):
         yield f"current_state[{i}]", item.get("text", "")
     for i, rec in enumerate(advice.get("recommendations") or []):
-        for key in ("title", "change", "benefit", "rollback"):
+        for key in ("title", "current", "change", "benefit", "rollback"):
+            if key == "current" and not rec.get(key):
+                continue  # optional: the report falls back to the cited findings' observations
             yield f"recommendations[{i}].{key}", rec.get(key, "")
         for key in ("before_deciding", "alternatives"):
             for j, value in enumerate(rec.get(key) or []):
@@ -305,12 +522,18 @@ def validate_advice(ctx, sid, advice, price_ids):
             errors.append(f"recommendations[{i}].pathway must be one of {', '.join(spec['pathways'])}")
         if rec.get("effort") not in EFFORT or rec.get("cost_direction") not in COST:
             errors.append(f"recommendations[{i}] needs effort ({'/'.join(EFFORT)}) and cost_direction ({'/'.join(COST)})")
+        if rec.get("kind") is not None and rec.get("kind") not in KINDS:
+            errors.append(f"recommendations[{i}].kind must be {' or '.join(KINDS)} (move = the component runs somewhere or on something new; improve = the current setup gets better)")
         if not rec.get("refs") or any(not ctx.known(r) for r in rec.get("refs") or []):
             errors.append(f"recommendations[{i}].refs must cite existing findings, evidence or resources")
         if not isinstance(rec.get("alternatives"), list) or not [a for a in rec.get("alternatives") or [] if nonempty(a)]:
             errors.append(f"recommendations[{i}].alternatives needs at least one (keeping and improving the current setup counts)")
         if not isinstance(rec.get("before_deciding", []), list):
             errors.append(f"recommendations[{i}].before_deciding must be a list")
+        if rec.get("current") is not None and not isinstance(rec.get("current"), str):
+            errors.append(f"recommendations[{i}].current must be one sentence (a string) when given")
+        if "evidence" in rec:
+            errors.append(f"recommendations[{i}].evidence is written by benefits.py from the collected evidence, not by the review")
         for ref in rec.get("list_prices") or []:
             if not isinstance(ref, dict) or ref.get("sign") not in ("+", "-") or ref.get("id") not in price_ids:
                 errors.append(f"recommendations[{i}].list_prices: {ref!r} is not a price list_price.py returned")
@@ -330,6 +553,7 @@ def validate_advice(ctx, sid, advice, price_ids):
             errors.append(f"reference {ref!r} must be an https AWS documentation page with a title")
     errors += wording_errors(advice)
     errors += people_errors(advice, getattr(ctx, "user_names", set()))
+    errors += kit.english_errors(list(texts(advice)) + [("diagram.caption", (advice.get("diagram") or {}).get("caption", ""))])
     return errors
 
 
@@ -395,7 +619,22 @@ def validate_candidates(ctx, sid, fragment):
         recommend.rank(others + fragment, ctx.resource_ids, ctx.finding_ids)
     except (ValueError, KeyError, TypeError) as exc:
         return [f"candidates.json: {exc}"]
-    return []
+    return kit.english_errors(candidate_texts(fragment, "candidates.json"))
+
+
+def candidate_texts(candidates, where):
+    """(where, text) for every string in pathway objects (problem, rationale, alternatives, criteria rationales, options)."""
+    def walk(value, path):
+        if isinstance(value, str):
+            yield path, value
+        elif isinstance(value, dict):
+            for k, v in value.items():
+                yield from walk(v, f"{path}.{k}")
+        elif isinstance(value, list):
+            for i, v in enumerate(value):
+                yield from walk(v, f"{path}[{i}]")
+    for c in candidates if isinstance(candidates, list) else []:
+        yield from walk(c, f"{where}[{c.get('pathway', '?') if isinstance(c, dict) else '?'}]")
 
 
 def validate(ctx, sid):
@@ -463,7 +702,9 @@ def merge(ctx, allow_missing=False):
                 owners.setdefault(ref, set()).add(sid)
     import recommend  # noqa: E402
     covered = {c["pathway"] for c in fragments}
-    combined = fragments + [c for c in recommend.bootstrap() if c["pathway"] not in covered]
+    evidence = recommend.evidence_context(ctx.inventory, ctx.findings.get("checks", []), ctx.scope_ids, ctx.run, ctx.snapshot, specialists)
+    combined = fragments + [recommend.inserted_pathway(c["pathway"], evidence) if c["pathway"] in recommend.ADDED_PATHWAYS else c
+                            for c in recommend.bootstrap() if c["pathway"] not in covered]
     combined.sort(key=lambda c: list(recommend.PATHWAYS).index(c["pathway"]))
     out = ctx.run / "05-modernization"
     prices_path.parent.mkdir(parents=True, exist_ok=True)
